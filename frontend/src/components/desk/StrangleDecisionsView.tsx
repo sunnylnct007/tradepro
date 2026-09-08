@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
-import { OptionPositionsCard } from "./OptionPositionsCard";
 
 /**
  * Index-strangle decision history — what was decided each day, and WHY.
@@ -44,11 +43,6 @@ type Row = {
   exit_cost_actual: number | null; lot: number | null;
   place_error: string | null;
 };
-type Summary = {
-  market: string; evaluated: number; traded: number; declined: number;
-  provisional: number; graded: number; mean_outcome_pct: number | null;
-};
-
 const TONE = { ok: "#0f8a5f", off: "#8b95a5", warn: "#d29922", bad: "#f85149" };
 
 /** A live option leg at the broker — the only place a FILL PRICE exists. */
@@ -72,6 +66,7 @@ type PnlLeg = {
 };
 type PnlTrade = {
   market: string; shadow: boolean;
+  entry: number;
   placedAtUtc: string | null; closedAtUtc: string | null; heldMinutes: number | null;
   timingIncoherent: string | null;
   credit: number | null; realised: number | null;
@@ -101,7 +96,6 @@ type Stats = {
 
 export function StrangleDecisionsView() {
   const [rows, setRows] = useState<Row[]>([]);
-  const [sum, setSum] = useState<Summary[]>([]);
   const [legs, setLegs] = useState<Leg[]>([]);
   const [legErr, setLegErr] = useState<string | null>(null);
   const [days, setDays] = useState(30);
@@ -116,11 +110,10 @@ export function StrangleDecisionsView() {
 
   const load = useCallback(async () => {
     try {
-      const [d, s] = await Promise.all([
-        api.strangleDecisions(days) as Promise<{ rows: Row[] }>,
-        api.strangleDecisionSummary(days) as Promise<{ rows: Summary[] }>,
-      ]);
-      setRows(d.rows || []); setSum(s.rows || []); setErr(null);
+      // One call, not two. The summary endpoint fed a per-market tally that
+      // the statistics panel already reports beside the money.
+      const d = await (api.strangleDecisions(days) as Promise<{ rows: Row[] }>);
+      setRows(d.rows || []); setErr(null);
     } catch (e) { setErr(String((e as Error)?.message || e)); }
     // Stats separately — a stats failure must not blank the history either.
     try { setStats((await api.strangleStats(days)) as unknown as Stats); }
@@ -231,9 +224,10 @@ export function StrangleDecisionsView() {
           ))}
         </div>
       )}
-      {/* What is actually OPEN comes first. A decision log is history; a live
-          short position is money at risk right now. */}
-      <div style={{ marginBottom: 16 }}><OptionPositionsCard /></div>
+      {/* The open-positions CARD used to sit here as well as the "Open now"
+          table below — the same positions rendered twice, one above the
+          other. Removed, not restyled: two views of one fact is the
+          clutter, and the table is the one that carries placement times. */}
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Strangle decisions</h2>
@@ -253,28 +247,9 @@ export function StrangleDecisionsView() {
 
       {/* Traded and DECLINED side by side — the gate is the strategy, so a
           tally of only the trades cannot show whether it is set right. */}
-      <table style={{ width: "100%", borderCollapse: "collapse", margin: "14px 0", fontSize: 13 }}>
-        <thead><tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
-          <th style={{ padding: "6px 8px" }}>Market</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>Evaluated</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>Traded</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>Declined</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>Provisional</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>Graded</th>
-        </tr></thead>
-        <tbody>
-          {sum.map((s) => (
-            <tr key={s.market} style={{ borderTop: "1px solid var(--border)" }}>
-              <td style={{ padding: "6px 8px", fontWeight: 600 }}>{s.market}</td>
-              <td style={{ padding: "6px 8px", textAlign: "right" }}>{s.evaluated}</td>
-              <td style={{ padding: "6px 8px", textAlign: "right", color: TONE.ok }}>{s.traded}</td>
-              <td style={{ padding: "6px 8px", textAlign: "right", color: TONE.off }}>{s.declined}</td>
-              <td style={{ padding: "6px 8px", textAlign: "right", color: s.provisional ? TONE.warn : "inherit" }}>{s.provisional}</td>
-              <td style={{ padding: "6px 8px", textAlign: "right" }}>{s.graded}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* The evaluated/traded/declined tally that stood here is the same
+          per-market count the statistics panel already reports, beside the
+          money. One question, one place. */}
 
       {/* CLOSED TRADES, WITH THE CLOCK ON THEM.
           "+187.45" says nothing about whether it was earned over six hours or
@@ -287,7 +262,7 @@ export function StrangleDecisionsView() {
         <div style={{ border: "1px solid var(--border)", borderRadius: 10,
                       padding: 14, margin: "14px 0" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
-            <span style={{ fontWeight: 600 }}>Closed — last {days} day(s)</span>
+            <span style={{ fontWeight: 600 }}>Round-trips — last {days} day(s)</span>
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
               all times UTC · a trade held minutes did not earn its result from decay
             </span>
@@ -296,6 +271,7 @@ export function StrangleDecisionsView() {
                           fontVariantNumeric: "tabular-nums" }}>
             <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
               <th style={{ padding: "5px 6px" }}>Market</th>
+              <th style={{ padding: "5px 6px", textAlign: "right" }}>#</th>
               <th style={{ padding: "5px 6px" }}>Gate</th>
               <th style={{ padding: "5px 6px" }}>Placed</th>
               <th style={{ padding: "5px 6px" }}>Closed</th>
@@ -309,6 +285,10 @@ export function StrangleDecisionsView() {
                 return (
                   <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ padding: "6px", fontWeight: 600 }}>{t.market}</td>
+                    {/* Which round-trip of that session. Two entries in a day
+                        are now two rows; this says which is which. */}
+                    <td style={{ padding: "6px", textAlign: "right",
+                                 color: "var(--text-muted)" }}>{t.entry}</td>
                     <td style={{ padding: "6px", fontSize: 11,
                                  color: t.shadow ? TONE.warn : "var(--text-muted)" }}>
                       {t.shadow ? "OVERRODE" : "agreed"}
@@ -547,68 +527,12 @@ export function StrangleDecisionsView() {
         </div>
       </div>
 
-      {/* GATED vs OVERRIDDEN, side by side. This is the comparison the whole
-          design exists to make: the strategy's edge is what the gate REFUSES,
-          so the only way to know whether the threshold is set right is to
-          trade some refused days on purpose and keep the two populations
-          apart. Averaging them would destroy the very measurement. */}
-      {(() => {
-        const done = rows.filter((r) => r.placed === true && r.realised_pnl != null);
-        const gated = done.filter((r) => !r.shadow);
-        const over = done.filter((r) => r.shadow);
-        const sumOf = (xs: Row[]) => xs.reduce((a, r) => a + (r.realised_pnl || 0), 0);
-        const openNow = rows.filter((r) => r.placed === true && r.realised_pnl == null).length;
-        // An OPEN book with nothing closed yet still has a live P&L to show.
-        if (!done.length && !openNow && !legs.length) return null;
-        const cell = (label: string, n: number, pnl: number | null, note: string) => (
-          <div style={{ flex: 1, minWidth: 190, border: "1px solid var(--border)",
-                        borderRadius: 8, padding: "10px 12px" }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{label}</div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 3 }}>
-              <span style={{ fontSize: 20, fontWeight: 600 }}>{n}</span>
-              {pnl != null && (
-                <span style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: "tabular-nums",
-                               color: pnl >= 0 ? TONE.ok : TONE.bad }}>
-                  {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.45 }}>
-              {note}
-            </div>
-          </div>
-        );
-        // LIVE, NOT "WHEN IT CLOSES". Owner, 8 Sep 2026: "we shd be able to
-        // see live pnl at any point of time." Both halves already existed and
-        // nothing added them up — this cell used to read "P&L lands when the
-        // position closes" while the broker's live mark sat one panel above.
-        //
-        // openPnl is null when there is nothing open, NOT 0: an empty book and
-        // a book marked flat are different facts and must not render alike.
-        const openPnl = legs.length
-          ? legs.reduce((a, l) => a + (l.unrealisedAbs || 0), 0)
-          : null;
-        // A leg the broker did not mark cannot be added. Counted so the total
-        // can say it is understating the book rather than quietly doing it.
-        const unmarked = legs.filter((l) => l.unrealisedAbs == null).length;
-        const deskTotal = openPnl == null ? sumOf(done) : sumOf(done) + openPnl;
-        return (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 8px" }}>
-            {cell("Gate said trade — closed", gated.length, gated.length ? sumOf(gated) : null,
-                  "the strategy as designed")}
-            {cell("Gate REFUSED — traded anyway", over.length, over.length ? sumOf(over) : null,
-                  "captured on purpose. A LOSS here is evidence the gate is set right")}
-            {cell("Still open — live", legs.length, openPnl,
-                  unmarked
-                    ? `${unmarked} leg(s) have no broker mark and are NOT in this figure`
-                    : "marked by the broker, refreshes every 60s")}
-            {cell("Desk total", done.length + legs.length, deskTotal,
-                  openPnl == null
-                    ? "closed trades only — nothing is open"
-                    : "closed trades plus the live mark on what is still open")}
-          </div>
-        );
-      })()}
+      {/* The four P&L cells that stood here duplicated the hero figure at the
+          top — same realised, same open, same total, computed a second time
+          from a different window, which is how the screen showed 153 while
+          the endpoint said 188.73. Deleted. The gated-vs-shadow split they
+          also carried lives in the statistics panel, which is the only place
+          it belongs. */}
 
       {/* WHAT WE ACTUALLY DID, and whether it agreed with the gate.
           Owner, 1 Sep 2026: "i shd be able to see these executions on screen
@@ -623,9 +547,11 @@ export function StrangleDecisionsView() {
           <th style={{ padding: "6px 8px" }}>We did</th>
           <th style={{ padding: "6px 8px" }}>Vol vs gate</th>
           <th style={{ padding: "6px 8px" }}>Strikes</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>Credit</th>
-          <th style={{ padding: "6px 8px", textAlign: "right" }}>P&amp;L</th>
-          <th style={{ padding: "6px 8px" }}>Exit</th>
+          {/* Credit, P&L and Exit used to repeat here. They belong to a
+              ROUND-TRIP, not to a decision, and a session can hold several —
+              which is exactly how this table came to show one trade's credit
+              beside another's P&L. They live in Round-trips above, one row per
+              trade. This table answers what the GATE decided. */}
         </tr></thead>
         <tbody>
           {rows.map((r, i) => {
@@ -635,7 +561,6 @@ export function StrangleDecisionsView() {
             // alone, because it is the row a reviewer must not miss: a LOSING
             // override is evidence the gate is set RIGHT.
             const override = r.placed === true && r.shadow === true;
-            const pnl = r.realised_pnl;
             return (
               <tr key={i} style={{ borderTop: "1px solid var(--border)",
                                    background: override ? "rgba(210,153,34,.07)" : undefined }}>
@@ -702,25 +627,6 @@ export function StrangleDecisionsView() {
                 </td>
                 <td style={{ padding: "6px 8px", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                   {r.put_strike ? `${r.put_strike.toLocaleString()} / ${r.call_strike?.toLocaleString()}` : "—"}
-                </td>
-                <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                  {/* A TRADED credit and a MODELLED one are different things and
-                      are never printed as the same number. */}
-                  {r.credit_actual != null
-                    ? <b>{r.credit_actual.toFixed(2)}</b>
-                    : r.credit_modelled != null
-                      ? <span style={{ color: TONE.off }}>
-                          {r.credit_modelled.toFixed(0)}<i style={{ fontSize: 10 }}> modelled</i>
-                        </span>
-                      : "—"}
-                </td>
-                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600,
-                             color: pnl == null ? "var(--text-muted)" : pnl >= 0 ? TONE.ok : TONE.bad }}>
-                  {pnl == null ? "—" : `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`}
-                </td>
-                <td style={{ padding: "6px 8px", fontSize: 11, color: "var(--text-muted)",
-                             whiteSpace: "nowrap" }}>
-                  {r.close_trigger || (r.placed ? "open" : "—")}
                 </td>
               </tr>
             );
