@@ -514,7 +514,7 @@ def build_artifact(rows: list[dict], universe: str,
         ],
         "quarantined": quarantined or [],
         "count": len(rows),
-        "candidates": rows,
+        "candidates": _with_relative(rows),
         # PHASE 3: additive. `candidates` stays as-is for this strategy's own
         # tab; `candidates_v2` is the shape every strategy emits so the combined
         # Candidates screen stops needing to know our private field names.
@@ -692,6 +692,21 @@ def _structure_note(l, c, i) -> str:
     if hl >= 2:
         return f"basing: {hl} higher lows, {down}/10 days down"
     return f"mixed: {down}/10 days down"
+
+def _with_relative(rows):
+    """The Swing tab renders `candidates`, the combined board `candidates_v2`;
+    relative context must ride BOTH or the two screens tell different
+    stories (the 8 Sep three-surfaces lesson, again)."""
+    for r in rows:
+        try:
+            from ..relative_context import relative_context
+            rel = relative_context(r["symbol"])
+            if rel:
+                r.setdefault("extra", {})["relative"] = rel
+        except (Exception, SystemExit):  # noqa: BLE001
+            pass
+    return rows
+
 
 def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     """Our rows in the shape every strategy emits (Phase 3).
