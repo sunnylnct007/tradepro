@@ -39,6 +39,7 @@ the spec allows a configured proxy).
 from __future__ import annotations
 
 import argparse
+import time as _time
 import datetime as _dt
 import json
 import logging
@@ -110,7 +111,7 @@ def _kv_put(base, token, key, value, label, desc, create=False):
 
 # ── data ──────────────────────────────────────────────────────────────────
 
-def _daily(sym):
+def _daily(sym, store_only=False):
     """Settled store first; labelled yfinance fallback for the Lambda runtime.
 
     Verified 6 Sep: the BarStore does NOT read through from S3 on a cold
@@ -123,6 +124,8 @@ def _daily(sym):
         dates, o, h, l, c = _load_ohlc(sym)
         src = "bar_store"
     except SystemExit:
+        if store_only:
+            raise
         from ..yahoo_session import yahoo_session
         import yfinance as yf
         df = yf.Ticker(sym, session=yahoo_session()).history(period="400d",
@@ -883,6 +886,15 @@ def scout(base, token, watched: list, state: dict) -> list:
     today = _dt.date.today().isoformat()
     if state.get("scout_last_run") == today:
         return []
+    # Mark the ATTEMPT before sweeping, and persist it immediately. On 8 Sep
+    # the marker was only written after a completed sweep: a sweep longer than
+    # the 5-min Lambda tick re-armed itself on every tick, four invocations
+    # ran concurrently, and the board froze for an hour. Losing one day's
+    # scout is acceptable; losing the watch is not.
+    state["scout_last_run"] = today
+    _kv_put(base, token, "preearnings_scout_state", state,
+            "Watch scout state", "last-run date for the daily sweep",
+            create=True)
     cfg = _kv_get(base, token, "preearnings_scout") or {}
     if not cfg:
         cfg = {"enabled": True, "min_atr_pct": 3.5, "min_13w_return_pct": 20.0,
@@ -907,19 +919,32 @@ def scout(base, token, watched: list, state: dict) -> list:
               (_kv_get(base, token, "scout_extra_symbols") or [])]
     hits = []
     sweep = list(universe_symbols(strict=False)) + [x for x in extras]
-    for sym in sweep:
+    sweep.sort(key=lambda x: x in extras)   # Yahoo-riding extras go LAST
+    # Rotate the start point by day so a budget-exhausted sweep still covers
+    # the whole universe across the week instead of dying at the same letter.
+    n_uni = sum(1 for x in sweep if x not in extras)
+    if n_uni:
+        rot = (_dt.date.today().toordinal() * 83) % n_uni
+        sweep = sweep[rot:n_uni] + sweep[:rot] + sweep[n_uni:]
+    budget_s = float(cfg.get("sweep_budget_seconds", 120))
+    t0 = _time.monotonic()
+    skipped = 0
+    for k, sym in enumerate(sweep):
+        if _time.monotonic() - t0 > budget_s:
+            skipped = len(sweep) - k
+            log.warning("scout sweep budget (%ds) exhausted — %d of %d names "
+                        "NOT swept: %s", budget_s, skipped, len(sweep),
+                        ", ".join(sweep[k:k + 12]) + ("…" if skipped > 12 else ""))
+            break
         if sym in watched or sym in barred:
             continue
         try:
-            d = _daily(sym)
+            d = _daily(sym, store_only=(sym not in extras))
         except SystemExit:
             continue
         i = len(d.close) - 1
         if i < 210:
             continue
-        if d.source != "bar_store" and sym not in extras:
-            continue   # universe names must come from the settled store;
-                       # owner extras may ride labelled yfinance bars
         px, ema, sma, atr = d.close[i], d.ema20[i], d.sma50[i], d.atr14[i]
         atr_pct = 100 * atr / px
         ret13w = 100 * (px / d.close[i - 63] - 1)
@@ -945,12 +970,16 @@ def scout(base, token, watched: list, state: dict) -> list:
     for _d, syms in recent:
         for sy in syms:
             counts[sy] = counts.get(sy, 0) + 1
-    already = {h["sym"] for h in hits}
+    already = {h["sym"] for h in hits[:int(cfg.get("top_n", 5))]}
     for sy, n_app in sorted(counts.items(), key=lambda kv: -kv[1]):
         if n_app < min_app or sy in watched or sy in barred or sy in already:
             continue
+        if _time.monotonic() - t0 > budget_s + 60:
+            log.warning("scout mover-lens skipped %s (%d appearances): "
+                        "sweep budget exhausted", sy, n_app)
+            continue
         try:
-            d = _daily(sy)
+            d = _daily(sy, store_only=(sy not in extras))
         except Exception:  # noqa: BLE001
             continue
         i = len(d.close) - 1
@@ -959,15 +988,23 @@ def scout(base, token, watched: list, state: dict) -> list:
         hits.append({"sym": sy, "ret13w": 100 * (d.close[i] / d.close[i - 63] - 1),
                      "atr_pct": 100 * d.atr14[i] / d.close[i], "regime": "MOVER",
                      "px": d.close[i], "src": d.source, "n_app": n_app})
-    state["scout_last_run"] = today
+    movers_hits = [h for h in hits if h.get("n_app")]
+    keep = [h for h in hits if not h.get("n_app")][:int(cfg.get("top_n", 5))]
+    keep += movers_hits          # repeat movers are never crowded out by rank
     rows = []
-    for h in hits[:int(cfg.get("top_n", 5)) + sum(1 for h in hits if h.get("n_app"))]:
-        rows.append(_row(
-            h["sym"], {}, "scout", h["px"], None, None, None,
-            f"SCOUT: would be {h['regime']} on watch — 13w {h['ret13w']:+.0f}%, "
-            f"ATR {h['atr_pct']:.1f}% of price"
-            + (" · yfinance bars" if h.get("src") != "bar_store" else "")
-            + ". Research only; say the word to onboard.", level_label="—"))
+    for h in keep:
+        if h.get("n_app"):
+            why = (f"SCOUT: repeat mover — top gainers {h['n_app']} of last 5 "
+                   f"sessions, above EMA20, ATR {h['atr_pct']:.1f}% "
+                   f"(13w {h['ret13w']:+.0f}% — a V-recovery nets this away, "
+                   f"which is why the strip count is the lens)")
+        else:
+            why = (f"SCOUT: would be {h['regime']} on watch — 13w "
+                   f"{h['ret13w']:+.0f}%, ATR {h['atr_pct']:.1f}% of price")
+        why += ((" · yfinance bars" if h.get("src") != "bar_store" else "")
+                + ". Research only; say the word to onboard.")
+        rows.append(_row(h["sym"], {}, "scout", h["px"], None, None, None,
+                         why, level_label="—"))
         rows[-1]["strategy"] = "Scout"
     return rows
 
