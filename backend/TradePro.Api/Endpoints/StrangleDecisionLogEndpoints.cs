@@ -436,7 +436,9 @@ public static class StrangleDecisionLogEndpoints
                                 {
                                     whyNoTime = hits.Count == 0
                                         ? $"no OPEN placed row matches strike {strike:0.##}{right} -- "
-                                        + "this leg was not opened by this desk, or its row is missing"
+                                        + "either this desk did not open it, or its session row is "
+                                        + "already stamped closed by an EARLIER round-trip on the "
+                                        + "same day and cannot also describe this one"
                                         : $"{hits.Count} placed rows match strike {strike:0.##}{right}; "
                                         + "not guessing which";
                                 }
@@ -510,9 +512,26 @@ public static class StrangleDecisionLogEndpoints
                         shadow = r.shadow == true,
                         placedAtUtc = (DateTime?)r.placed_at_utc,
                         closedAtUtc = (DateTime?)r.closed_at_utc,
+                        // A NEGATIVE HOLD IS NOT A DURATION. On 8 Sep 2026 this
+                        // read -100.9m: placed 15:41, closed 14:00. The row is
+                        // keyed one-per-market-per-session, so the 15:39
+                        // re-entry overwrote placed_at_utc while closed_at_utc
+                        // still held the 14:00 exit of a DIFFERENT round-trip.
+                        //
+                        // Rendering that as a number invites it to be read as
+                        // one. It is withheld and named instead -- the row is
+                        // two trades wearing one row, and no arithmetic over it
+                        // is meaningful.
                         heldMinutes = r.placed_at_utc != null && r.closed_at_utc != null
+                                      && (DateTime)r.closed_at_utc >= (DateTime)r.placed_at_utc
                             ? Math.Round(((DateTime)r.closed_at_utc - (DateTime)r.placed_at_utc).TotalMinutes, 1)
                             : (double?)null,
+                        timingIncoherent = r.placed_at_utc != null && r.closed_at_utc != null
+                                           && (DateTime)r.closed_at_utc < (DateTime)r.placed_at_utc
+                            ? "closed BEFORE it was placed -- this row holds two round-trips "
+                            + "from one session (the log keys one row per market per session), "
+                            + "so its credit and its realised P&L belong to different trades"
+                            : null,
                         credit = r.credit_actual,
                         realised = r.realised_pnl,
                     }).ToList(),
