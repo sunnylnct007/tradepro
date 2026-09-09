@@ -20,6 +20,19 @@ namespace TradePro.Api.Endpoints;
 /// allowed provider names. Migration 030 creates data_assumptions
 /// with seed rows. Both ship before this endpoint goes live.
 /// </summary>
+/// <summary>A batch of bars pushed by the harvest that WROTE them, so the
+/// charts and the strategies stop reading two different stores.</summary>
+public sealed record BarPush(string Resolution, BarPushRow[] Bars);
+
+public sealed record BarPushRow(
+    string? Symbol,
+    DateTime Ts,
+    decimal? Open, decimal? High, decimal? Low, decimal? Close,
+    long? Volume,
+    // Carried through, never invented: a yfinance bar and an ibkr_web bar are
+    // different evidence and the store must keep saying which it holds.
+    string? Source);
+
 public static class DataTrustEndpoints
 {
     // Allowed provider list. Must match the CHECK constraint in
@@ -112,6 +125,76 @@ public static class DataTrustEndpoints
         // Returns every row in data_assumptions, sorted by severity
         // (CRITICAL → INFORMATIONAL) then id. The UI panel renders
         // these as a colour-coded accordion.
+        // ── ONE BAR STORE ────────────────────────────────────────────────
+        //
+        // 8 Sep 2026: the charts and the strategies were reading DIFFERENT
+        // daily-bar stores and nobody knew.
+        //
+        //   ~/.tradepro/bar_cache + S3   nightly harvest, 21:30 BST (post-close)
+        //                                -> what the STRATEGIES read
+        //   postgres ibkr_price_bars     the API harvester, ~19:59Z (PRE-close)
+        //                                -> what the CHARTS read
+        //
+        // So DOCN closed at 126.69 after 112.47 -- a 12.6% day -- and the chart
+        // still drew 4 Sep, because the harvest never wrote to the store the
+        // chart reads. The harvest script says as much: bars land locally,
+        // which is what the strategies read. Its --api-base was telemetry only.
+        //
+        // This is the missing half: the harvest pushes what it wrote, so there
+        // is ONE writer, running once, after the close.
+        //
+        // Upsert on the same key the API harvester uses. A re-run must correct
+        // a bar, never duplicate it -- the daily job re-harvests a 10-day
+        // window every night precisely so late corrections land.
+        g.MapPost("/bars", async (BarPush push, NpgsqlDataSource db, CancellationToken ct) =>
+        {
+            if (push?.Bars is null || push.Bars.Length == 0)
+                return Results.BadRequest(new { error = "no bars" });
+            if (string.IsNullOrWhiteSpace(push.Resolution))
+                return Results.BadRequest(new { error = "resolution required" });
+
+            // A bar with no close is not a bar. Rejected as a batch rather than
+            // skipped quietly: a partial write that reports success is how a
+            // store drifts without anyone noticing, which is the exact failure
+            // this endpoint exists to end.
+            var bad = push.Bars.FirstOrDefault(b => string.IsNullOrWhiteSpace(b.Symbol)
+                                                 || b.Close is null);
+            if (bad is not null)
+                return Results.BadRequest(new
+                {
+                    error = "every bar needs a symbol and a close",
+                    offending = bad.Symbol ?? "(no symbol)",
+                });
+
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var n = await conn.ExecuteAsync(@"
+                INSERT INTO ibkr_price_bars
+                  (symbol, resolution, ts, open, high, low, close, volume, source, captured_at_utc)
+                VALUES
+                  (@Symbol, @Resolution, @Ts, @Open, @High, @Low, @Close, @Volume, @Source, now())
+                ON CONFLICT (symbol, resolution, ts) DO UPDATE SET
+                  open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+                  close = EXCLUDED.close, volume = EXCLUDED.volume,
+                  source = EXCLUDED.source, captured_at_utc = now();",
+                push.Bars.Select(b => new
+                {
+                    b.Symbol,
+                    push.Resolution,
+                    b.Ts,
+                    b.Open, b.High, b.Low, b.Close, b.Volume,
+                    Source = b.Source ?? "bar_cache",
+                }));
+
+            return Results.Ok(new
+            {
+                ok = true,
+                written = n,
+                resolution = push.Resolution,
+                symbols = push.Bars.Select(b => b.Symbol).Distinct().Count(),
+                newest = push.Bars.Max(b => b.Ts),
+            });
+        });
+
         g.MapGet("/assumptions", async (NpgsqlDataSource db) =>
         {
             await using var conn = await db.OpenConnectionAsync();
