@@ -1100,7 +1100,57 @@ def main() -> int:
                     "needs a preearnings_cfg_<SYM> key. Cycle expires at the "
                     "confirmed print; renewal is a decision.", create=True)
 
+    # -- onboarding queue (owner, 9 Sep: "where will i say") --------------
+    # The scout says "say the word"; THIS is where the word is said: the
+    # desk's onboard button (or any agent via MCP/kv) appends a symbol to
+    # `preearnings_onboard_queue`, and the next tick turns it into a watch
+    # symbol with a generic ATR-scaled config. Dollar reference zones and
+    # budgets stay unset — those are owner numbers, and the config says so.
+    try:
+        queue = [str(x).upper() for x in
+                 (_kv_get(base, token, "preearnings_onboard_queue") or [])]
+        added = []
+        for qsym in queue:
+            if qsym in symbols or not qsym.isalnum():
+                continue
+            proxy_map = _kv_get(base, token, "symbol_sector_etf") or {}
+            qcfg = {
+                "symbol": qsym,
+                "sector_proxy": proxy_map.get(qsym, "SPY"),
+                "sector_floor_pct": -1.5,
+                "relative_strength_floor_pct": 0.0,
+                "reference_zones": {},           # owner numbers; unset on onboard
+                "atr_risk": {"default_stop_distance_atr": 0.8,
+                             "maximum_unapproved_stop_distance_atr": 1.0,
+                             "structural_buffer_atr": 0.1},
+                "dynamic_bands": {"ema_proximity_atr": 0.25,
+                                  "extended_from_ema_atr": 1.5,
+                                  "gap_down_atr": 1.0},
+                "breakout_watch_mode": "20d_high",   # generic until owner arms a level
+                "max_risk_per_swing_trade_currency": None,
+                "max_gap_risk_for_core_currency": None,
+                "max_swing_shares": 0,           # CONFIGURATION_BLOCKED until sized
+                "max_total_shares": 0,
+                "onboarded": {"at": _dt.datetime.now(_dt.UTC).isoformat(),
+                              "via": "onboard_queue", "defaults": "generic_atr"},
+            }
+            if not args.dry_run:
+                _kv_put(base, token, f"preearnings_cfg_{qsym}", qcfg,
+                        f"Pre-earnings config: {qsym}",
+                        "Onboarded from the scout via the desk queue with "
+                        "GENERIC ATR defaults. Owner numbers (zones, budgets) "
+                        "are unset — arm them to unlock proposals.", create=True)
+            symbols.append(qsym)
+            added.append(qsym)
+        if added and not args.dry_run:
+            _kv_put(base, token, "preearnings_symbols", symbols, "", "")
+            _kv_put(base, token, "preearnings_onboard_queue", [], "", "")
+            log.info("onboarded from queue: %s", ", ".join(added))
+    except Exception as exc:  # noqa: BLE001 — onboarding must not kill the tick
+        log.warning("onboard queue failed: %s", str(exc)[:120])
+
     rows, journal_add, mail_lines = [], [], []
+    sym_actions = {}
     for sym in symbols:
         cfg = _kv_get(base, token, f"preearnings_cfg_{sym}")
         if not cfg:
@@ -1123,6 +1173,8 @@ def main() -> int:
         state = _kv_get(base, token, f"preearnings_state_{sym}") or {"fired": {}}
         (action, detail, alerts, row), gates = evaluate(sym, cfg, base, token, state)
         log.info("%s → %s: %s", sym, action, detail[:140])
+        sym_actions[sym] = (action,
+                            (cfg.get("onboarded") or {}).get("via") == "onboard_queue")
         if row:
             row["gates"] = gates
             rows.append(row)
@@ -1157,6 +1209,64 @@ def main() -> int:
         srows = scout(base, token, symbols, gstate)
         if srows:
             gstate["scout_last_rows"] = srows   # survive the next tick's rebuild
+        # -- run-and-flag (owner, 9 Sep: "i shdnt be doing anything — the
+        # strategy shd run and flag to me"). Scout emissions AUTO-ONBOARD to
+        # alerts-only watch, capped; auto names stuck BLOCKED auto-offboard.
+        # Capital stays locked: generic configs carry no owner numbers, so
+        # sizing is CONFIGURATION_BLOCKED by construction. Every action is
+        # flagged in the digest mail, never silent.
+        try:
+            acfg = _kv_get(base, token, "preearnings_auto_onboard") or {}
+            if not acfg:
+                acfg = {"enabled": True, "max_auto_symbols": 4,
+                        "offboard_blocked_sessions": 5}
+                _kv_put(base, token, "preearnings_auto_onboard", acfg,
+                        "Watch auto-onboard config",
+                        "Scout emissions auto-join the watch (alerts only) up "
+                        "to max_auto_symbols; auto names BLOCKED this many "
+                        "consecutive evaluations are dropped. Sizing stays "
+                        "blocked until the owner arms numbers.", create=True)
+            if acfg.get("enabled", True) and srows:
+                autos_now = [sy for sy, (_a, au) in sym_actions.items() if au]
+                room = int(acfg.get("max_auto_symbols", 4)) - len(autos_now)
+                queue = [str(x).upper() for x in
+                         (_kv_get(base, token, "preearnings_onboard_queue") or [])]
+                for r in srows:
+                    if room <= 0:
+                        break
+                    sy = r["symbol"]
+                    if sy in symbols or sy in queue:
+                        continue
+                    queue.append(sy); room -= 1
+                    mail_lines.append(f"  AUTO_ONBOARD           {sy}: scout → "
+                                      "watch (alerts only; sizing blocked until "
+                                      "you arm numbers)")
+                if queue and not args.dry_run:
+                    _kv_put(base, token, "preearnings_onboard_queue", queue,
+                            "Watch onboard queue",
+                            "Symbols the next tick onboards with generic ATR "
+                            "config. Fed by the scout (auto) or any agent/UI.",
+                            create=True)
+            streaks = gstate.get("auto_blocked_streak") or {}
+            limit = int(acfg.get("offboard_blocked_sessions", 5))
+            dropped = []
+            for sy, (act, au) in sym_actions.items():
+                if not au:
+                    continue
+                streaks[sy] = streaks.get(sy, 0) + 1 if str(act).startswith("BLOCK") else 0
+                if streaks[sy] >= limit:
+                    dropped.append(sy); streaks.pop(sy, None)
+            if dropped and not args.dry_run:
+                remaining = [x for x in symbols if x not in dropped]
+                _kv_put(base, token, "preearnings_symbols", remaining, "", "")
+                for sy in dropped:
+                    mail_lines.append(f"  AUTO_OFFBOARD          {sy}: regime "
+                                      f"BLOCKED {limit} straight evaluations — "
+                                      "dropped from watch (config kept)")
+                log.info("auto-offboarded: %s", ", ".join(dropped))
+            gstate["auto_blocked_streak"] = streaks
+        except Exception as exc:  # noqa: BLE001
+            log.warning("auto-onboard block failed: %s", str(exc)[:120])
         elif gstate.get("scout_last_run") == _dt.date.today().isoformat():
             # throttled tick: re-attach today's rows, same pattern as movers_last
             srows = gstate.get("scout_last_rows") or []

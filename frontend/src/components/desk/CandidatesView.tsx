@@ -405,7 +405,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12,
                       padding: "6px 10px", border: "1px solid var(--border)",
                       borderRadius: 8, alignItems: "baseline" }}>
-          <span style={{ color: MUTED, fontSize: 10.5, textTransform: "uppercase",
+          <span style={{ color: MUTED, fontSize: 12, textTransform: "uppercase",
                          letterSpacing: ".06em" }}>Movers</span>
           {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
             <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
@@ -422,7 +422,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
               <b style={{ color: WARN }}>{m.chg_pct}%</b>
             </span>
           ))}
-          <span style={{ color: MUTED, fontSize: 10.5 }}>
+          <span style={{ color: MUTED, fontSize: 12 }}>
             {String(movers.as_of_utc ?? "").slice(11, 16)}Z · universe + your list · • = watched
           </span>
         </div>
@@ -508,11 +508,11 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.entry)}</td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>
                       {num(r.level)}
-                      <span style={{ fontSize: 10, color: MUTED, marginLeft: 4 }}>{r.levelLabel}</span>
+                      <span style={{ fontSize: 11.5, color: MUTED, marginLeft: 4 }}>{r.levelLabel}</span>
                     </td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>
                       {num(r.metric, r.metricLabel === "σ" ? 2 : 1)}
-                      <span style={{ fontSize: 10, color: MUTED, marginLeft: 3 }}>{r.metricLabel}</span>
+                      <span style={{ fontSize: 11.5, color: MUTED, marginLeft: 3 }}>{r.metricLabel}</span>
                     </td>
                     <td style={{ padding: "7px 8px", fontSize: 11,
                                  color: stale ? WARN : MUTED, whiteSpace: "nowrap" }}
@@ -521,7 +521,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                     </td>
                     <td style={{ padding: "7px 8px", color: MUTED, maxWidth: 340 }}>
                       {r.why}
-                      <span style={{ marginLeft: 6, fontSize: 10, color: MUTED }}>
+                      <span style={{ marginLeft: 6, fontSize: 11.5, color: MUTED }}>
                         {isOpen ? "▾" : "▸"}
                       </span>
                     </td>
@@ -573,7 +573,7 @@ function Detail({ r }: { r: Row }) {
   return (
     <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12 }}>
       <div style={{ minWidth: 300, flex: "1 1 380px" }}>
-        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
+        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em",
                       color: MUTED, marginBottom: 5 }}>
           Gates — what was checked
         </div>
@@ -607,8 +607,8 @@ function Detail({ r }: { r: Row }) {
       </div>
 
       {(r.extra as any)?.relative?.line && (
-        <div style={{ fontSize: 11.5, color: MUTED, margin: "6px 0" }}>
-          <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 }}>
+        <div style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "8px 0" }}>
+          <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 11.5 }}>
             Relative&nbsp;·&nbsp;
           </span>
           {(r.extra as any).relative.line}
@@ -616,8 +616,8 @@ function Detail({ r }: { r: Row }) {
         </div>
       )}
       {(r as any)?.relative?.line && (
-        <div style={{ fontSize: 11.5, color: MUTED, margin: "6px 0" }}>
-          <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 }}>
+        <div style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "8px 0" }}>
+          <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 11.5 }}>
             Relative&nbsp;·&nbsp;
           </span>
           {(r as any).relative.line}
@@ -628,8 +628,8 @@ function Detail({ r }: { r: Row }) {
         const oc = r.extra.options_context;
         return (
           <div style={{ minWidth: 280, flex: "1 1 320px" }}>
-            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
-                          color: MUTED, marginBottom: 5 }}>
+            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em",
+                          color: "var(--text-dim)", marginBottom: 5 }}>
               Options — how the market is placing it
             </div>
             <table style={{ borderCollapse: "collapse", width: "100%",
@@ -659,7 +659,7 @@ function Detail({ r }: { r: Row }) {
               {(oc.top_oi ?? []).map((o: any) =>
                 `${o.strike}${o.right} (${o.oi.toLocaleString()})`).join(" · ")}
             </div>
-            <div style={{ marginTop: 4, fontSize: 10.5, color: MUTED }}>
+            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>
               captured {oc.capture_date} · context, never a directional signal —
               large OI ≠ support/resistance
             </div>
@@ -689,8 +689,8 @@ function Detail({ r }: { r: Row }) {
         ];
         return (
           <div style={{ minWidth: 210, flex: "0 1 240px" }}>
-            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
-                          color: MUTED, marginBottom: 5 }}>
+            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em",
+                          color: "var(--text-dim)", marginBottom: 5 }}>
               Key stats <span style={{ textTransform: "none" }}>· vendor (yfinance)</span>
             </div>
             <table style={{ borderCollapse: "collapse", width: "100%",
@@ -709,7 +709,7 @@ function Detail({ r }: { r: Row }) {
       })()}
 
       <div style={{ minWidth: 260, flex: "1 1 300px" }}>
-        <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em",
+        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em",
                       color: MUTED, marginBottom: 5 }}>
           Data — where each number came from
         </div>

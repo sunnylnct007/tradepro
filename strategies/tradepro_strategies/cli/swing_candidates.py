@@ -421,6 +421,7 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
             "volume_vs_20d": _vol,
             "volume_vs_20d_unavailable": _vol_why,
             "max_hold_sessions": MAX_HOLD,
+            "structure": _structure_note(l, c, i),
         })
     # Best reward:risk first — the number that decides whether a bracket is worth placing.
     out.sort(key=lambda r: -(r["reward_risk"] or 0))
@@ -751,23 +752,81 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     out = []
     for c in cands:
         try:
-            out.append(Candidate(
+            sym_ok = c.get("symbol", "").upper() not in barred
+            struct = c.get("structure") or ""
+            cushion = c.get("sma200_cushion_atr")
+            slope = c.get("sma200_slope_20s_pct")
+            # The row's WHY is a per-name verdict, not the rule restated.
+            # (Owner, 9 Sep: "not too convincing UI" — four rows all saying
+            # 'σ-band entry, trend filter passed' told him nothing.)
+            bits = [f"{-abs(c.get('sigma_below') or 0):.1f}σ dip"]
+            if c.get("day_chg_pct") is not None:
+                bits.append(f"day {c['day_chg_pct']:+.1f}%")
+            if struct.startswith("KNIFE"):
+                bits.append("KNIFE — wait for a higher low")
+            elif struct.startswith("basing"):
+                bits.append("basing — placeable as a bracket")
+            elif struct:
+                bits.append(struct.split(":")[0] + " — no reversal sign yet")
+            if cushion is not None and cushion < 1:
+                bits.append(f"only {cushion:.1f} ATR over "
+                            + ("a FALLING" if (slope or 0) < 0 else "the")
+                            + " 200-day avg")
+            why = " · ".join(bits) if sym_ok else                 "σ-band entry, but THIS ACCOUNT CANNOT TRADE IT"
+            cand = Candidate(
                 symbol=c.get("symbol", ""), strategy="Swing", tier="gated",
                 action="buy", as_of=as_of,
                 entry=(c.get("calcs") or {}).get("entry", {}).get("value") or c.get("close"),
                 level=c.get("stop"), level_label="stop",
-                metric=c.get("sigma_from_mean"), metric_label="σ",
-                eligible=(c.get("symbol", "").upper() not in barred),
-                why=("σ-band entry, trend filter passed"
-                     if c.get("symbol", "").upper() not in barred
-                     else "σ-band entry, but THIS ACCOUNT CANNOT TRADE IT"),
+                metric=(-abs(c["sigma_below"]) if c.get("sigma_below") is not None
+                        else None),
+                metric_label="σ",
+                eligible=sym_ok,
+                why=why,
                 blocks=(["this account cannot trade it — US-domiciled ETF, "
-                         "barred under PRIIPs (no KID)"]
-                        if c.get("symbol", "").upper() in barred else []),
-            ))
+                         "barred under PRIIPs (no KID)"] if not sym_ok else []),
+                provenance=[f"signal bar {c.get('bar')} — settled daily close "
+                            "from the bar store (IBKR-harvested); latest quote "
+                            "is display-only"],
+            )
+            out.append(cand)
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
             pass
     rows = emit(out)
+    # Gate trace in the desk contract — the expansion showed an apology
+    # ("does not publish a gate trace yet") for a strategy that HAS gates.
+    by_sym = {c.get("symbol", "").upper(): c for c in cands}
+    for r in rows:
+        c = by_sym.get((r.get("symbol") or "").upper())
+        if not c:
+            continue
+        checks = []
+        if c.get("sigma_below") is not None:
+            checks.append({"gate": "sigma entry", "actual": f"-{c['sigma_below']:.2f}σ",
+                           "threshold": "≤ -2.25σ below the 20-day mean",
+                           "verdict": "PASS"})
+        if c.get("pct_above_200sma") is not None:
+            cu = c.get("sma200_cushion_atr")
+            sl = c.get("sma200_slope_20s_pct")
+            checks.append({"gate": "trend floor",
+                           "actual": f"+{c['pct_above_200sma']:.1f}% above 200-SMA"
+                                     + (f" ({cu:.1f} ATRs, avg "
+                                        + ("falling" if (sl or 0) < 0 else "rising") + ")"
+                                        if cu is not None else ""),
+                           "threshold": "close above the 200-SMA",
+                           "verdict": ("PASS — thin" if (cu or 9) < 1 else "PASS")})
+        if c.get("structure"):
+            checks.append({"gate": "structure (context)", "actual": c["structure"],
+                           "threshold": "display only — not a gate",
+                           "verdict": ("WARN" if c["structure"].startswith("KNIFE")
+                                       else "OK")})
+        if c.get("atr_pct"):
+            checks.append({"gate": "stop width (context)",
+                           "actual": f"8% = {8 / c['atr_pct']:.1f} ATRs",
+                           "threshold": "display only — see SWING_V3_GATES_V1",
+                           "verdict": "OK"})
+        if checks:
+            r["gates"] = checks
     # Options context as DISPLAY (owner, 7 Sep): IV/HV, implied-vs-realized
     # day, term structure — rendered by the desk's Options panel wherever a
     # captured chain exists (wheel + watch symbols; others show nothing).
