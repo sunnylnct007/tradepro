@@ -454,7 +454,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5,
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13,
                           fontVariantNumeric: "tabular-nums" }}>
             <thead>
               <tr>
@@ -519,7 +519,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                         title={r.asOf ?? "no as-of recorded"}>
                       {age == null ? "—" : age < 1 ? "live" : `${age.toFixed(0)}h old`}
                     </td>
-                    <td style={{ padding: "7px 8px", color: MUTED, maxWidth: 340 }}>
+                    <td style={{ padding: "7px 8px", color: "var(--text)", fontSize: 13,
+                                 maxWidth: 520 }}>
                       {r.why}
                       <span style={{ marginLeft: 6, fontSize: 11.5, color: MUTED }}>
                         {isOpen ? "▾" : "▸"}

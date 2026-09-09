@@ -28,9 +28,13 @@
   --warn:          #c79a2a;
   --mono:          "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
+  /* Legibility floor raised 9 Sep 2026 (owner: "labels are difficult to
+   * read"). #6b7799 on #0e1320 was ~3.4:1 contrast at 11-12px — below a
+   * comfortable read. Hierarchy kept: muted < dim < text, but every tier
+   * now clears small-text contrast on the near-black surfaces. */
   --text:          #e6ecff;
-  --text-dim:      #9aa6c8;
-  --text-muted:    #6b7799;
+  --text-dim:      #aab6d6;
+  --text-muted:    #8b97ba;
 
   --accent:        #4f8cff;
   --accent-hot:    #7ba8ff;
