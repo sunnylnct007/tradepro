@@ -1267,7 +1267,13 @@ def main() -> int:
             gstate["auto_blocked_streak"] = streaks
         except Exception as exc:  # noqa: BLE001
             log.warning("auto-onboard block failed: %s", str(exc)[:120])
-        elif gstate.get("scout_last_run") == _dt.date.today().isoformat():
+        # STANDALONE `if`, not `elif`. This was written as `elif`, chaining to
+        # `if srows:` above — but the auto-onboard try/except was later inserted
+        # between them at the same indent, and an `elif` cannot follow an
+        # `except`. The module then failed to IMPORT, so preearnings_watch has
+        # not run at all since. Same meaning, expressed so the two blocks are
+        # independent of each other's layout.
+        if not srows and gstate.get("scout_last_run") == _dt.date.today().isoformat():
             # throttled tick: re-attach today's rows, same pattern as movers_last
             srows = gstate.get("scout_last_rows") or []
         if srows:
