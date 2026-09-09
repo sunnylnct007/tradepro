@@ -235,8 +235,24 @@ public static class StrangleDecisionLogEndpoints
                     new { row.ExitCostActual, row.CloseTrigger, row.ClosedAtUtc,
                           row.RealisedPnl, row.Market, Session = session, Kind = kind });
             }
-            else
+            else if (row.Placed == true)
             {
+                // ONLY A PLACEMENT MAKES A ROW. record_execution POSTs for
+                // EVERY market on EVERY run, including the refusals -- 'market
+                // is not paper-tradeable', 'strikes are PROVISIONAL', 'could
+                // not resolve one or both contracts'. Those are decisions, not
+                // round-trips, and place_error already records them on the
+                // decision row where they belong.
+                //
+                // Without this guard the table filled with 53 empty rows
+                // against 11 real ones, and worse: the 04:11 India run created
+                // a phantom entry_seq 1 for SPX, so the actual US placement at
+                // 13:54 was numbered 2. entry_seq is supposed to mean 'which
+                // round-trip of this session', and it had stopped meaning that.
+                //
+                // Every reader already filters placed IS TRUE, so the P&L and
+                // the stats were never wrong -- only the table's meaning was.
+                //
                 // Idempotent on the PLACEMENT INSTANT. record_execution can be
                 // retried, and a retry must not manufacture a second entry for
                 // one trade -- that would corrupt the very count this table
