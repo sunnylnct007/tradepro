@@ -310,4 +310,24 @@ public class StrangleDecisionKeyTest
         // And the backfill must not launder a known-false timestamp forward.
         Assert.Contains("closed_at_utc < placed_at_utc", sql);
     }
+
+    [Fact]
+    public void OnlyAPlacementCreatesAnExecutionRow()
+    {
+        // record_execution POSTs for EVERY market on EVERY run, refusals
+        // included. Inserting on all of them filled the table with 53 empty
+        // rows against 11 real ones -- and made the 04:11 India run create a
+        // phantom entry 1 for SPX, so the real 13:54 placement became entry 2.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("else if (row.Placed == true)", s);
+    }
+
+    [Fact]
+    public void TheMigrationClearsTheNonPlacementsAndRenumbers()
+    {
+        var sql = Src("backend/TradePro.Api/db/migrations/079_executions_are_placements_only.sql");
+        Assert.Contains("DELETE FROM strangle_execution WHERE placed IS NOT TRUE", sql);
+        // A 2 with no 1 invites the exact question that cost an hour.
+        Assert.Contains("ROW_NUMBER() OVER (PARTITION BY market, session, expiry_kind", sql);
+    }
 }
