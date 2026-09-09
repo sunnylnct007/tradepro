@@ -32,3 +32,29 @@ def test_module_compiles(path: Path):
     except py_compile.PyCompileError as exc:
         pytest.fail(f"{path.name} is not valid Python — any job that imports it "
                     f"dies at startup:\n{exc}")
+
+
+def test_onboarded_is_read_shape_safely():
+    """`onboarded` holds a dict from the scout and a free-text string from the
+    6 Sep auto-calibration. `x or {}` keeps the string, and `.get` on it raised
+    every tick after the fourth symbol.
+
+    Asserted on code with comments stripped — this file explains the bug in
+    prose right above the fix.
+    """
+    import io, tokenize
+    src = (CLI / "preearnings_watch.py").read_text()
+    out, (lr, lc) = [], (1, 0)
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type == tokenize.COMMENT:
+            continue
+        sr, sc = tok.start
+        if sr > lr:
+            out.append("\n" * (sr - lr)); lc = 0
+        if sc > lc:
+            out.append(" " * (sc - lc))
+        out.append(tok.string)
+        lr, lc = tok.end
+    code = "".join(out)
+    assert 'isinstance(_ob, dict)' in code
+    assert '(cfg.get("onboarded") or {}).get(' not in code

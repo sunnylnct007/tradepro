@@ -1173,8 +1173,21 @@ def main() -> int:
         state = _kv_get(base, token, f"preearnings_state_{sym}") or {"fired": {}}
         (action, detail, alerts, row), gates = evaluate(sym, cfg, base, token, state)
         log.info("%s → %s: %s", sym, action, detail[:140])
+        # `onboarded` CARRIES TWO SHAPES. The scout writes a dict
+        # ({"via": "onboard_queue", ...}); the 6 Sep auto-calibration wrote a
+        # free-text provenance string ("auto-calibrated 2026-09-06 — ATR 7.1%
+        # of price, 1763 bars (bar_store)"). `x or {}` keeps a non-empty
+        # string, so .get() then raised
+        #   'str' object has no attribute 'get'
+        # on the FOURTH symbol — six of the eight watched names carry the
+        # string form. The framework evaluated MU, SNDK and WDC and then died
+        # every tick.
+        #
+        # A string means auto-calibrated, which is precisely NOT via the queue,
+        # so the answer here is False rather than an error.
+        _ob = cfg.get("onboarded")
         sym_actions[sym] = (action,
-                            (cfg.get("onboarded") or {}).get("via") == "onboard_queue")
+                            isinstance(_ob, dict) and _ob.get("via") == "onboard_queue")
         if row:
             row["gates"] = gates
             rows.append(row)
