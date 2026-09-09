@@ -20,6 +20,19 @@ namespace TradePro.Api.Endpoints;
 /// allowed provider names. Migration 030 creates data_assumptions
 /// with seed rows. Both ship before this endpoint goes live.
 /// </summary>
+/// <summary>A batch of bars pushed by the harvest that WROTE them, so the
+/// charts and the strategies stop reading two different stores.</summary>
+public sealed record BarPush(string Resolution, BarPushRow[] Bars);
+
+public sealed record BarPushRow(
+    string? Symbol,
+    DateTime Ts,
+    decimal? Open, decimal? High, decimal? Low, decimal? Close,
+    long? Volume,
+    // Carried through, never invented: a yfinance bar and an ibkr_web bar are
+    // different evidence and the store must keep saying which it holds.
+    string? Source);
+
 public static class DataTrustEndpoints
 {
     // Allowed provider list. Must match the CHECK constraint in
@@ -112,65 +125,73 @@ public static class DataTrustEndpoints
         // Returns every row in data_assumptions, sorted by severity
         // (CRITICAL → INFORMATIONAL) then id. The UI panel renders
         // these as a colour-coded accordion.
-        // ── THE LAST SETTLED SESSION, DERIVED FROM THE DATA ──────────────
+        // ── ONE BAR STORE ────────────────────────────────────────────────
         //
-        // 8 Sep 2026: the chart told the owner "STALE DATA -- last 1d bar is
-        // 2026-09-04 (2 trading sessions behind). Do not trade off this chart."
-        // The data was PERFECT. All 169 symbols sat at 4 Sep together, and the
-        // store held no 5/6/7 Sep rows because those were Saturday, Sunday and
-        // LABOR DAY. The next session after Friday 4 Sep was 8 Sep itself,
-        // whose bar does not settle until the close.
+        // 8 Sep 2026: the charts and the strategies were reading DIFFERENT
+        // daily-bar stores and nobody knew.
         //
-        // The chart counted weekdays and called Labor Day a session. Its own
-        // comment claimed a holiday would read one session behind, "the safe
-        // direction" -- but it reads TWO, which is the threshold, so the
-        // loudest warning on the desk fired at a healthy harvest.
+        //   ~/.tradepro/bar_cache + S3   nightly harvest, 21:30 BST (post-close)
+        //                                -> what the STRATEGIES read
+        //   postgres ibkr_price_bars     the API harvester, ~19:59Z (PRE-close)
+        //                                -> what the CHARTS read
         //
-        // The fix is not a holiday table to maintain and forget. The bar store
-        // already knows which days were sessions: a session is a day the market
-        // as a whole produced bars. Ask the data.
+        // So DOCN closed at 126.69 after 112.47 -- a 12.6% day -- and the chart
+        // still drew 4 Sep, because the harvest never wrote to the store the
+        // chart reads. The harvest script says as much: bars land locally,
+        // which is what the strategies read. Its --api-base was telemetry only.
         //
-        // QUORUM, not MAX. A handful of symbols get an intraday refresh, so on
-        // any given afternoon a few rows carry today's date while the market
-        // has not closed. The last SETTLED session is the newest day where a
-        // real share of the universe reported -- today's three early birds do
-        // not make today a settled session.
-        g.MapGet("/last-settled-session", async (NpgsqlDataSource db, CancellationToken ct) =>
+        // This is the missing half: the harvest pushes what it wrote, so there
+        // is ONE writer, running once, after the close.
+        //
+        // Upsert on the same key the API harvester uses. A re-run must correct
+        // a bar, never duplicate it -- the daily job re-harvests a 10-day
+        // window every night precisely so late corrections land.
+        g.MapPost("/bars", async (BarPush push, NpgsqlDataSource db, CancellationToken ct) =>
         {
-            await using var conn = await db.OpenConnectionAsync(ct);
-            var rows = (await conn.QueryAsync(@"
-                WITH per_day AS (
-                    SELECT ts::date AS session, COUNT(DISTINCT symbol) AS symbols
-                      FROM ibkr_price_bars
-                     WHERE resolution = '1d'
-                       AND ts > CURRENT_DATE - 30
-                     GROUP BY 1),
-                     peak AS (SELECT MAX(symbols) AS n FROM per_day)
-                SELECT session, symbols
-                  FROM per_day, peak
-                 WHERE symbols >= GREATEST(peak.n / 2, 1)
-                 ORDER BY session DESC
-                 LIMIT 1;")).AsList();
+            if (push?.Bars is null || push.Bars.Length == 0)
+                return Results.BadRequest(new { error = "no bars" });
+            if (string.IsNullOrWhiteSpace(push.Resolution))
+                return Results.BadRequest(new { error = "resolution required" });
 
-            if (rows.Count == 0)
-                // No quorum in 30 days is not a fresh market; it is an empty
-                // store. Say so rather than returning a date that would make
-                // every chart look current.
-                return Results.Ok(new
+            // A bar with no close is not a bar. Rejected as a batch rather than
+            // skipped quietly: a partial write that reports success is how a
+            // store drifts without anyone noticing, which is the exact failure
+            // this endpoint exists to end.
+            var bad = push.Bars.FirstOrDefault(b => string.IsNullOrWhiteSpace(b.Symbol)
+                                                 || b.Close is null);
+            if (bad is not null)
+                return Results.BadRequest(new
                 {
-                    lastSettledSession = (DateTime?)null,
-                    symbols = 0,
-                    note = "no daily bars in the last 30 days -- the store is empty or the "
-                         + "harvest has not run. Freshness cannot be judged from this.",
+                    error = "every bar needs a symbol and a close",
+                    offending = bad.Symbol ?? "(no symbol)",
                 });
+
+            await using var conn = await db.OpenConnectionAsync(ct);
+            var n = await conn.ExecuteAsync(@"
+                INSERT INTO ibkr_price_bars
+                  (symbol, resolution, ts, open, high, low, close, volume, source, captured_at_utc)
+                VALUES
+                  (@Symbol, @Resolution, @Ts, @Open, @High, @Low, @Close, @Volume, @Source, now())
+                ON CONFLICT (symbol, resolution, ts) DO UPDATE SET
+                  open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+                  close = EXCLUDED.close, volume = EXCLUDED.volume,
+                  source = EXCLUDED.source, captured_at_utc = now();",
+                push.Bars.Select(b => new
+                {
+                    b.Symbol,
+                    push.Resolution,
+                    b.Ts,
+                    b.Open, b.High, b.Low, b.Close, b.Volume,
+                    Source = b.Source ?? "bar_cache",
+                }));
 
             return Results.Ok(new
             {
-                lastSettledSession = (DateTime?)rows[0].session,
-                symbols = (int)rows[0].symbols,
-                note = "the newest day on which a quorum of the universe produced bars. "
-                     + "Weekends and exchange holidays are absent from the data, so they "
-                     + "are absent from this answer -- no holiday calendar is maintained.",
+                ok = true,
+                written = n,
+                resolution = push.Resolution,
+                symbols = push.Bars.Select(b => b.Symbol).Distinct().Count(),
+                newest = push.Bars.Max(b => b.Ts),
             });
         });
 

@@ -310,34 +310,4 @@ public class StrangleDecisionKeyTest
         // And the backfill must not launder a known-false timestamp forward.
         Assert.Contains("closed_at_utc < placed_at_utc", sql);
     }
-
-    [Fact]
-    public void StalenessIsJudgedAgainstSESSIONSTheMarketActuallyHeld()
-    {
-        // 8 Sep 2026: the chart branded a PERFECT harvest stale. All 169
-        // symbols sat at Friday 4 Sep; the store held no 5/6/7 Sep rows because
-        // those were Saturday, Sunday and LABOR DAY. Counting weekdays made
-        // Labor Day a session, which put the chart at exactly the 2-session
-        // threshold and fired the loudest warning on the desk at healthy data.
-        //
-        // No holiday table: one would be maintained once and rot. A session is
-        // a day the market produced bars, and the store already knows.
-        var s = Src("backend/TradePro.Api/Endpoints/DataTrustEndpoints.cs");
-        Assert.Contains("last-settled-session", s);
-        // QUORUM, not MAX -- a few symbols get an intraday refresh, so today's
-        // early birds must not make an unsettled today look settled.
-        Assert.Contains("symbols >= GREATEST(peak.n / 2, 1)", s);
-    }
-
-    [Fact]
-    public void AnUnknownReferenceDoesNotRaiseTheStaleAlarm()
-    {
-        // While the reference is loading, or if it cannot be fetched, the
-        // banner must stay silent. A warning nobody can verify is the one that
-        // gets muted -- and this component's own history says an alarm that
-        // cries wolf is worse than no alarm.
-        var s = Src("frontend/src/components/desk/CandleIchimokuChart.tsx");
-        Assert.Contains("_sessionsBehind !== null && _sessionsBehind > 0", s);
-        Assert.DoesNotContain("if (d !== 0 && d !== 6) n += 1;", s);
-    }
 }

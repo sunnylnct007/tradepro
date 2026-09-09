@@ -88,6 +88,46 @@ log "daily 1d harvest (IBKR-primary: ibkr_web→ibkr→ig→yfinance): $N symbol
 # strategy's daily bars are IBKR-GOOD; yfinance only fills names IBKR can't serve
 # (flagged BRONZE, never silent). Needs the API reachable for ibkr_web (checked
 # above); if EC2 is unreachable it degrades gracefully to yfinance.
-exec "$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf \
+# NOT exec: exec replaces this shell, so anything after it never runs. The
+# push below has to happen in the same job as the harvest that produced the
+# bars, or the two stores drift again the first night someone forgets.
+"$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf \
     --symbols "$SYMS" --from "$FROM" --to "$TO" --allow-partial --verbose \
     "${API_ARGS[@]+"${API_ARGS[@]}"}" >>"$LOG" 2>&1
+HARVEST_RC=$?
+if [[ $HARVEST_RC -ne 0 ]]; then
+    log "FATAL: harvest exited $HARVEST_RC — NOT pushing a partial store"
+    exit $HARVEST_RC
+fi
+
+# ── PUSH TO THE STORE THE CHARTS READ ────────────────────────────────────
+#
+# Until 9 Sep 2026 this job stopped at the line above, and its bars went only
+# to the local parquet + S3 — "which is what the strategies read", as the
+# comment above still says. The CHARTS read postgres ibkr_price_bars, filled
+# by a separate API-side harvester that runs ~19:59Z, one minute BEFORE the
+# US close, and therefore almost never captured the session just ended.
+#
+# On 8 Sep DOCN closed 126.69 against 112.47 — a 12.6% day — and the desk chart
+# still drew 4 Sep under a STALE DATA banner nobody could explain. The bar
+# existed. It was in the other store.
+#
+# One writer, once, after the close.
+if [[ ${#API_ARGS[@]} -eq 0 ]]; then
+    log "WARNING: EC2 unreachable — bars are LOCAL ONLY and the charts will be "\
+        "behind until the next successful run pushes them"
+    exit 0
+fi
+
+log "pushing 1d bars -> ibkr_price_bars (the store the charts read)"
+"$UV" run tradepro-bar-cache-push --resolution 1d --asset us_etf \
+    --symbols "$SYMS" --days 10 --api-base "$API_URL" >>"$LOG" 2>&1
+PUSH_RC=$?
+if [[ $PUSH_RC -ne 0 ]]; then
+    # LOUD. A harvest that succeeds while the push fails is the exact shape of
+    # the bug this replaces: green logs, and a chart quietly a session behind.
+    log "FATAL: bar push exited $PUSH_RC — the CHARTS ARE STALE even though the "\
+        "harvest succeeded. See $LOG"
+    exit $PUSH_RC
+fi
+log "push complete — both stores now hold the same session"
