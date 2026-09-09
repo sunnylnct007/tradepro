@@ -155,9 +155,15 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     raw = args.symbols
-    p = Path(raw)
-    syms = ([s.strip() for s in p.read_text().split() if s.strip()] if p.exists()
-            else [s.strip() for s in raw.split(",") if s.strip()])
+    # A comma means a LIST, always. Calling Path(...).exists() on a 246-symbol
+    # string raises OSError [Errno 63] File name too long -- the check meant to
+    # be permissive crashed on the ordinary case.
+    if "," in raw or len(raw) > 200:
+        syms = [s.strip() for s in raw.split(",") if s.strip()]
+    else:
+        p = Path(raw).expanduser()
+        syms = ([s.strip() for s in p.read_text().split() if s.strip()]
+                if p.exists() else [raw.strip()])
 
     base, token = _credentials()
     base = args.api_base or base
