@@ -802,6 +802,12 @@ def evaluate(sym, cfg, base, token, state):
 
     budget = cfg.get("max_risk_per_swing_trade_currency")
     if not budget:
+        # Owner, 10 Sep: "don't ask me next time as it's paper trading, use
+        # some configurable number per trade which we can adjust if needed."
+        # ONE central default (settings-kv `default_risk_per_trade_usd`),
+        # adjustable from Settings; a per-symbol value still overrides it.
+        budget = _default_risk(base, token)
+    if not budget:
         msg = ("CONFIGURATION_BLOCKED: set max_risk_per_swing_trade_currency "
                "(and max_gap_risk_for_core_currency) in settings-kv "
                f"preearnings_cfg_{sym} — a share clip may not substitute for "
@@ -810,7 +816,9 @@ def evaluate(sym, cfg, base, token, state):
         return ("SETUP_QUALIFIED", msg, alerts,
                 _row(sym, cfg, "qualified", entry, stop, None, sessions_to, msg)), gates
 
-    qty = min(int(budget / dist), int(cfg["max_swing_shares"]))
+    qty = int(budget / dist)
+    if cfg.get("max_swing_shares"):   # optional clip; absent on auto-onboarded
+        qty = min(qty, int(cfg["max_swing_shares"]))
     if qty < 1:
         return ("NO_TRADE", "risk budget buys less than one share at this "
                 "stop distance", alerts,
@@ -846,6 +854,20 @@ def _provenance(d, bars, opts):
                      "source_label": opts.get("reason", "INSUFFICIENT"),
                      "trust": "unavailable", "age": ""})
     return rows
+
+
+_RISK_CACHE: list = []
+
+
+def _default_risk(base, token):
+    if _RISK_CACHE:
+        return _RISK_CACHE[0]
+    try:
+        val = float(_kv_get(base, token, "default_risk_per_trade_usd") or 0)
+    except Exception:  # noqa: BLE001
+        val = 0
+    _RISK_CACHE.append(val or None)
+    return _RISK_CACHE[0]
 
 
 def _relative(sym, cfg):
@@ -1129,7 +1151,7 @@ def main() -> int:
                 "breakout_watch_mode": "20d_high",   # generic until owner arms a level
                 "max_risk_per_swing_trade_currency": None,
                 "max_gap_risk_for_core_currency": None,
-                "max_swing_shares": 0,           # CONFIGURATION_BLOCKED until sized
+                "max_swing_shares": None,        # size derives from the risk default
                 "max_total_shares": 0,
                 "onboarded": {"at": _dt.datetime.now(_dt.UTC).isoformat(),
                               "via": "onboard_queue", "defaults": "generic_atr"},

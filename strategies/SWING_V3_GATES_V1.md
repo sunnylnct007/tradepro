@@ -40,3 +40,16 @@ stays the manual tool and the rule does not change.
 
 Runs: harness variants of backtests/studies/mean_reversion_v2.py, one commit,
 results appended here. No threshold in this file moves after this commit.
+
+## RESULTS — run 10 Sep 2026, harness backtests/studies/swing_v3_study.py
+
+| variant | n | win | mean | worst | cells | verdict |
+|---|---|---|---|---|---|---|
+| control (live rule) | 4432 | 71.5% | +1.00% | −23.2% | all + | reproduces the record |
+| Q1 2.5×ATR stop | 4500 | 69.6% | +0.96% | **−32.3%** | all + | **FAIL** — tail gate demanded ≥3pp BETTER; it got 9pp WORSE. Tight ATR stops on high-vol names walk into gaps. 8% stop stands. |
+| Q2 ATR%≥2.0 floor | 2585 | 67.2% | +1.24% | −19.6% | all + | **FAIL its own bar** — excluded 1,847 trades still earn ~+0.66%/trade, above the "less than half of control (+0.50)" bar. The floor discards real (if thin) edge; NOT adopted. USMV-class rows stay visible with their breakeven/ATR warnings instead. |
+| Q3 confirmation entry | 3028 | 73.9% | **+0.42%** | −23.6% | all + | **FAIL** — win rate rises but mean/trade HALVES vs control (+1.00). Waiting for the green bar costs ~0.6%/trade: the edge lives in the close nobody wants to buy. Entry stays at the signal close. Confirmation remains a DISPLAY verdict (KNIFE/basing) for discretionary use. |
+
+All three predictions on record were directionally correct. The pre-registered
+rule survives all three challenges intact; the advisor's proposals are
+answered with measurements, not opinions.
