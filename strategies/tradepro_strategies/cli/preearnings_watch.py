@@ -856,6 +856,50 @@ def _provenance(d, bars, opts):
     return rows
 
 
+def _mail_item(a_id, sym, text):
+    """Translate an internal alert into a plain-English mail card."""
+    aid = a_id.split("|")[0]
+    if aid == "ORDER_PROPOSAL":
+        return {"sev": 0, "sym": sym,
+                "head": f"{sym}: proposed BUY — {text.split('·')[0].strip() if '·' in text else 'see numbers below'}",
+                "body": text,
+                "act": ("Review and place it yourself if you agree — "
+                        "the desk never places orders for you.")}
+    if aid.startswith("OWNER_LEVEL"):
+        return {"sev": 1, "sym": sym,
+                "head": f"{sym} hit a level YOU set",
+                "body": text,
+                "act": "This is your pre-decided line. Act on your plan."}
+    if aid == "RECLAIM_15M":
+        return {"sev": 1, "sym": sym,
+                "head": f"{sym} dipped into its buy zone and came back up",
+                "body": text,
+                "act": ("A dip-buy setup just confirmed. If it also shows a "
+                        "proposed order above, that is the trade.")}
+    if aid in ("M1_BREAKOUT", "BREAKOUT"):
+        return {"sev": 1, "sym": sym,
+                "head": f"{sym} broke above its breakout level",
+                "body": text, "act": "Your one-shot breakout plan applies."}
+    if aid == "CONFIGURATION_BLOCKED":
+        return {"sev": 2, "sym": sym,
+                "head": f"{sym} can alert but not size a trade yet",
+                "body": ("It has no risk number of its own and no default "
+                         "was set at the time. This is a setting, NOT an "
+                         "error — nothing is broken."),
+                "act": "Nothing, if you don't trade this name. Otherwise say "
+                       "the word and a risk number gets set."}
+    if aid == "EXTENDED_DO_NOT_CHASE":
+        return {"sev": 1, "sym": sym,
+                "head": f"{sym} has run too far to chase",
+                "body": text, "act": "Do not buy the spike. Wait for its "
+                                     "pullback zone."}
+    if aid == "GAP_DOWN":
+        return {"sev": 1, "sym": sym, "head": f"{sym} gapped down hard",
+                "body": text, "act": "Check the position/plan for this name."}
+    return {"sev": 1, "sym": sym, "head": f"{sym}: {aid.replace('_', ' ').title()}",
+            "body": text, "act": "See the desk board for context."}
+
+
 _RISK_CACHE: list = []
 
 
@@ -1225,7 +1269,7 @@ def main() -> int:
                                     "at": state["fired"][key],
                                     "action": action})
         if fresh and not args.dry_run:
-            mail_lines += [f"  {a_id:24} {text}" for a_id, text in fresh
+            mail_lines += [_mail_item(a_id, sym, text) for a_id, text in fresh
                            if not a_id.startswith("J_")]
         elif fresh:
             for a_id, text in fresh:
@@ -1273,9 +1317,14 @@ def main() -> int:
                     if sy in symbols or sy in queue:
                         continue
                     queue.append(sy); room -= 1
-                    mail_lines.append(f"  AUTO_ONBOARD           {sy}: scout → "
-                                      "watch (alerts only; sizing blocked until "
-                                      "you arm numbers)")
+                    mail_lines.append({
+                        "sev": 2, "sym": sy,
+                        "head": f"{sy} joined the watch automatically",
+                        "body": "The daily scout found it. It will alert on "
+                                "its levels from tomorrow. Nothing is sized "
+                                "or placed for it.",
+                        "act": "Nothing to do. It removes itself if the "
+                               "setup breaks."})
                 if queue and not args.dry_run:
                     _kv_put(base, token, "preearnings_onboard_queue", queue,
                             "Watch onboard queue",
@@ -1295,9 +1344,12 @@ def main() -> int:
                 remaining = [x for x in symbols if x not in dropped]
                 _kv_put(base, token, "preearnings_symbols", remaining, "", "")
                 for sy in dropped:
-                    mail_lines.append(f"  AUTO_OFFBOARD          {sy}: regime "
-                                      f"BLOCKED {limit} straight evaluations — "
-                                      "dropped from watch (config kept)")
+                    mail_lines.append({
+                        "sev": 2, "sym": sy,
+                        "head": f"{sy} left the watch automatically",
+                        "body": f"Its setup stayed broken for {limit} checks "
+                                "in a row, so the scout's pick expired.",
+                        "act": "Nothing to do."})
                 log.info("auto-offboarded: %s", ", ".join(dropped))
             gstate["auto_blocked_streak"] = streaks
         except Exception as exc:  # noqa: BLE001
@@ -1350,18 +1402,49 @@ def main() -> int:
         log.info("board push → HTTP %s (%d row(s))", r.status_code, len(rows))
 
     # -- immediate transition mail (single channel, deduped upstream) --
+    # Owner, 10 Sep: "some of the emails didnt make much sense and i even got
+    # some error. the mail need to be properly formatted and crystal clear."
+    # Every item is a plain-English card: what happened, the numbers, what to
+    # do. Internal ids and config-speak never reach the inbox.
     if mail_lines:
         try:
             from .email_digest import CRED_PATH, send_email
             cfg_mail = json.loads(CRED_PATH.read_text())
-            subject = f"[PRE-EARN] {len(mail_lines)} alert(s) — " + \
-                      _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d %H:%M")
-            body = ("Pre-earnings watch — state transitions only, each fires "
-                    "once.\n\n" + "\n".join(mail_lines)
-                    + "\n\nNothing here is placed automatically. Board → "
-                      "Candidates → Pre-Earn.")
-            send_email(SimpleNamespace(subject=subject, text_body=body,
-                                       html_body=None, pdf_bytes=None), cfg_mail)
+            items = sorted(mail_lines, key=lambda x: x["sev"])
+            lead = items[0]
+            subject = ("[TradePro] " + lead["head"]
+                       + (f" — plus {len(items)-1} more" if len(items) > 1 else ""))
+            SEV_LABEL = {0: "ACTION — a proposed order",
+                         1: "HEADS-UP — a level you set was hit",
+                         2: "SYSTEM — for information only"}
+            text_parts, html_parts = [], []
+            for sev in (0, 1, 2):
+                group = [x for x in items if x["sev"] == sev]
+                if not group:
+                    continue
+                text_parts.append(SEV_LABEL[sev])
+                html_parts.append(
+                    f'<h3 style="margin:18px 0 6px;font:600 13px sans-serif;'
+                    f'color:#555;text-transform:uppercase">{SEV_LABEL[sev]}</h3>')
+                for x in group:
+                    text_parts.append(f"  {x['head']}\n    {x['body']}\n"
+                                      f"    What to do: {x['act']}")
+                    html_parts.append(
+                        '<div style="border:1px solid #ddd;border-radius:8px;'
+                        'padding:12px 14px;margin:8px 0;font:14px sans-serif">'
+                        f'<div style="font-weight:700;margin-bottom:4px">{x["head"]}</div>'
+                        f'<div style="color:#333">{x["body"]}</div>'
+                        f'<div style="margin-top:6px"><b>What to do:</b> {x["act"]}</div>'
+                        '</div>')
+                text_parts.append("")
+            footer = ("Nothing in this mail was placed automatically. "
+                      "Full detail: the desk board, Candidates tab.")
+            text_body = "\n".join(text_parts) + "\n" + footer
+            html_body = ("<div style=\"max-width:560px\">"
+                         + "".join(html_parts)
+                         + f'<p style="font:12px sans-serif;color:#888">{footer}</p></div>')
+            send_email(SimpleNamespace(subject=subject, text_body=text_body,
+                                       html_body=html_body, pdf_bytes=None), cfg_mail)
             log.info("alert mail sent: %s", subject)
         except Exception as exc:  # noqa: BLE001 — the board still has the state
             log.warning("alert mail NOT sent: %s", str(exc)[:160])
