@@ -73,3 +73,24 @@ def test_the_nightly_harvest_actually_calls_the_push():
     assert "exec \"$UV\" run tradepro-bar-cache-harvest" not in sh
     # And a failed push must fail the JOB, not be logged and shrugged off.
     assert "FATAL: bar push exited" in sh
+
+
+def test_an_asset_class_folder_is_not_a_ticker(tmp_path):
+    """CRYPTO and EVENTS are sibling asset-class folders of us_etf, and both are
+    plain uppercase words that pass every shape test. Told apart structurally:
+    a SYMBOL directory holds resolutions, an ASSET-CLASS directory holds symbols.
+    """
+    from tradepro_strategies.universe import harvest_symbols
+
+    (tmp_path / "DOCN" / "1d").mkdir(parents=True)      # a symbol
+    (tmp_path / "AAPL" / "5m").mkdir(parents=True)      # a symbol
+    (tmp_path / "CRYPTO" / "BTC-USD").mkdir(parents=True)   # an asset class
+    (tmp_path / "EVENTS").mkdir()                        # a data folder
+    (tmp_path / "EVENTS" / "2026-05-31.jsonl").write_text("{}")
+
+    got = harvest_symbols(tmp_path)
+    assert "CRYPTO" not in got, "an asset-class folder was harvested as a ticker"
+    assert "EVENTS" not in got
+    # And the real ones must survive — a filter that rejects everything passes
+    # the two asserts above for the wrong reason.
+    assert "DOCN" in got and "AAPL" in got
