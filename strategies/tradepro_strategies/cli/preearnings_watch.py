@@ -1119,12 +1119,58 @@ def scout(base, token, watched: list, state: dict) -> list:
         hits.append({"sym": sy, "ret13w": 100 * (d.close[i] / d.close[i - 63] - 1),
                      "atr_pct": 100 * d.atr14[i] / d.close[i], "regime": "MOVER",
                      "px": d.close[i], "src": d.source, "n_app": n_app})
+    # Third lens: EARNINGS PROXIMITY (owner, 10 Sep: "how come we didnt get
+    # oracle adobe pre earning today" — both reported that evening, our own
+    # calendar knew, and no lane read it). Any universe name with a
+    # confirmed report inside the window gets a RESEARCH row — that is what
+    # "pre-earnings" discovery means, independent of momentum.
+    try:
+        win_days = int(cfg.get("earnings_within_days", 10))
+        horizon = (_dt.date.today() + _dt.timedelta(days=win_days)).isoformat()
+        today_iso = _dt.date.today().isoformat()
+        already2 = {h["sym"] for h in hits}
+        for esym in sweep:
+            if _time.monotonic() - t0 > budget_s + 120:
+                log.warning("scout earnings lens stopped at budget — %s onward "
+                            "not checked", esym)
+                break
+            if esym in watched or esym in barred or esym in already2:
+                continue
+            try:
+                import requests as _rq
+                ev = _rq.get(f"{base}/api/earnings-calendar/{esym}",
+                             headers={"Authorization": f"Bearer {token}"},
+                             timeout=6).json().get("events") or []
+            except Exception:  # noqa: BLE001
+                continue
+            nxt = next((e for e in sorted(ev, key=lambda e: str(e.get("report_date") or ""))
+                        if today_iso <= str(e.get("report_date") or "")[:10] <= horizon), None)
+            if not nxt:
+                continue
+            rdate = str(nxt["report_date"])[:10]
+            days = (_dt.date.fromisoformat(rdate) - _dt.date.today()).days
+            hits.append({"sym": esym, "ret13w": 0.0, "atr_pct": 0.0,
+                         "regime": "EARNINGS", "px": None,
+                         "src": nxt.get("source") or "calendar",
+                         "earnings": (rdate, (nxt.get("session") or "").lower() or "?", days)})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scout earnings lens failed: %s", str(exc)[:120])
+
     movers_hits = [h for h in hits if h.get("n_app")]
-    keep = [h for h in hits if not h.get("n_app")][:int(cfg.get("top_n", 5))]
+    earn_hits = [h for h in hits if h.get("earnings")]
+    keep = [h for h in hits if not h.get("n_app") and not h.get("earnings")][:int(cfg.get("top_n", 5))]
     keep += movers_hits          # repeat movers are never crowded out by rank
+    keep += sorted(earn_hits, key=lambda h: h["earnings"][2])  # soonest first
     rows = []
     for h in keep:
-        if h.get("n_app"):
+        if h.get("earnings"):
+            rd, sess, days = h["earnings"]
+            when = ("TODAY" if days == 0 else "tomorrow" if days == 1
+                    else f"in {days} days")
+            why = (f"SCOUT: reports earnings {when} — {rd}"
+                   + (f" {sess.upper()}" if sess != "?" else "")
+                   + ". Not on the watch; no levels are armed for it")
+        elif h.get("n_app"):
             why = (f"SCOUT: repeat mover — top gainers {h['n_app']} of last 5 "
                    f"sessions, above EMA20, ATR {h['atr_pct']:.1f}% "
                    f"(13w {h['ret13w']:+.0f}% — a V-recovery nets this away, "
