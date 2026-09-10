@@ -668,6 +668,46 @@ function Detail({ r }: { r: Row }) {
         );
       })()}
 
+      {(r.extra?.key_stats as any)?.name && (() => {
+        const ks: any = r.extra!.key_stats;
+        const px = ks.price, lo = ks.w52_low, hi = ks.w52_high;
+        const pos = px && lo && hi && hi > lo ? Math.min(100, Math.max(0, (100 * (px - lo)) / (hi - lo))) : null;
+        const up = px && ks.target_mean ? (100 * (ks.target_mean / px - 1)) : null;
+        return (
+          <div style={{ flexBasis: "100%", margin: "6px 0 2px" }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text)" }}>
+              {ks.name}
+              <span style={{ fontWeight: 400, color: "var(--text-dim)", fontSize: 12.5 }}>
+                {"  ·  "}{ks.sector}{ks.industry ? ` · ${ks.industry}` : ""}
+                {ks.employees ? ` · ${(ks.employees / 1000).toFixed(0)}k staff` : ""}
+              </span>
+            </div>
+            {ks.summary && (
+              <div style={{ fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.5, maxWidth: 720, margin: "4px 0" }}>
+                {ks.summary}{ks.summary.length >= 420 ? "…" : ""}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 22, flexWrap: "wrap", fontSize: 12.5, marginTop: 4 }}>
+              {pos != null && (
+                <span style={{ color: "var(--text-dim)" }}>
+                  52w: {Number(lo).toFixed(0)}
+                  <span style={{ display: "inline-block", width: 90, height: 6, borderRadius: 3, background: "var(--surface-3)", margin: "0 6px", position: "relative", verticalAlign: "middle" }}>
+                    <span style={{ position: "absolute", left: `${pos}%`, top: -2, width: 3, height: 10, background: "var(--accent)", borderRadius: 1 }} />
+                  </span>
+                  {Number(hi).toFixed(0)} <b style={{ color: "var(--text)" }}>({pos.toFixed(0)}%)</b>
+                </span>
+              )}
+              {up != null && (
+                <span style={{ color: "var(--text-dim)" }}>
+                  analyst avg target <b style={{ color: up >= 0 ? TONE.ok : TONE.bad }}>{Number(ks.target_mean).toFixed(0)} ({up >= 0 ? "+" : ""}{up.toFixed(0)}%)</b>
+                  {ks.n_analysts ? ` · ${ks.n_analysts} analysts` : ""}{ks.rec_key ? ` · ${String(ks.rec_key).replace("_", " ")}` : ""}
+                  <span style={{ opacity: 0.6 }}> — vendor consensus, context only</span>
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {r.extra?.key_stats?.source === "yfinance_info" && (() => {
         const ks = r.extra.key_stats;
         const fm = (v: any, d = 1, suf = "") =>

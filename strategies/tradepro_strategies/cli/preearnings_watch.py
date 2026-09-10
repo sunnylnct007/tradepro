@@ -450,6 +450,22 @@ def key_stats_for(sym: str) -> dict:
             # "dividend date announcement makes impact to share prices")
             "ex_div_date": (dt.date.fromtimestamp(g("exDividendDate")).isoformat()
                             if g("exDividendDate") else None),
+            # Company profile (owner, 10 Sep, pointing at Koyfin: "any signal
+            # clickable shd provide decent info abt the company. currently we
+            # are showing bare minimum"). Rendered in the row expansion.
+            "name": g("shortName", "longName"),
+            "sector": g("sector"),
+            "industry": g("industry"),
+            "employees": g("fullTimeEmployees"),
+            "summary": ((g("longBusinessSummary") or "")[:420] or None),
+            "w52_low": g("fiftyTwoWeekLow"),
+            "w52_high": g("fiftyTwoWeekHigh"),
+            "price": g("currentPrice", "regularMarketPrice"),
+            "target_mean": g("targetMeanPrice"),
+            "target_low": g("targetLowPrice"),
+            "target_high": g("targetHighPrice"),
+            "n_analysts": g("numberOfAnalystOpinions"),
+            "rec_key": g("recommendationKey"),
         }
         _KS_CACHE[key] = out
         return out
