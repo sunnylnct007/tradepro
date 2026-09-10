@@ -1013,3 +1013,8 @@ OPEN / needs an owner call:
 - Scout has a second lens: repeat movers (top-8 gainers ≥2 of last 5 sessions, above EMA20) — INTC-shaped V-recoveries. State in `preearnings_scout_state.movers_history`; thresholds in `preearnings_scout`.
 - DO NOT clear `scout_last_run` casually: before commit 32c3c7d that froze the whole watch board for an hour (sweep outlived the 5-min tick and re-armed itself). Marker is now written BEFORE the sweep; sweep is store-only + 120s budget.
 - Yahoo got throttled tonight from repeated batch calls; extras (NBIS/IREN/SMCI/CRWV/ROIV/SMR) ride yfinance and go last in the sweep.
+
+## 2026-09-10 late — Koyfin direction (owner)
+- Owner: move toward Koyfin-grade finished product ONCE signals are trusted; sequencing his call, not now.
+- Shipped tonight: company profile block in every row expansion (name/sector/industry/staff, business summary, 52w range bar, analyst consensus target labelled context-only) + PEG in vitals. Data = key_stats cache, no new APIs.
+- Phase candidates for the Koyfin push (NOT started): normalized compare charts (symbol vs SPY vs sector ETF overlay), sector heat strip, full-page symbol profile route (chart + financials + news + our signals history), watchlist screens. Sequence AFTER signal trust per owner.
