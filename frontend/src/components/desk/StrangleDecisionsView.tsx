@@ -46,13 +46,6 @@ type Row = {
 const TONE = { ok: "#0f8a5f", off: "#8b95a5", warn: "#d29922", bad: "#f85149" };
 
 /** A live option leg at the broker — the only place a FILL PRICE exists. */
-type Leg = {
-  conid: number;
-  instrumentName: string | null; ticker: string | null; quantity: number;
-  averagePricePaid: number | null; currentPrice: number | null;
-  unrealisedAbs: number | null; multiplier: number | null; isOption?: boolean;
-};
-
 type Pop = {
   label: string; n: number;
   total: number | null; mean: number | null; best: number | null; worst: number | null;
@@ -62,6 +55,7 @@ type Pop = {
 type PnlLeg = {
   contract: string; conid: number; market: string | null; quantity: number;
   soldAt: number | null; markedAt: number | null; unrealised: number;
+  multiplier: number | null;
   placedAtUtc: string | null; heldMinutes: number | null; whyNoTime: string | null;
 };
 type PnlTrade = {
@@ -96,11 +90,12 @@ type Stats = {
 
 export function StrangleDecisionsView() {
   const [rows, setRows] = useState<Row[]>([]);
-  const [legs, setLegs] = useState<Leg[]>([]);
-  const [legErr, setLegErr] = useState<string | null>(null);
   const [days, setDays] = useState(30);
   const [stats, setStats] = useState<Stats | null>(null);
   const [pnl, setPnl] = useState<Pnl | null>(null);
+  const [pnlErr, setPnlErr] = useState<string | null>(null);
+  // Broker trouble is reported by the P&L payload itself now.
+  const legErr = pnlErr;
   // When the browser last got a reply. The server timestamp says when the mark
   // was taken; this says how stale the copy on screen is. They are different
   // questions and a P&L needs both answered.
@@ -119,15 +114,14 @@ export function StrangleDecisionsView() {
     try { setStats((await api.strangleStats(days)) as unknown as Stats); }
     catch { setStats(null); }
     try {
-      setPnl((await api.strangleLivePnl(days)) as unknown as Pnl);
-      setFetchedAt(new Date());
-    } catch { setPnl(null); }
-    // LIVE LEGS, separately — a broker hiccup must not blank the history.
-    try {
-      const p = await api.ibkrPositions();
-      setLegs((p.positions ?? []).filter((x) => x.isOption) as Leg[]);
-      setLegErr(p.error ?? null);
-    } catch (e) { setLegErr(String((e as Error)?.message || e)); }
+      const got = (await api.strangleLivePnl(days)) as unknown as Pnl;
+      setPnl(got); setFetchedAt(new Date());
+      // The open half can be UNKNOWN while the closed half is fine — say which.
+      setPnlErr(got.total == null ? (got.warnings?.[0] ?? "the open half could not be read") : null);
+    } catch (e) { setPnl(null); setPnlErr(String((e as Error)?.message || e)); }
+    // The open book now arrives with the P&L, in ONE payload. The separate
+    // positions fetch that used to live here is what let the header and the
+    // table below it disagree about the same four legs.
   }, [days]);
 
   useEffect(() => { void load(); }, [load]);
@@ -166,7 +160,8 @@ export function StrangleDecisionsView() {
   void tick; // re-render each second so `ago` stays true
   // Aliased: inside the leg table `pnl` is that ROW's P&L, and a
   // shadowed name there would silently read the wrong object.
-  const pnl0 = pnl;
+  // The open book, from the SAME payload the hero figure uses.
+  const openLegs: PnlLeg[] = pnl?.open.detail ?? [];
 
   return (
     <div style={{ padding: 16 }}>
@@ -431,10 +426,16 @@ export function StrangleDecisionsView() {
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
             live P&amp;L · refreshes every 60s
           </span>
-          {legs.length > 0 && (() => {
-            const net = legs.reduce((a, l) => a + (l.unrealisedAbs || 0), 0);
-            const credit = legs.reduce(
-              (a, l) => a + (l.averagePricePaid || 0) * Math.abs(l.quantity) * (l.multiplier || 100), 0);
+          {/* ONE FETCH, ONE NUMBER. This panel used to sum a SECOND fetch of
+              the same positions while the hero above used the P&L payload. Two
+              reads of one book, seconds apart — the header showed +87.72 and
+              this table +75.35 for the same four legs, and neither was wrong.
+              A screen that reports one fact twice will eventually report it
+              differently. */}
+          {openLegs.length > 0 && (() => {
+            const net = openLegs.reduce((a, l) => a + (l.unrealised || 0), 0);
+            const credit = openLegs.reduce(
+              (a, l) => a + (l.soldAt || 0) * Math.abs(l.quantity) * (l.multiplier || 100), 0);
             return (
               <span style={{ marginLeft: "auto", display: "flex", gap: 14, alignItems: "baseline" }}>
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
@@ -453,7 +454,7 @@ export function StrangleDecisionsView() {
           <div style={{ fontSize: 12.5, color: TONE.warn }}>
             Broker unreadable: {legErr}
           </div>
-        ) : legs.length === 0 ? (
+        ) : openLegs.length === 0 ? (
           <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
             Flat — no option legs open.
           </div>
@@ -475,18 +476,18 @@ export function StrangleDecisionsView() {
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Live P&amp;L</th>
             </tr></thead>
             <tbody>
-              {legs.map((l, i) => {
+              {openLegs.map((l, i) => {
                 const mult = l.multiplier || 100;
-                const credit = (l.averagePricePaid || 0) * Math.abs(l.quantity) * mult;
-                const pnl = l.unrealisedAbs ?? 0;
+                const credit = (l.soldAt || 0) * Math.abs(l.quantity) * mult;
+                const pnl = l.unrealised ?? 0;
                 // Timings come from the P&L endpoint, which does the OCC match
                 // server-side. Matched on conid: the contract STRING is
                 // formatted for humans and is not an identifier.
-                const t = pnl0?.open.detail.find((x) => x.conid === l.conid);
+                const t = l;   // same object: one payload, one truth
                 return (
                   <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ padding: "6px" }}>
-                      {l.instrumentName || l.ticker}
+                      {l.contract}
                       {l.quantity < 0 && (
                         <span style={{ fontSize: 9, marginLeft: 5, color: "var(--text-muted)" }}>SHORT</span>
                       )}
@@ -501,10 +502,10 @@ export function StrangleDecisionsView() {
                     </td>
                     <td style={{ padding: "6px", textAlign: "right" }}>{l.quantity}</td>
                     <td style={{ padding: "6px", textAlign: "right", fontWeight: 600 }}>
-                      {l.averagePricePaid?.toFixed(4) ?? "—"}
+                      {l.soldAt?.toFixed(4) ?? "—"}
                     </td>
                     <td style={{ padding: "6px", textAlign: "right" }}>
-                      {l.currentPrice?.toFixed(4) ?? "—"}
+                      {l.markedAt?.toFixed(4) ?? "—"}
                     </td>
                     <td style={{ padding: "6px", textAlign: "right", color: "var(--text-muted)" }}>
                       {credit.toFixed(2)}
