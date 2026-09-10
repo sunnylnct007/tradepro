@@ -978,8 +978,12 @@ def _occ_strike(desc: str) -> float | None:
     return int(m.group(1)) / 1000.0 if m else None
 
 
-def _credit_from_broker(row: dict, leg: dict) -> float | None:
-    """What the broker ACTUALLY filled the two legs at, in MONEY.
+def _credit_from_broker(row: dict, leg: dict) -> dict | None:
+    """What the broker ACTUALLY filled the two legs at.
+
+    Returns {"credit": money, "put_entry": per-share, "call_entry": per-share}
+    — the total AND the fills. It used to return the total alone, and the fills
+    were unrecoverable the moment the position closed.
 
     Matched on STRIKE, because IBKR's Web API returns avgPrice null on the
     order itself — the position is the only place a fill price exists.
@@ -997,8 +1001,14 @@ def _credit_from_broker(row: dict, leg: dict) -> float | None:
     payload = r.json() or {}
     if payload.get("error"):
         return None
-    want = {float(leg.get("put_strike") or -1), float(leg.get("call_strike") or -1)}
+    put_k = float(leg.get("put_strike") or -1)
+    call_k = float(leg.get("call_strike") or -1)
+    want = {put_k, call_k}
     total, seen = 0.0, 0
+    # PER-LEG FILLS, kept rather than summed away. The money total grades the
+    # trade; these grade the EXECUTION — whether we sold the mid or got
+    # slipped — and once the position closes the broker keeps no record of them.
+    per_leg: dict[str, float] = {}
     for p in payload.get("positions") or []:
         if not p.get("isOption") or float(p.get("quantity") or 0) >= 0:
             continue
@@ -1010,8 +1020,14 @@ def _credit_from_broker(row: dict, leg: dict) -> float | None:
             continue
         mult = float(p.get("multiplier") or 0) or 100.0
         total += float(px) * abs(float(p.get("quantity") or 0)) * mult
+        if k == put_k:
+            per_leg["put_entry"] = round(float(px), 6)
+        elif k == call_k:
+            per_leg["call_entry"] = round(float(px), 6)
         seen += 1
-    return round(total, 2) if seen else None
+    if not seen:
+        return None
+    return {"credit": round(total, 2), **per_leg}
 
 
 # TARGET DELTA PER LEG, spec v1.0 §2.1. 0.16 is the spec default.
@@ -1196,7 +1212,15 @@ def record_execution(row: dict, res: dict) -> dict:
         try:
             got = _credit_from_broker(row, leg=(row.get("legs") or {}).get(kind) or {})
             if got is not None:
-                body["creditActual"] = got
+                body["creditActual"] = got["credit"]
+                # PER SHARE, beside the money. Sent only when the broker
+                # actually reported a fill for that leg — a half-filled pair
+                # records the leg it has and leaves the other NULL rather than
+                # implying a price nobody paid.
+                if got.get("put_entry") is not None:
+                    body["putEntry"] = got["put_entry"]
+                if got.get("call_entry") is not None:
+                    body["callEntry"] = got["call_entry"]
         except Exception as exc:  # noqa: BLE001 — never lose the link over this
             log.warning("could not read the filled credit for %s: %s",
                         row.get("market"), str(exc)[:120])

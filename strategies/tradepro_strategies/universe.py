@@ -221,9 +221,20 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
                 # class above happens to reject the underscore. That is luck,
                 # not a rule, and it is the same shape as the phantom US_ETF
                 # that once marked 37 consecutive harvests FAILED.
-                if not any(c.is_dir() and _RESOLUTION_DIR.fullmatch(c.name)
-                           for c in child.iterdir()):
-                    continue
+                kids = list(child.iterdir())
+                subdirs = [c for c in kids if c.is_dir()]
+                if any(_RESOLUTION_DIR.fullmatch(c.name) for c in subdirs):
+                    pass                       # 1d/1m/5m -> a SYMBOL
+                elif subdirs:
+                    continue                   # holds SYMBOLS -> an asset class
+                elif any(c.is_file() for c in kids):
+                    continue                   # loose files -> a data folder
+                # else: EMPTY. Ambiguous, so keep it. A freshly seeded symbol
+                # and one whose local partitions were pruned to S3 both look
+                # like this, and dropping them would quietly shrink the harvest
+                # -- the exact silent narrowing this function exists to prevent.
+                # The first version of this check rejected them; three existing
+                # tests caught it, which is why the whole suite gets run.
                 ok, _ = _instrument_ok(sym)
                 if ok:
                     _store_extra.append(sym.upper())
