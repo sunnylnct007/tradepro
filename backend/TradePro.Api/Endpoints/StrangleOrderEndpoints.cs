@@ -446,8 +446,38 @@ public static class StrangleOrderEndpoints
             // hundreds of contracts per side for no gain.
             var lo = req.Spot * 0.88m;
             var hi = req.Spot * 1.12m;
-            var callK = strikes.Calls.Where(k => k >= req.Spot && k <= hi).OrderBy(k => k).Take(40).ToList();
-            var putK = strikes.Puts.Where(k => k <= req.Spot && k >= lo).OrderByDescending(k => k).Take(40).ToList();
+            // SPAN THE WINDOW, DO NOT WALK INTO IT. Taking the 40 strikes
+            // NEAREST the money and then stopping after 25 resolutions means
+            // the search reaches 25 strike-increments out and no further. That
+            // is fine where increments are small relative to spot and fatal
+            // where they are not:
+            //
+            //   SPY  16-delta put ~18 strikes out ($1 apart)   -> reached
+            //   QQQ  ~21 strikes out                            -> reached
+            //   SPX  ~35 strikes out (5 points apart, 177 pts)  -> NEVER
+            //
+            // So delta-mode solved for the small-increment names and reported
+            // 'no strike reached the target delta with a live quote' for SPX
+            // every session since it shipped -- and SPX is the market whose
+            // skew makes delta-matching matter most. On 8 Sep the equidistant
+            // pair ran at +0.155 net delta and lost 218 on a 0.18% move.
+            //
+            // Sampled with a STRIDE across the whole plausible window instead,
+            // so the same 25-contract budget covers the range rather than
+            // clustering next to the money.
+            static List<decimal> Span(IEnumerable<decimal> ordered, int budget)
+            {
+                var all = ordered.ToList();
+                if (all.Count <= budget) return all;
+                var stride = (int)Math.Ceiling(all.Count / (double)budget);
+                return all.Where((_, i) => i % stride == 0).Take(budget).ToList();
+            }
+
+            const int StrikeBudget = 25;
+            var callK = Span(strikes.Calls.Where(k => k >= req.Spot && k <= hi).OrderBy(k => k),
+                             StrikeBudget);
+            var putK = Span(strikes.Puts.Where(k => k <= req.Spot && k >= lo).OrderByDescending(k => k),
+                            StrikeBudget);
             if (callK.Count == 0 || putK.Count == 0)
                 return Results.Json(new { ok = false, stage = "strikes",
                     error = "no listed strikes within 12% of spot" }, statusCode: 502);
@@ -461,7 +491,10 @@ public static class StrangleOrderEndpoints
                     var c = await ibkr.ResolveOptionConidAsync(sym, req.Expiry, k, right, ct, secType);
                     if (c is null) continue;
                     conids.Add(c.Value); byConid[c.Value] = k;
-                    if (conids.Count >= 25) break;   // bound the work
+                    // Belt and braces: Span() already bounds the list. Kept so
+                    // a future caller passing a longer list cannot blow the
+                    // round-trip budget.
+                    if (conids.Count >= StrikeBudget) break;
                 }
                 if (conids.Count == 0) return (null, null);
                 var q = await ibkr.GetOptionSnapshotBatchAsync(conids, ct);
