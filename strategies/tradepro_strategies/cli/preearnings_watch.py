@@ -415,6 +415,16 @@ def key_stats_for(sym: str) -> dict:
             "source": "yfinance_info",
             "market_cap": g("marketCap"),
             "pe_ttm": g("trailingPE"),
+            # PEG (owner, 10 Sep): P/E over expected EPS growth — the
+            # growth-adjusted price tag. Yahoo's trailingPegRatio when
+            # present; else forwardPE / (earningsGrowth*100), labelled.
+            # CONTEXT only — the G is an analyst forecast, and our own
+            # earnings study showed those are least reliable exactly where
+            # we trade. It never gates.
+            "peg": g("trailingPegRatio"),
+            "peg_derived": (round(g("forwardPE") / (100 * g("earningsGrowth")), 2)
+                            if not g("trailingPegRatio") and g("forwardPE")
+                            and (g("earningsGrowth") or 0) > 0.01 else None),
             "pe_fwd": g("forwardPE"),
             "ps_ttm": g("priceToSalesTrailing12Months"),
             "pb": g("priceToBook"),

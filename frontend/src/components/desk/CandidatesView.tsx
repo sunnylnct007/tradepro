@@ -684,6 +684,9 @@ function Detail({ r }: { r: Row }) {
         const rows: [string, string][] = [
           ["Mkt cap", cap],
           ["P/E ttm → fwd", `${fm(ks.pe_ttm)} → ${fm(ks.pe_fwd)}`],
+          ["PEG", (ks as any).peg != null ? fm((ks as any).peg)
+                  : (ks as any).peg_derived != null ? `${fm((ks as any).peg_derived)} (derived)`
+                  : "—"],
           ["Rev growth", fm(100 * ks.rev_growth, 0, "%")],
           ["Beta", fm(ks.beta)],
           ["Short % float", fm(100 * ks.short_pct_float, 1, "%")],
