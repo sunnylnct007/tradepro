@@ -1417,8 +1417,10 @@ def main() -> int:
     # do. Internal ids and config-speak never reach the inbox.
     if mail_lines:
         try:
-            from .email_digest import CRED_PATH, send_email
-            cfg_mail = json.loads(CRED_PATH.read_text())
+            from .email_digest import resolve_smtp_creds, send_email
+            cfg_mail = resolve_smtp_creds()
+            if not cfg_mail.get("smtp_host"):
+                raise RuntimeError("no SMTP credentials on this runtime")
             items = sorted(mail_lines, key=lambda x: x["sev"])
             lead = items[0]
             subject = ("[TradePro] " + lead["head"]

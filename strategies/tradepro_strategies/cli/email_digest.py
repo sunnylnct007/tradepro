@@ -85,6 +85,41 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def resolve_smtp_creds() -> dict:
+    """File first (Mac), then Secrets Manager (Lambda), then env vars.
+
+    10 Sep 2026: the watch's alert mail silently failed on EVERY Lambda tick
+    ("No such file: /tmp/.tradepro/email-creds.json") — alerts a Lambda tick
+    caught first were deduped as fired and never mailed at all. Same secret
+    and shape the strangle mailer already uses: tradepro/email.
+    """
+    import os as _os
+    data: dict = {}
+    if CRED_PATH.is_file():
+        try:
+            data = json.loads(CRED_PATH.read_text())
+        except (OSError, json.JSONDecodeError):
+            pass
+    if not data and _os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        try:
+            import boto3
+            sm = boto3.client("secretsmanager",
+                              region_name=_os.environ.get("AWS_REGION", "eu-west-2"))
+            data = json.loads(sm.get_secret_value(
+                SecretId=_os.environ.get("TRADEPRO_EMAIL_SECRET", "tradepro/email")
+            )["SecretString"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"warning: secrets manager read failed: {exc}", file=sys.stderr)
+    return {
+        "smtp_host": data.get("smtp_host") or os.environ.get("TRADEPRO_SMTP_HOST"),
+        "smtp_port": int(data.get("smtp_port") or os.environ.get("TRADEPRO_SMTP_PORT") or 465),
+        "smtp_user": data.get("smtp_user") or os.environ.get("TRADEPRO_SMTP_USER"),
+        "smtp_password": data.get("smtp_password") or os.environ.get("TRADEPRO_SMTP_PASSWORD"),
+        "from": data.get("from") or os.environ.get("TRADEPRO_EMAIL_FROM"),
+        "to": data.get("to") or os.environ.get("TRADEPRO_EMAIL_TO"),
+    }
+
+
 def load_smtp_creds(args: argparse.Namespace) -> dict:
     """Resolve SMTP credentials. File wins; env vars fill gaps."""
     data: dict = {}
