@@ -330,4 +330,28 @@ public class StrangleDecisionKeyTest
         // A 2 with no 1 invites the exact question that cost an hour.
         Assert.Contains("ROW_NUMBER() OVER (PARTITION BY market, session, expiry_kind", sql);
     }
+
+    [Fact]
+    public void TheFillsAreStoredPerLegNotJustAsATotal()
+    {
+        // Owner, 10 Sep 2026: "we need to also record what price we took while
+        // booking". credit_actual is the MONEY; these are the prices. Once a
+        // position closes the broker keeps no record of them, so if they are
+        // not written here they exist nowhere.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("credit_actual, placed_at_utc, put_entry, call_entry", s);
+        Assert.Contains("put_exit         = COALESCE(@PutExit, put_exit)", s);
+        Assert.Contains("putEntry = r.put_entry", s);
+    }
+
+    [Fact]
+    public void PerLegPricesAreNOTBackfilled()
+    {
+        // They were never captured and cannot be reconstructed: splitting a
+        // total by a ratio nobody measured produces a number that looks like a
+        // fill and is not one. NULL says "not recorded", which is true.
+        var sql = Src("backend/TradePro.Api/db/migrations/080_per_leg_booking_prices.sql");
+        Assert.Contains("NOT BACKFILLED", sql);
+        Assert.DoesNotContain("UPDATE strangle_execution", sql);
+    }
 }

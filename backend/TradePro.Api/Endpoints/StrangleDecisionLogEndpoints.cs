@@ -65,6 +65,11 @@ public static class StrangleDecisionLogEndpoints
         decimal? NetDelta = null,
         // What DELTA-mode selection WOULD have chosen (spec §2.1), recorded
         // beside what we traded. Selection itself is unchanged.
+        // WHAT WE ACTUALLY TOOK, leg by leg, PER SHARE. The totals above are
+        // money; these are the fills. Both are needed: money grades the trade,
+        // the fills grade the execution.
+        decimal? PutEntry = null, decimal? CallEntry = null,
+        decimal? PutExit = null, decimal? CallExit = null,
         decimal? DeltaPutStrike = null, decimal? DeltaCallStrike = null,
         decimal? DeltaModeNet = null, decimal? DeltaTarget = null,
         bool? DeltaInBand = null);
@@ -225,7 +230,9 @@ public static class StrangleDecisionLogEndpoints
                         exit_cost_actual = COALESCE(@ExitCostActual, exit_cost_actual),
                         close_trigger    = COALESCE(@CloseTrigger, close_trigger),
                         closed_at_utc    = COALESCE(@ClosedAtUtc, closed_at_utc),
-                        realised_pnl     = COALESCE(@RealisedPnl, realised_pnl)
+                        realised_pnl     = COALESCE(@RealisedPnl, realised_pnl),
+                        put_exit         = COALESCE(@PutExit, put_exit),
+                        call_exit        = COALESCE(@CallExit, call_exit)
                       WHERE id = (
                         SELECT id FROM strangle_execution
                          WHERE market = @Market AND session = @Session
@@ -233,7 +240,8 @@ public static class StrangleDecisionLogEndpoints
                            AND placed IS TRUE AND closed_at_utc IS NULL
                          ORDER BY entry_seq DESC LIMIT 1)",
                     new { row.ExitCostActual, row.CloseTrigger, row.ClosedAtUtc,
-                          row.RealisedPnl, row.Market, Session = session, Kind = kind });
+                          row.RealisedPnl, row.PutExit, row.CallExit,
+                          row.Market, Session = session, Kind = kind });
             }
             else if (row.Placed == true)
             {
@@ -261,7 +269,7 @@ public static class StrangleDecisionLogEndpoints
                     INSERT INTO strangle_execution
                         (market, session, expiry_kind, entry_seq, put_strike, call_strike,
                          placed, partial, shadow, place_error, broker_order_ids,
-                         credit_actual, placed_at_utc)
+                         credit_actual, placed_at_utc, put_entry, call_entry)
                     SELECT @Market, @Session, @Kind,
                            COALESCE((SELECT MAX(entry_seq) FROM strangle_execution
                                       WHERE market = @Market AND session = @Session
@@ -281,7 +289,8 @@ public static class StrangleDecisionLogEndpoints
                                AND COALESCE(expiry_kind, '') = @Kind LIMIT 1),
                            @Placed, @Partial, @Shadow,
                            CASE WHEN @Placed IS TRUE THEN NULL ELSE @PlaceError END,
-                           @BrokerOrderIds, @CreditActual, @PlacedAtUtc
+                           @BrokerOrderIds, @CreditActual, @PlacedAtUtc,
+                           @PutEntry, @CallEntry
                      WHERE NOT EXISTS (
                         SELECT 1 FROM strangle_execution
                          WHERE market = @Market AND session = @Session
@@ -289,7 +298,8 @@ public static class StrangleDecisionLogEndpoints
                            AND placed_at_utc IS NOT DISTINCT FROM @PlacedAtUtc)",
                     new { row.Market, Session = session, Kind = kind,
                           row.Placed, row.Partial, row.Shadow, row.PlaceError,
-                          row.BrokerOrderIds, row.CreditActual, row.PlacedAtUtc });
+                          row.BrokerOrderIds, row.CreditActual, row.PlacedAtUtc,
+                          row.PutEntry, row.CallEntry });
             }
 
             return Results.Ok(new { ok = true, updated = n });
@@ -445,6 +455,12 @@ public static class StrangleDecisionLogEndpoints
 
             var closed = (await conn.QueryAsync(@"
                 SELECT market, session, shadow, entry_seq,
+                       put_strike::float8   AS put_strike,
+                       call_strike::float8  AS call_strike,
+                       put_entry::float8    AS put_entry,
+                       call_entry::float8   AS call_entry,
+                       put_exit::float8     AS put_exit,
+                       call_exit::float8    AS call_exit,
                        placed_at_utc, closed_at_utc,
                        realised_pnl::float8   AS realised_pnl,
                        credit_actual::float8  AS credit_actual
@@ -641,6 +657,13 @@ public static class StrangleDecisionLogEndpoints
                             : null,
                         credit = r.credit_actual,
                         realised = r.realised_pnl,
+                        // The fills themselves. A round-trip that nets +412
+                        // from a call at +11,253 and a put at -10,840 is a
+                        // different trade from one that nets +412 quietly, and
+                        // the totals alone cannot tell them apart.
+                        putStrike = r.put_strike, callStrike = r.call_strike,
+                        putEntry = r.put_entry, callEntry = r.call_entry,
+                        putExit = r.put_exit, callExit = r.call_exit,
                     }).ToList(),
                     gated = closed.Where(r => r.shadow != true)
                                   .Sum(r => (double)(r.realised_pnl ?? 0d)),

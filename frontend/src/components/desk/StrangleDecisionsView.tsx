@@ -64,6 +64,9 @@ type PnlTrade = {
   placedAtUtc: string | null; closedAtUtc: string | null; heldMinutes: number | null;
   timingIncoherent: string | null;
   credit: number | null; realised: number | null;
+  putStrike: number | null; callStrike: number | null;
+  putEntry: number | null; callEntry: number | null;
+  putExit: number | null; callExit: number | null;
 };
 type Pnl = {
   asOfUtc: string; broker: string | null; total: number | null;
@@ -290,6 +293,12 @@ export function StrangleDecisionsView() {
               <th style={{ padding: "5px 6px" }}>Placed</th>
               <th style={{ padding: "5px 6px" }}>Closed</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Held</th>
+              {/* WHAT WE ACTUALLY TOOK. Credit is the money; these are the
+                  fills that produced it. Once a position closes the broker
+                  keeps no record of them, so if they are not stored here they
+                  do not exist anywhere. */}
+              <th style={{ padding: "5px 6px" }}>Put  sold → bought</th>
+              <th style={{ padding: "5px 6px" }}>Call sold → bought</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Credit</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Realised</th>
             </tr></thead>
@@ -327,6 +336,30 @@ export function StrangleDecisionsView() {
                                     + "reading this as a strategy result" : "")}>
                       {t.timingIncoherent ? "INCOHERENT" : held(t.heldMinutes)}
                     </td>
+                    {(["put", "call"] as const).map((side) => {
+                      const k = side === "put" ? t.putStrike : t.callStrike;
+                      const inPx = side === "put" ? t.putEntry : t.callEntry;
+                      const outPx = side === "put" ? t.putExit : t.callExit;
+                      return (
+                        <td key={side} style={{ padding: "6px", whiteSpace: "nowrap",
+                                     color: inPx == null ? "var(--text-muted)" : "inherit" }}
+                            title={inPx == null
+                              ? "not recorded — this trade closed before per-leg fills were stored"
+                              : `${k ?? "?"} strike · sold ${inPx}${outPx != null ? ` · bought back ${outPx}` : ""}`}>
+                          {k != null && (
+                            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                              {k.toLocaleString()}{" "}
+                            </span>
+                          )}
+                          {inPx == null ? "—" : inPx.toFixed(2)}
+                          {outPx != null && (
+                            <span style={{ color: "var(--text-muted)" }}>
+                              {" → "}{outPx.toFixed(2)}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
                     <td style={{ padding: "6px", textAlign: "right",
                                  color: t.credit == null ? "var(--text-muted)" : "inherit" }}>
                       {t.credit == null ? "—" : t.credit.toFixed(2)}

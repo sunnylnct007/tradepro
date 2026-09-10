@@ -225,7 +225,8 @@ def _current_vol(sym: str) -> float | None:
 
 def _record_exit(base, tok, market: str, expiry: str,
                  credit: float, cost: float, trigger: str | None,
-                 unmarkable: bool, session: str | None = None) -> None:
+                 unmarkable: bool, session: str | None = None,
+                 exit_px: dict | None = None) -> None:
     """Attach the exit to the decision that opened the position.
 
     Owner, 31 Aug 2026: "f the strangell worked or not". Closing a position and
@@ -253,6 +254,11 @@ def _record_exit(base, tok, market: str, expiry: str,
     body = {"market": market, "asOf": session or _dt.date.today().isoformat(),
             "expiryKind": "monthly" if expiry else None,
             "exitCostActual": cost_out,
+            # Only when the pair was markable. An unmarkable close records the
+            # trigger and NO prices — inventing one here is the same sin as
+            # inventing the money.
+            **({"putExit": (exit_px or {}).get("put_exit"),
+                "callExit": (exit_px or {}).get("call_exit")} if not unmarkable else {}),
             "realisedPnl": realised,
             "closeTrigger": trigger,
             "closedAtUtc": _dt.datetime.now(_dt.UTC).isoformat()}
@@ -453,6 +459,7 @@ def main() -> int:
         # "-99.06%" cost-basis bug happened.
         credit = cost = 0.0            # per share, for the ratio
         credit_money = cost_money = 0.0  # dollars, for the record
+        exit_px: dict[str, float] = {}   # per share, per leg, for the audit
         unmarkable = False
         for p, _occ, _c in legs:
             c = p.get("averagePricePaid")
@@ -466,6 +473,14 @@ def main() -> int:
             cost += float(m) * qty
             credit_money += float(c) * qty * mult
             cost_money += float(m) * qty * mult
+            # PER-LEG EXIT, kept. The totals say what the round-trip made; only
+            # these say which leg made it. A pair can net +412 from a call at
+            # +11,253 against a put at -10,840, and the total cannot tell that
+            # apart from a quiet +412.
+            if _occ.get("right") == "P":
+                exit_px["put_exit"] = round(float(m), 6)
+            elif _occ.get("right") == "C":
+                exit_px["call_exit"] = round(float(m), 6)
 
         verdict = decide_close(
             {"credit": None if unmarkable else credit,
@@ -579,7 +594,8 @@ def main() -> int:
                     break
             # MONEY here, not the per-share figures the ratio used.
             _record_exit(base, tok, market, expiry, credit_money, cost_money,
-                         verdict.get("trigger"), unmarkable, sess)
+                         verdict.get("trigger"), unmarkable, sess,
+                         exit_px=exit_px)
 
     if failed:
         print(f"\n  !! {failed} position(s) COULD NOT BE CLOSED and remain short.")
