@@ -549,6 +549,13 @@ public static class StrangleDecisionLogEndpoints
                                 soldAt = p.AvgCost is decimal ac ? ac / mult : (decimal?)null,
                                 markedAt = p.MarketPrice,
                                 unrealised = u,
+                                // Carried so the screen can compute CREDIT from
+                                // this one payload. It used to sum a SECOND
+                                // fetch of the same positions, and the two
+                                // drifted between refreshes -- the header read
+                                // +87.72 while the table below it read +75.35,
+                                // for the same four legs.
+                                multiplier = mult,
                                 placedAtUtc = placedAt,
                                 heldMinutes = placedAt is DateTime t
                                     ? Math.Round((DateTime.UtcNow - t).TotalMinutes, 1)
