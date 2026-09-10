@@ -160,10 +160,18 @@ def _intraday_15m(sym):
     today_et = _dt.datetime.now(ET).date()
     out = []
     for ts, row in df.iterrows():
-        if ts.astimezone(ET).date() == today_et:
-            out.append({"t": ts.isoformat(), "o": float(row["Open"]),
-                        "h": float(row["High"]), "l": float(row["Low"]),
-                        "c": float(row["Close"]), "src": "yfinance_15m"})
+        ts_et = ts.astimezone(ET)
+        # Regular session only. 10 Sep: a thin pre-market print (MU "low
+        # 938.38" that never traded in RTH) reached the owner's inbox as a
+        # zone touch. Extended-hours bars are not evidence of a level.
+        if ts_et.date() != today_et:
+            continue
+        hm = ts_et.hour * 60 + ts_et.minute
+        if hm < 9 * 60 + 30 or hm >= 16 * 60:
+            continue
+        out.append({"t": ts.isoformat(), "o": float(row["Open"]),
+                    "h": float(row["High"]), "l": float(row["Low"]),
+                    "c": float(row["Close"]), "src": "yfinance_15m"})
     return out
 
 
@@ -670,9 +678,11 @@ def evaluate(sym, cfg, base, token, state):
     ext = ema + band.get("extended_from_ema_atr", 1.5) * atr
     if px >= ext or (bars and bars[-1]["c"] >= ext):
         alerts.append(("EXTENDED_DO_NOT_CHASE", d.dates[i],
-                       f"{sym} is ≥{band.get('extended_from_ema_atr', 1.5)}x "
-                       f"ATR above its EMA20 ({ext:.2f}) — extension, not "
-                       f"entry. Do not chase; wait for a pullback/reclaim."))
+                       f"{sym} closed {px:.2f} on {d.dates[i]} — above "
+                       f"{ext:.2f}, which is {band.get('extended_from_ema_atr', 1.5)}x "
+                       f"its daily range above the 20-day average "
+                       f"({ema:.2f}). That is an extension, not an entry. "
+                       f"Prices may have moved since that close."))
     if bw:
         bo = next((b for b in bars if b["c"] >= bw), None)
         if bo:
@@ -701,9 +711,11 @@ def evaluate(sym, cfg, base, token, state):
     _rtag = "" if long_regime else f" [regime {regime} — journal only, NOT a setup]"
     if touched:
         alerts.append((f"{_j}EMA20_PULLBACK_ZONE", d.dates[i],
-                       f"{sym} touched the EMA20 proximity band "
-                       f"({prox_hi:.2f}; low {touch_low:.2f}) · "
-                       f"blind-entry proxy {prox_hi:.2f} · journal armed{_rtag}"))
+                       f"{sym} dipped into its buy zone — the zone top is "
+                       f"{prox_hi:.2f}, and the session low so far is "
+                       f"{touch_low:.2f}. A dip alone is NOT the signal: "
+                       f"if a 15-minute bar closes back above {prox_hi:.2f}, "
+                       f"the reclaim alert follows{_rtag}"))
     if reclaim_bar:
         alerts.append((f"{_j}RECLAIM_15M", reclaim_bar["t"],
                        f"{sym} 15m close {reclaim_bar['c']:.2f} back above the "
@@ -889,6 +901,14 @@ def _mail_item(a_id, sym, text):
                 "head": f"{sym} hit a level YOU set",
                 "body": text,
                 "act": "This is your pre-decided line. Act on your plan."}
+    if aid == "EMA20_PULLBACK_ZONE":
+        return {"sev": 1, "sym": sym,
+                "head": f"{sym} dipped into its buy zone — no action yet",
+                "body": text,
+                "act": ("Wait. If it holds and reclaims the zone, the "
+                        "reclaim alert (and a sized proposal where "
+                        "configured) arrives on its own. Buying the dip "
+                        "blind is exactly what this watch avoids.")}
     if aid == "RECLAIM_15M":
         return {"sev": 1, "sym": sym,
                 "head": f"{sym} dipped into its buy zone and came back up",
