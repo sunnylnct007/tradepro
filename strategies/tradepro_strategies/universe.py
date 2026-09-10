@@ -135,6 +135,12 @@ def universe_symbols(**kw) -> list[str]:
     return [r["symbol"] for r in load_universe(**kw)["symbols"]]
 
 
+# Resolution folder names as the bar store writes them: 1d, 1m, 5m, 15m, 1h.
+# The one thing a symbol directory always contains and an asset-class directory
+# never does.
+_RESOLUTION_DIR = re.compile(r"\d+[a-zA-Z]")
+
+
 def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
     """What the daily harvest should REFRESH — the one definition of it.
 
@@ -203,6 +209,20 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
                 if sym.upper() == p.name.upper():
                     continue
                 if not re.fullmatch(r"[A-Za-z0-9.\-^=]+", sym):
+                    continue
+                # A SYMBOL DIRECTORY HOLDS RESOLUTIONS. An ASSET-CLASS
+                # directory holds symbols. Checked structurally because the
+                # names alone cannot be told apart: pointed at the bar_cache
+                # ROOT, this returned CRYPTO and EVENTS as tickers — they are
+                # sibling asset-class folders of us_etf, and both are plain
+                # uppercase words that pass every shape test.
+                #
+                # index_us and uk_equity escaped only because the character
+                # class above happens to reject the underscore. That is luck,
+                # not a rule, and it is the same shape as the phantom US_ETF
+                # that once marked 37 consecutive harvests FAILED.
+                if not any(c.is_dir() and _RESOLUTION_DIR.fullmatch(c.name)
+                           for c in child.iterdir()):
                     continue
                 ok, _ = _instrument_ok(sym)
                 if ok:
