@@ -212,11 +212,21 @@ export function StrangleDecisionsView() {
               <div>{pnl.broker ?? "broker unreadable"}</div>
             </div>
           </div>
-          {pnl.warnings.map((w, i) => (
-            <div key={i} style={{ marginTop: 9, fontSize: 12, color: TONE.warn,
-                                  border: `1px solid ${TONE.warn}`, borderRadius: 6,
-                                  padding: "7px 10px", lineHeight: 1.5 }}>{w}</div>
-          ))}
+          {/* ONE LINE, NOT A STACK OF BOXES. Every caveat framed in its own
+              amber panel makes them all equally loud, which is the same as
+              none of them being loud. The text is kept — on hover. */}
+          {pnl.warnings.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11.5, color: TONE.warn,
+                          display: "flex", alignItems: "baseline", gap: 6 }}
+                 title={pnl.warnings.join("\n\n")}>
+              <span>⚠</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis",
+                             whiteSpace: "nowrap" }}>
+                {pnl.warnings[0]}
+                {pnl.warnings.length > 1 && `  (+${pnl.warnings.length - 1} more — hover)`}
+              </span>
+            </div>
+          )}
         </div>
       )}
       {/* The open-positions CARD used to sit here as well as the "Open now"
@@ -253,7 +263,10 @@ export function StrangleDecisionsView() {
           that flattened fresh positions until 8 Sep 2026. HELD is therefore not
           a nicety here; it is the column that tells you which one you are
           looking at, so it is tinted when the trade lasted under an hour. */}
-      {pnl && pnl.realised.trades.length > 0 && (
+      {pnl && pnl.realised.trades.length > 0 && (() => {
+        const anyReentry = pnl.realised.trades.some((t) => (t.entry ?? 1) > 1);
+        const allOverrode = pnl.realised.trades.every((t) => t.shadow);
+        return (
         <div style={{ border: "1px solid var(--border)", borderRadius: 10,
                       padding: 14, margin: "14px 0" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
@@ -266,8 +279,14 @@ export function StrangleDecisionsView() {
                           fontVariantNumeric: "tabular-nums" }}>
             <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
               <th style={{ padding: "5px 6px" }}>Market</th>
-              <th style={{ padding: "5px 6px", textAlign: "right" }}>#</th>
-              <th style={{ padding: "5px 6px" }}>Gate</th>
+              {/* Only when a session actually held more than one round-trip.
+                  A column reading 1 on every row is a column that costs
+                  attention and returns nothing. */}
+              {anyReentry && <th style={{ padding: "5px 6px", textAlign: "right" }}>#</th>}
+              <th style={{ padding: "5px 6px" }}
+                  title={allOverrode ? "every trade below overrode the gate" : ""}>
+                {allOverrode ? "Gate (all OVERRODE)" : "Gate"}
+              </th>
               <th style={{ padding: "5px 6px" }}>Placed</th>
               <th style={{ padding: "5px 6px" }}>Closed</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Held</th>
@@ -277,19 +296,28 @@ export function StrangleDecisionsView() {
             <tbody>
               {pnl.realised.trades.map((t, i) => {
                 const brief = t.heldMinutes != null && t.heldMinutes < 60;
+                
                 return (
                   <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ padding: "6px", fontWeight: 600 }}>{t.market}</td>
-                    {/* Which round-trip of that session. Two entries in a day
-                        are now two rows; this says which is which. */}
-                    <td style={{ padding: "6px", textAlign: "right",
-                                 color: "var(--text-muted)" }}>{t.entry}</td>
+                    {anyReentry && (
+                      <td style={{ padding: "6px", textAlign: "right",
+                                   color: "var(--text-muted)" }}>{t.entry}</td>
+                    )}
+                    {/* When EVERY row overrode, the word nine times says
+                        nothing; the header says it once. When they differ, the
+                        exception is what needs marking. */}
                     <td style={{ padding: "6px", fontSize: 11,
-                                 color: t.shadow ? TONE.warn : "var(--text-muted)" }}>
-                      {t.shadow ? "OVERRODE" : "agreed"}
+                                 color: t.shadow ? TONE.warn : TONE.ok }}
+                        title={t.shadow ? "the gate refused and we placed anyway"
+                                        : "the gate said trade"}>
+                      {allOverrode ? "" : (t.shadow ? "OVERRODE" : "agreed")}
                     </td>
                     <td style={{ padding: "6px" }}>{hhmmss(t.placedAtUtc)}</td>
-                    <td style={{ padding: "6px" }}>{hhmmss(t.closedAtUtc)}</td>
+                    <td style={{ padding: "6px",
+                                 color: t.closedAtUtc ? "inherit" : "var(--text-muted)" }}>
+                      {hhmmss(t.closedAtUtc)}
+                    </td>
                     <td style={{ padding: "6px", textAlign: "right",
                                  color: t.timingIncoherent ? TONE.bad
                                       : brief ? TONE.warn : "inherit",
@@ -299,7 +327,8 @@ export function StrangleDecisionsView() {
                                     + "reading this as a strategy result" : "")}>
                       {t.timingIncoherent ? "INCOHERENT" : held(t.heldMinutes)}
                     </td>
-                    <td style={{ padding: "6px", textAlign: "right" }}>
+                    <td style={{ padding: "6px", textAlign: "right",
+                                 color: t.credit == null ? "var(--text-muted)" : "inherit" }}>
                       {t.credit == null ? "—" : t.credit.toFixed(2)}
                     </td>
                     <td style={{ padding: "6px", textAlign: "right", fontWeight: 600,
@@ -312,7 +341,8 @@ export function StrangleDecisionsView() {
             </tbody>
           </table>
         </div>
-      )}
+        );
+      })()}
 
       {/* DESK STATISTICS — and, at this sample size, mostly what they cannot say.
           Owner, 8 Sep 2026: "we need proper stats."
@@ -335,10 +365,12 @@ export function StrangleDecisionsView() {
               {" · "}{pp.wins}W/{pp.losses}L
               {" · best "}{money(pp.best, ccy)}{" · worst "}{money(pp.worst, ccy)}
             </>}
+            {/* Was a full sentence under EVERY population — four identical
+                lines on one screen. The rule is stated once, at the foot of
+                the block; here it is just a mark. */}
             {pp.winRateWithheld && (
-              <div style={{ fontSize: 11, color: TONE.warn }}>
-                win rate withheld — {pp.winRateWithheld}
-              </div>
+              <span style={{ fontSize: 11, color: TONE.warn, marginLeft: 6 }}
+                    title={pp.winRateWithheld}>· win rate withheld*</span>
             )}
           </div>
         );
@@ -352,13 +384,21 @@ export function StrangleDecisionsView() {
               </span>
             </div>
 
-            {stats.caveats.map((c, i) => (
-              <div key={i} style={{ fontSize: 12, color: TONE.warn, lineHeight: 1.5,
-                                    border: `1px solid ${TONE.warn}`, borderRadius: 6,
-                                    padding: "7px 10px", marginBottom: 7 }}>
-                {c}
+            {/* Three full-width amber panels shouted the same volume as the
+                numbers they qualify. Collapsed to one line; the whole text is
+                still here, on hover, and still first on the block. */}
+            {stats.caveats.length > 0 && (
+              <div style={{ fontSize: 11.5, color: TONE.warn, lineHeight: 1.6,
+                            borderLeft: `2px solid ${TONE.warn}`, paddingLeft: 8,
+                            marginBottom: 10 }}
+                   title={stats.caveats.join("\n\n")}>
+                <b>{stats.caveats.length} caveat{stats.caveats.length > 1 ? "s" : ""}</b>
+                {" — "}{stats.caveats[0].split(".")[0]}.
+                {stats.caveats.length > 1 && (
+                  <span style={{ opacity: .75 }}> (hover for all)</span>
+                )}
               </div>
-            ))}
+            )}
 
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
               <div style={{ flex: 1, minWidth: 260 }}>
@@ -390,6 +430,13 @@ export function StrangleDecisionsView() {
                 ))}
               </div>
             )}
+
+            {/* The rule the asterisks point at, said once instead of four
+                times. */}
+            <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 10 }}>
+              * a win rate is not quoted below 20 closed trades — counts, totals and
+              extremes are always shown; the ratio is what the sample cannot carry
+            </div>
 
             {stats.manual.byCurrency.map((m) => (
               <div key={m.currency} style={{ marginTop: 14, paddingTop: 12,
