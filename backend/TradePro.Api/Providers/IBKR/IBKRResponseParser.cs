@@ -375,6 +375,23 @@ public static class IBKRResponseParser
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         if (root.ValueKind != JsonValueKind.Array) return (null, Array.Empty<string>());
+        // A CONTRACT WITH NO OPTIONS IS NOT THE OPTIONS UNDERLYING. This took
+        // the FIRST row secdef/search returned, and for GLD that is
+        //
+        //   conid 54927692  HKFE  "Gold Futures"   sections: [IND]
+        //
+        // a Hong Kong futures INDEX sharing the ticker, while the instrument
+        // meant is
+        //
+        //   conid 51529211  ARCA  "SPDR GOLD SHARES"  sections: [... OPT ...]
+        //
+        // So GOLD reported 'GLD has no listed option chain' and could never
+        // place -- five sessions, every one blamed on the option chain being
+        // slow, when we had simply resolved the wrong instrument.
+        //
+        // Keep the first row as a FALLBACK so the error can still name a conid,
+        // but prefer any row that actually lists option months.
+        long? fallbackConId = null;
         foreach (var m in root.EnumerateArray())
         {
             if (m.ValueKind != JsonValueKind.Object) continue;
@@ -404,9 +421,13 @@ public static class IBKRResponseParser
                 if (!string.IsNullOrWhiteSpace(flat))
                     months.AddRange(flat.Split(';', StringSplitOptions.RemoveEmptyEntries));
             }
-            return (conId, months);
+            if (months.Count > 0) return (conId, months);
+            fallbackConId ??= conId;
         }
-        return (null, Array.Empty<string>());
+        // Nothing in the results lists an option month. Report the first conid
+        // so the caller can say WHICH contract it looked at -- an error naming
+        // no instrument is what made this take five sessions to find.
+        return (fallbackConId, Array.Empty<string>());
     }
 
     /// <summary>Parse GET /iserver/secdef/strikes — <c>{"call": [...], "put": [...]}</c>
