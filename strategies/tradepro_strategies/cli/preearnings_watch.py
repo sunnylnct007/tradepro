@@ -1417,24 +1417,31 @@ def main() -> int:
             SEV_LABEL = {0: "ACTION — a proposed order",
                          1: "HEADS-UP — a level you set was hit",
                          2: "SYSTEM — for information only"}
+            # Email-safe colors (inline styles only): green = act,
+            # amber = look, gray = ignore-unless-curious.
+            SEV_COLOR = {0: ("#1e7e34", "#f2faf5"),
+                         1: ("#b8860b", "#fdf9ee"),
+                         2: ("#6c757d", "#f6f7f8")}
             text_parts, html_parts = [], []
             for sev in (0, 1, 2):
                 group = [x for x in items if x["sev"] == sev]
                 if not group:
                     continue
                 text_parts.append(SEV_LABEL[sev])
+                accent, tint = SEV_COLOR[sev]
                 html_parts.append(
                     f'<h3 style="margin:18px 0 6px;font:600 13px sans-serif;'
-                    f'color:#555;text-transform:uppercase">{SEV_LABEL[sev]}</h3>')
+                    f'color:{accent};text-transform:uppercase">{SEV_LABEL[sev]}</h3>')
                 for x in group:
                     text_parts.append(f"  {x['head']}\n    {x['body']}\n"
                                       f"    What to do: {x['act']}")
                     html_parts.append(
-                        '<div style="border:1px solid #ddd;border-radius:8px;'
+                        f'<div style="border:1px solid #ddd;border-left:5px solid {accent};'
+                        f'border-radius:8px;background:{tint};'
                         'padding:12px 14px;margin:8px 0;font:14px sans-serif">'
-                        f'<div style="font-weight:700;margin-bottom:4px">{x["head"]}</div>'
+                        f'<div style="font-weight:700;margin-bottom:4px;color:{accent}">{x["head"]}</div>'
                         f'<div style="color:#333">{x["body"]}</div>'
-                        f'<div style="margin-top:6px"><b>What to do:</b> {x["act"]}</div>'
+                        f'<div style="margin-top:6px;color:#222"><b>What to do:</b> {x["act"]}</div>'
                         '</div>')
                 text_parts.append("")
             footer = ("Nothing in this mail was placed automatically. "
