@@ -819,6 +819,15 @@ def evaluate(sym, cfg, base, token, state):
     qty = int(budget / dist)
     if cfg.get("max_swing_shares"):   # optional clip; absent on auto-onboarded
         qty = min(qty, int(cfg["max_swing_shares"]))
+    # Position-value sanity clamp (10 Sep, when the risk default rose to
+    # $5,000): risk-at-stop times a tight ATR stop can imply a position
+    # bigger than the account. Config: settings-kv max_position_value_usd.
+    try:
+        max_pos = float(_kv_get(base, token, "max_position_value_usd") or 0)
+    except Exception:  # noqa: BLE001
+        max_pos = 0
+    if max_pos and entry and qty * entry > max_pos:
+        qty = int(max_pos / entry)
     if qty < 1:
         return ("NO_TRADE", "risk budget buys less than one share at this "
                 "stop distance", alerts,
