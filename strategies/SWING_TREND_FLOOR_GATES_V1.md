@@ -28,3 +28,17 @@ trend) suggests below-trend entries earn little, and per-name breaks should
 be worse than index breaks. ~25% that shallow-below earns in. Deep-below
 fails badly (~5% it passes). If shallow passes cleanly, the owner was right
 a second time and the floor was costing real edge.
+
+## RESULTS — run 10 Sep 2026, same session, bars untouched
+
+| bucket | n | win | mean | worst | cells |
+|---|---|---|---|---|---|
+| above (control) | 4427 | 71.4% | +1.00% | −23.2% | +0.97/+0.96/+0.87/+1.18 |
+| shallow-below 0–5% | 1458 | 68.1% | +0.69% | −26.4% | **+0.01**/+0.50/+1.05/+1.20 |
+| deep-below >5% | 3424 | 60.6% | +1.09% | −30.6% | +1.18/+1.13/+1.09/+0.98 |
+
+Shallow-below FAILS S2 (+0.69 < +0.75), S4 (−26.4 < −25) and S3 in spirit
+(one cell +0.01). Deep-below FAILS S1 and S4 — big-bounce/fat-tail lottery,
+not this lane's trade. THE 200-DAY FLOOR STANDS. Prediction correct.
+Owner's challenge scoreboard: sigma widened (right), floor kept (this run),
+advisor's three V3 fixes all rejected. Six challenges, one earned change.
