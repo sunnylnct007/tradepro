@@ -183,13 +183,20 @@ class T212OrderRouter(OrderRouter):
         fill_queue: asyncio.Queue,
     ) -> None:
         order = approval.order
-        if order.type != OrderType.MARKET:
-            log.warning(
-                "T212OrderRouter only supports MARKET orders today; "
-                "got %s for %s. Rejecting.",
-                order.type.value, order.symbol,
-            )
-            return
+        # NOTE: the MARKET-only restriction belongs to T212's OWN HTTP API and
+        # is enforced further down, immediately before that call. It must NOT
+        # gate the OMS paths: this router doubles as the OMS transport for
+        # IBKR_PAPER and IG_DEMO (broker_label_override), where the .NET side
+        # places the order and has carried OrderType + LimitPrice through to
+        # the broker since the 3 Sep SNOW fix.
+        #
+        # Sitting at the top, this guard silently killed every swing entry
+        # from 9 Sep 14:39 onward — 208 orders across SHOP, DASH, BLK, SBUX,
+        # ARES and SWK, ranked and dropped before the OMS ever saw them, while
+        # the same runs kept mirroring the account and so looked healthy. The
+        # strategy's limit cap is the fix for a REAL loss (SNOW filled 367.44
+        # on a 305.84 signal); rejecting the order instead of carrying the cap
+        # traded one silent failure for another.
 
         # Manual mode: don't post to T212; push the intent to the API
         # for human review on the Paper page. Fire-and-forget — the
@@ -224,6 +231,16 @@ class T212OrderRouter(OrderRouter):
                 ("T212_DEMO" if self.mode == "demo" else "T212_LIVE"),
                 order.strategy_id,
                 order.side.value, order.symbol, order.quantity, order.tag,
+            )
+            return
+
+        # Everything below talks to T212's own API, which takes MARKET only.
+        if order.type != OrderType.MARKET:
+            log.warning(
+                "T212's direct API takes MARKET orders only; got %s for %s. "
+                "Not placing. (The OMS paths above DO carry limits — this "
+                "only bites placement_mode=%r.)",
+                order.type.value, order.symbol, self.placement_mode,
             )
             return
 
