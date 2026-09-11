@@ -529,11 +529,32 @@ class T212OrderRouter(OrderRouter):
                     # dedupe working (worth an INFO, it is the loop stopping);
                     # anything else is a real failure and must be loud.
                     if approve.status_code == 409:
-                        log.info(
-                            "OMS already holds this intent for %s (409) — "
-                            "same signal bar, not re-placed",
-                            order.symbol,
-                        )
+                        # A 409 is TWO different events wearing one code: the
+                        # idempotency dedupe (harmless, the loop stopping) and
+                        # a pre-trade REFUSAL (system_state kill switch, or a
+                        # risk gate such as market_closed / size / velocity).
+                        # Reporting both as "already holds this intent" hid
+                        # the second kind entirely — an order refused by the
+                        # risk gate read as one already safely placed. The
+                        # body always names which; print it.
+                        _why = ""
+                        try:
+                            _why = (approve.json() or {}).get("error", "")
+                        except Exception:  # noqa: BLE001 — body may not be json
+                            _why = (approve.text or "")[:200]
+                        if "risk gate" in _why or "blocked" in _why or "refus" in _why:
+                            log.warning(
+                                "OMS REFUSED %s at approval (409) — %s. The "
+                                "intent is recorded and stays PENDING_APPROVAL; "
+                                "the next run retries it.",
+                                order.symbol, _why,
+                            )
+                        else:
+                            log.info(
+                                "OMS already holds this intent for %s (409) — "
+                                "same signal bar, not re-placed%s",
+                                order.symbol, f" · {_why}" if _why else "",
+                            )
                     elif approve.status_code != 200:
                         log.error(
                             "OMS auto-approve FAILED %s for %s: %s",
