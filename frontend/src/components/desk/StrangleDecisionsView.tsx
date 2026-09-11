@@ -295,6 +295,12 @@ export function StrangleDecisionsView() {
           looking at, so it is tinted when the trade lasted under an hour. */}
       {pnl && pnl.realised.trades.length > 0 && (() => {
         const anyReentry = pnl.realised.trades.some((t) => (t.entry ?? 1) > 1);
+        // Per-leg fills are only recorded from 10 Sep 2026 (migration 080) and
+        // are deliberately not backfilled. Until a closed trade has one, these
+        // two columns are a grid of dashes taking a third of the width and
+        // telling nobody anything — the same rule as the # column.
+        const anyFills = pnl.realised.trades.some(
+          (t) => t.putEntry != null || t.callEntry != null);
         const allOverrode = pnl.realised.trades.every((t) => t.shadow);
         return (
         <div style={{ border: "1px solid var(--border)", borderRadius: 10,
@@ -303,11 +309,16 @@ export function StrangleDecisionsView() {
             <span style={{ fontWeight: 600 }}>Round-trips — last {days} day(s)</span>
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
               all times UTC · a trade held minutes did not earn its result from decay
+              {!anyFills && " · per-leg fills recorded from 10 Sep, not backfilled"}
             </span>
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5,
                           fontVariantNumeric: "tabular-nums" }}>
             <thead><tr style={{ color: "var(--text-muted)", textAlign: "left", fontSize: 11 }}>
+              {/* THE DATE. This table spans 30 days and showed only times —
+                  '15:41:03Z' on eleven rows from four different sessions, with
+                  nothing to say which. Unreadable, and entirely my omission. */}
+              <th style={{ padding: "5px 6px" }}>Date</th>
               <th style={{ padding: "5px 6px" }}>Market</th>
               {/* Only when a session actually held more than one round-trip.
                   A column reading 1 on every row is a column that costs
@@ -324,8 +335,8 @@ export function StrangleDecisionsView() {
                   fills that produced it. Once a position closes the broker
                   keeps no record of them, so if they are not stored here they
                   do not exist anywhere. */}
-              <th style={{ padding: "5px 6px" }}>Put  sold → bought</th>
-              <th style={{ padding: "5px 6px" }}>Call sold → bought</th>
+              {anyFills && <th style={{ padding: "5px 6px" }}>Put  sold → bought</th>}
+              {anyFills && <th style={{ padding: "5px 6px" }}>Call sold → bought</th>}
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Credit</th>
               <th style={{ padding: "5px 6px", textAlign: "right" }}>Realised</th>
             </tr></thead>
@@ -335,6 +346,10 @@ export function StrangleDecisionsView() {
                 
                 return (
                   <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "6px", whiteSpace: "nowrap",
+                                 color: "var(--text-muted)" }}>
+                      {(t.placedAtUtc ?? "").slice(0, 10) || "—"}
+                    </td>
                     <td style={{ padding: "6px", fontWeight: 600 }}>{t.market}</td>
                     {anyReentry && (
                       <td style={{ padding: "6px", textAlign: "right",
@@ -363,7 +378,7 @@ export function StrangleDecisionsView() {
                                     + "reading this as a strategy result" : "")}>
                       {t.timingIncoherent ? "INCOHERENT" : held(t.heldMinutes)}
                     </td>
-                    {(["put", "call"] as const).map((side) => {
+                    {anyFills && (["put", "call"] as const).map((side) => {
                       const k = side === "put" ? t.putStrike : t.callStrike;
                       const inPx = side === "put" ? t.putEntry : t.callEntry;
                       const outPx = side === "put" ? t.putExit : t.callExit;
