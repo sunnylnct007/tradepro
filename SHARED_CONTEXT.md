@@ -1024,3 +1024,8 @@ OPEN / needs an owner call:
 - IT LOOKED HEALTHY because the same runs mirror account positions and record EXISTING executions as ledger fills. To check this lane trades: GET /api/oms/orders/{id} and require a non-null brokerOrderId. Not logs.
 - An OMS /approve 409 means EITHER idempotency dedupe OR a pre-trade refusal (system_state, RiskGate market_closed/size/velocity). Router now prints the reason and warns on refusal.
 - Two strangle tests red on main (test_strangle_execution_link.py, KeyError 'body'/'partial'), from d7b1261 — flagged to tradepro-7f, not touched.
+
+## 2026-09-11 — build/test discipline (my breakage, their catch)
+- `npx vite build` does NOT typecheck. Use `npm run build` (tsc -b && vite build) before any frontend push. A green vite on untypechecked code blocked ALL deploys for 9h on 10 Sep (CandidatesView TONE undeclared).
+- Run `uv run pytest tests/ -q` in strategies/ before merging to main. main is shared; a red build blocks both sessions.
+- test_strangle_execution_link's 2 failures were NOT a regression: place_paper refuses for the first 20 min of a session (dc5b7a2), returning early with no POST and no `partial` key. Tests fail only during that window. Any new test driving place_paper MUST pin the clock. Fixed by tradepro-7f in #136.
