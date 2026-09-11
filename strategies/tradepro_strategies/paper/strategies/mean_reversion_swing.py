@@ -34,7 +34,7 @@ from datetime import datetime, timedelta
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 from ..registry import register_strategy
 from ...signals.mean_reversion import (
-    MAX_HOLD, MIN_BARS, STOP_PCT, entry_signal, exit_decision,
+    MAX_HOLD, MIN_BARS, SIGMA, STOP_PCT, entry_signal, exit_decision,
     reward_risk, stop_price, target_price,
 )
 
@@ -330,7 +330,7 @@ class MeanReversionSwingStrategy(Strategy):
                       # audit line for humans and cannot be relied on by a study.
                       signal_ref_price=round(closes[i], 4),
                       signal_bar=self._bar_date(i),
-                      tag=f"swing entry 2.5sigma ref={closes[i]:.4f} "
+                      tag=f"swing entry {SIGMA}sigma ref={closes[i]:.4f} "
                           f"tgt={target_price(closes,i):.2f} "
                           f"stop={stop_price(closes[i]):.2f}")]
 
