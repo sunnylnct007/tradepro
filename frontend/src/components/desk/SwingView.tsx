@@ -29,7 +29,17 @@ type Resp = Awaited<ReturnType<typeof api.swingCandidates>>;
 
 export function SwingView() {
   const [d, setD] = useState<Resp | null>(null);
+  // THE LIVE RECORD, shown next to the backtest's claim. Owner, 11 Sep:
+  // "i want trustworthy signals" — a backtest is a claim, the forward test
+  // is the evidence, and until now it existed only in logs (which is how a
+  // two-day execution outage stayed invisible).
+  const [card, setCard] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api.todaySetupsArtifact("scorecard-mean_reversion_swing_ibkr")
+      .then((r) => setCard(r.artifact))
+      .catch(() => setCard(null));   // absent scorecard must not break the screen
+  }, []);
   const load = useCallback(() => {
     api.swingCandidates().then((r) => { setD(r); setErr(null); })
       .catch((e) => setErr(String((e as Error)?.message || e)));
@@ -92,6 +102,56 @@ export function SwingView() {
           )}
         </div>
       </div>
+
+      {card && (() => {
+        const f = card.funnel || {}, sl = card.slippage || {}, rs = card.results || {};
+        const judgeable = !String(card.verdict || "").startsWith("NOT JUDGEABLE");
+        return (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 8,
+                        padding: "10px 12px", marginBottom: 12, fontSize: 14, lineHeight: 1.6 }}>
+            <b>What this rule has actually done here — the live record.</b>{" "}
+            <span style={{ color: judgeable ? TONE.ok : TONE.warn, fontWeight: 600 }}>
+              {card.verdict}
+            </span>
+            <div style={{ display: "flex", gap: 26, flexWrap: "wrap", marginTop: 8,
+                          fontFamily: "var(--font-mono)", fontSize: 13 }}>
+              <span>signals ordered <b>{f.orders_raised}</b></span>
+              <span>reached the broker <b style={{ color: f.reached_broker ? TONE.ok : TONE.bad }}>
+                {f.reached_broker}</b></span>
+              <span>bought <b style={{ color: TONE.ok }}>{f.filled}</b></span>
+              <span>still open <b>{rs.still_open}</b></span>
+              <span>closed <b>{rs.closed_trades}</b></span>
+            </div>
+            {(f.losses || []).length > 0 && (
+              <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-dim)" }}>
+                Why the rest never became trades:{" "}
+                {(f.losses || []).map((L: any, i: number) => (
+                  <span key={i}>{i ? " · " : ""}<b>{L.count}</b> {L.reason}</span>
+                ))}
+              </div>
+            )}
+            {sl.n > 0 && (
+              <div style={{ marginTop: 6, fontSize: 13 }}>
+                <span style={{ color: "var(--text-dim)" }}>What we paid vs what the screen said: </span>
+                <b style={{ color: Math.abs(sl.median_pct) <= 1.5 ? TONE.ok : TONE.warn }}>
+                  {sl.median_pct > 0 ? "+" : ""}{sl.median_pct}% typical
+                </b>
+                <span style={{ color: "var(--text-muted)" }}>
+                  {" "}(worst {sl.worst_pct > 0 ? "+" : ""}{sl.worst_pct}%, n={sl.n}). Positive means
+                  we paid more than the screen quoted.
+                </span>
+              </div>
+            )}
+            {rs.closed_trades === 0 && (
+              <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-muted)" }}>
+                No round trip has finished yet, so there is no live win rate to compare against the{" "}
+                {rs.backtest_win_pct}% / {rs.backtest_mean_pct}%-per-trade claim below. That comparison
+                is the whole point of this panel — it stays blank until the trades close.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* The failure mode, stated where it cannot be missed. A screen that
           shows 66% win without showing WHEN that 66% does not apply is
