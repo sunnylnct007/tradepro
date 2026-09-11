@@ -15,3 +15,13 @@ PY="$PROJECT_DIR/.venv/bin/python"
 echo "[$(date -u +%FT%TZ)] refresh starting" >>"$LOG"
 "$PY" -m tradepro_strategies.cli.swing_candidates --universe swing --push >>"$LOG" 2>&1
 echo "[$(date -u +%FT%TZ)] refresh done rc=$?" >>"$LOG"
+
+# Forward-test scorecard rides the same cadence — it reads the OMS order
+# record, so it is only ever as fresh as the last placement attempt.
+# Deliberately AFTER the screen refresh and guarded with `|| true`: a missing
+# scorecard is a gap, a broken screen is an outage, and the screen must not
+# inherit this one's failures.
+echo "[$(date -u +%FT%TZ)] scorecard starting" >>"$LOG"
+"$PY" -m tradepro_strategies.cli.forward_scorecard \
+    --strategy mean_reversion_swing_ibkr --push >>"$LOG" 2>&1 || true
+echo "[$(date -u +%FT%TZ)] scorecard done rc=$?" >>"$LOG"
