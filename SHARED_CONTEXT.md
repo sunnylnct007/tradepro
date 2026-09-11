@@ -1018,3 +1018,9 @@ OPEN / needs an owner call:
 - Owner: move toward Koyfin-grade finished product ONCE signals are trusted; sequencing his call, not now.
 - Shipped tonight: company profile block in every row expansion (name/sector/industry/staff, business summary, 52w range bar, analyst consensus target labelled context-only) + PEG in vitals. Data = key_stats cache, no new APIs.
 - Phase candidates for the Koyfin push (NOT started): normalized compare charts (symbol vs SPY vs sector ETF overlay), sector heat strip, full-page symbol profile route (chart + financials + news + our signals history), watchlist screens. Sequence AFTER signal trust per owner.
+
+## 2026-09-11 — swing execution was DEAD 9–11 Sep (fixed)
+- T212OrderRouter rejected all non-MARKET orders at the top of _handle_approval. It doubles as the OMS transport for IBKR_PAPER/IG_DEMO, so every swing LIMIT entry was dropped: 208 orders, SHOP/DASH/BLK/SBUX/ARES/SWK. Guard moved to just before T212's own HTTP call. Tests: tests/test_limit_orders_reach_the_oms.py.
+- IT LOOKED HEALTHY because the same runs mirror account positions and record EXISTING executions as ledger fills. To check this lane trades: GET /api/oms/orders/{id} and require a non-null brokerOrderId. Not logs.
+- An OMS /approve 409 means EITHER idempotency dedupe OR a pre-trade refusal (system_state, RiskGate market_closed/size/velocity). Router now prints the reason and warns on refusal.
+- Two strangle tests red on main (test_strangle_execution_link.py, KeyError 'body'/'partial'), from d7b1261 — flagged to tradepro-7f, not touched.
