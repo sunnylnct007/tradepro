@@ -969,6 +969,16 @@ def _default_risk(base, token):
     return _RISK_CACHE[0]
 
 
+def _reported_within(date_iso: str, days: int) -> bool:
+    """True if `date_iso` is a past date within `days` of today."""
+    try:
+        d = _dt.date.fromisoformat(date_iso)
+    except ValueError:
+        return False
+    delta = (_dt.date.today() - d).days
+    return 0 <= delta <= days
+
+
 def _relative(sym, cfg):
     """Owner, 8 Sep: candidates carry index + sector-ETF RSI/ATR context."""
     try:
@@ -1129,10 +1139,15 @@ def scout(base, token, watched: list, state: dict) -> list:
         horizon = (_dt.date.today() + _dt.timedelta(days=win_days)).isoformat()
         today_iso = _dt.date.today().isoformat()
         already2 = {h["sym"] for h in hits}
+        t_earn = _time.monotonic()
         for esym in sweep:
-            if _time.monotonic() - t0 > budget_s + 120:
-                log.warning("scout earnings lens stopped at budget — %s onward "
-                            "not checked", esym)
+            # Its OWN clock. Sharing the sweep's budget meant the momentum
+            # lens spent it all and this one never ran a single symbol —
+            # which is why ORCL and ADBE still did not appear after the lens
+            # shipped. Cheapest and most valuable lens; it gets its own time.
+            if _time.monotonic() - t_earn > float(cfg.get("earnings_budget_seconds", 90)):
+                log.warning("scout earnings lens stopped at its own budget — "
+                            "%s onward not checked this run", esym)
                 break
             if esym in watched or esym in barred or esym in already2:
                 continue
@@ -1142,6 +1157,19 @@ def scout(base, token, watched: list, state: dict) -> list:
                              headers={"Authorization": f"Bearer {token}"},
                              timeout=6).json().get("events") or []
             except Exception:  # noqa: BLE001
+                continue
+            # ALREADY REPORTED? The bulk feed keeps emitting estimated dates
+            # AFTER a company has printed: ORCL reported 10 Sep AMC and the
+            # calendar still carries a bare 14 Sep row. A row with a SESSION
+            # (amc/bmo) is the confirmed one; bare dates are estimates. If a
+            # confirmed print landed in the last 14 days, the cycle is over
+            # and any later estimate is noise — the third phantom of this
+            # shape after MU 21 Sep and CRDO 9 Sep.
+            recent_print = next(
+                (e for e in ev
+                 if (e.get("session") or "").strip()
+                 and _reported_within(str(e.get("report_date") or "")[:10], 14)), None)
+            if recent_print:
                 continue
             nxt = next((e for e in sorted(ev, key=lambda e: str(e.get("report_date") or ""))
                         if today_iso <= str(e.get("report_date") or "")[:10] <= horizon), None)
