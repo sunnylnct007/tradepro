@@ -111,6 +111,14 @@ function ageHours(asOf: string | null): number | null {
 
 import { SymbolDetailModal } from "./SymbolDetailModal";
 
+// The per-view tone palette every other desk component declares locally
+// (MomentumView, OptionsDesk, OptionsPayoff all carry the same three). This
+// file used TONE.ok / TONE.bad on the analyst-target line without ever
+// declaring it, so `npm run build` — which is `tsc -b && vite build` — failed
+// on TS2304 and NOTHING deployed for nine hours: aws-build-push went red at
+// 21:56 on 10 Sep and aws-redeploy correctly skipped rather than ship it.
+const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30" };
+
 export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void } = {}) {
   // Symbol click opens the EXPANDED modal in place (owner, 7 Sep: the rail
   // jump "takes us to the portfolio cockpit page and graph appears in bottom

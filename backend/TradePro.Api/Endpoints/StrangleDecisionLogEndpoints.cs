@@ -431,6 +431,7 @@ public static class StrangleDecisionLogEndpoints
         g.MapGet("/pnl", async (
             NpgsqlDataSource db,
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            TradePro.Api.Providers.IBKR.IBKRHarvesterStatus feed,
             CancellationToken ct,
             int days = 1) =>
         {
@@ -594,12 +595,56 @@ public static class StrangleDecisionLogEndpoints
                 }
             }
 
+            var warnings = new List<string>();
+
+            // ── IS THE FEED ALIVE? ───────────────────────────────────────
+            //
+            // 10 Sep 2026: the screen showed the open book at -177.76 twelve
+            // minutes before the same four legs CLOSED at +128.88, on a tape
+            // that moved 0.41% all day and finished where it started. Two reads
+            // ninety seconds apart gave -177.76 and -64.32. Every leg was
+            // marked 1-3% ABOVE its fill, uniformly, after five hours of theta.
+            //
+            // Those were not prices. IBKR's single market-data session was
+            // dead -- the bar harvester served 0 of 169 symbols from IBKR that
+            // whole afternoon and fell back to Yahoo -- and the position marks
+            // drifted with it.
+            //
+            // The system KNEW. harvester-status has said lastTickIbkr: 0 all
+            // along; nothing asked it. A dead feed produced a confident wrong
+            // number with no warning, which is the failure this desk keeps
+            // paying for.
+            //
+            // This does NOT claim to detect every bad mark. It reports the one
+            // condition we have actually seen corrupt them, and names it.
+            var ticked = feed.LastTickIbkr + feed.LastTickYahoo + feed.LastTickFailed;
+            var ibkrDry = feed.LastTickAtUtc is not null && ticked > 0 && feed.LastTickIbkr == 0;
+            object marketData = new
+            {
+                lastTickAtUtc = feed.LastTickAtUtc,
+                fromIbkr = feed.LastTickIbkr,
+                fromFallback = feed.LastTickYahoo,
+                failed = feed.LastTickFailed,
+                // Null = never ticked this process, which is NOT the same as
+                // unhealthy and must not raise the alarm on its own.
+                healthy = feed.LastTickAtUtc is null ? (bool?)null : !ibkrDry,
+                note = ibkrDry
+                    ? $"IBKR served 0 of {ticked} symbols on the last cycle — the market-data "
+                    + "session is down and everything is on the fallback. The OPEN half below is "
+                    + "marked off that feed and has been seen to drift by hundreds while the "
+                    + "index did not move. Realised figures are unaffected: they come from fills."
+                    : null,
+            };
+
+            if (ibkrDry)
+                warnings.Insert(0, "MARKS UNRELIABLE — IBKR market data is down; the open P&L "
+                                 + "is marked off a degraded feed. Closed trades are unaffected.");
+
             // A total is offered ONLY when both halves are known. Adding a
             // known realised figure to an unknown open one produces a number
             // that looks complete and is not.
             double? total = unrealised is double u2 ? realised + u2 : null;
 
-            var warnings = new List<string>();
             if (openError is not null) warnings.Add(openError);
             if (unmarkable.Count > 0)
                 warnings.Add($"{unmarkable.Count} open leg(s) have NO broker mark and are "
@@ -682,6 +727,7 @@ public static class StrangleDecisionLogEndpoints
                     unmarkable,
                 },
                 total,
+                marketData,
                 warnings,
                 note = "realised comes from the decision log; open is marked by the broker "
                      + "on every request. total is null unless BOTH halves are known.",
