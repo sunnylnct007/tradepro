@@ -17,6 +17,27 @@ from unittest.mock import patch
 import tradepro_strategies.cli.index_strangle_paper as P
 
 
+def _past_the_opening_auction():
+    """Neutralise the entry-timing gate for tests that are not about timing.
+
+    `place_paper` refuses for the first 20 minutes of a session (dc5b7a2,
+    6 Sep) — AFTER these tests were last written. The refusal returns early,
+    before any POST and without a `partial` key, so both tests below failed
+    with KeyError... but ONLY when run inside that 20-minute window. They passed
+    the other 23 hours of the day.
+
+    A test whose result depends on the wall clock is worse than no test: it
+    went red on main during the US open on 11 Sep and looked like a code
+    regression, and two sessions bisected commits looking for a break that was
+    never in a commit.
+
+    The gate itself is correct and is deliberately NOT stubbed away wholesale —
+    only the clock it reads is pinned, so these tests exercise the placement
+    path they are actually about.
+    """
+    return patch.object(P, "_minutes_since_open", return_value=999.0)
+
+
 def _row():
     return {
         "market": "SPY", "as_of": "2026-09-01", "spot": 767.33,
@@ -43,7 +64,8 @@ def test_the_placement_reports_the_expiry_it_traded():
         sent["body"] = json
         return R()
 
-    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+    with _past_the_opening_auction(), \
+         patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
         import requests
         with patch.object(requests, "post", fake_post):
             res = P.place_paper(_row(), contracts=1, shadow=True)
@@ -139,7 +161,8 @@ def test_an_api_rejection_carries_a_reason():
                     "put": {"status": "REJECTED", "reason": "no permission"},
                     "call": {"status": "REJECTED"}}
 
-    with patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
+    with _past_the_opening_auction(), \
+         patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
         import requests
         with patch.object(requests, "post", lambda *a, **k: R()):
             res = P.place_paper(_row(), contracts=1, shadow=True)
