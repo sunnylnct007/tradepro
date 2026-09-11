@@ -74,6 +74,10 @@ type Pnl = {
   open: { markedAtUtc: string; unrealised: number | null; legs: number;
           detail: PnlLeg[]; unmarkable: { contract: string }[] };
   warnings: string[];
+  marketData?: {
+    lastTickAtUtc: string | null; fromIbkr: number; fromFallback: number;
+    failed: number; healthy: boolean | null; note: string | null;
+  };
 };
 
 type Stats = {
@@ -203,14 +207,37 @@ export function StrangleDecisionsView() {
                 {" over "}{pnl.realised.pairs} closed pair(s)
               </div>
               <div>
-                open <b style={{ color: "var(--text)" }}>{signed(pnl.open.unrealised)}</b>
+                open <b style={{ color: pnl.marketData?.healthy === false
+                                        ? TONE.bad : "var(--text)" }}
+                        title={pnl.marketData?.healthy === false
+                          ? "marked off a degraded feed — treat as indicative only"
+                          : ""}>
+                  {signed(pnl.open.unrealised)}
+                  {pnl.marketData?.healthy === false && "?"}
+                </b>
                 {" across "}{pnl.open.legs} leg(s)
               </div>
             </div>
             <div style={{ marginLeft: "auto", textAlign: "right", fontSize: 11,
                           color: "var(--text-muted)", lineHeight: 1.8, paddingBottom: 4 }}>
+              {/* WHETHER THE MARK CAN BE BELIEVED, beside the mark itself. On
+                  10 Sep the open half read -177.76 twelve minutes before the
+                  same legs closed at +128.88, on a tape that finished where it
+                  started — the feed was dead and nothing said so. */}
+              {pnl.marketData?.healthy === false && (
+                <div style={{ color: TONE.bad, fontWeight: 600 }}
+                     title={pnl.marketData.note ?? ""}>
+                  ⚠ MARKS UNRELIABLE · feed down
+                </div>
+              )}
               <div>open half marked <b style={{ color: "var(--text)" }}>
                 {hhmmss(pnl.open.markedAtUtc)}</b></div>
+              {pnl.marketData?.lastTickAtUtc && (
+                <div title="symbols served by IBKR vs the fallback on the last harvester cycle">
+                  feed {pnl.marketData.fromIbkr}/
+                  {pnl.marketData.fromIbkr + pnl.marketData.fromFallback} from IBKR
+                </div>
+              )}
               <div>this screen refreshed {ago(fetchedAt)}</div>
               <div>{pnl.broker ?? "broker unreadable"}</div>
             </div>
