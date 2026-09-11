@@ -349,7 +349,11 @@ export function OptionsDesk() {
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <Stat label="Eligible CSP" value={eligible.length} tone="ok" />
+        {/* Tone follows the DATA, not just the gate count: a green tile over
+            82 fallback-priced rows is the screen congratulating itself. */}
+        <Stat label="Eligible CSP"
+              value={eligible.length}
+              tone={eligible.some((c: any) => c.premium_source === "live_mid") ? "ok" : "warn"} />
         <Stat label="Screened" value={cands.length} tone="dim" />
         <Stat label="Open paper" value={open.length} tone="warn" />
         <Stat label="Realised £" value={realised.toFixed(0)} tone={realised >= 0 ? "ok" : "bad"} />
@@ -702,7 +706,16 @@ function MorningCandidatesPanel({ candidates, all, onAnalyze, onRecord, busy }: 
         <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--text-muted)", textTransform: "none" }}>
           {candidates.length === 0
             ? "none screened yet"
-            : `${candidates.filter((c) => c.eligible).length} tradeable of ${candidates.length} · eligible first, then by annualised yield`}
+            : (() => {
+                // Count VERIFIED separately from merely-eligible. A row whose
+                // premium is carried or indicative can pass every gate and
+                // still not be a price you could trade at.
+                const el = candidates.filter((c) => c.eligible);
+                const ver = el.filter((c: any) => c.premium_source === "live_mid");
+                return ver.length === el.length
+                  ? `${el.length} tradeable of ${candidates.length} · eligible first, then by annualised yield`
+                  : `${ver.length} tradeable of ${candidates.length} · ${el.length - ver.length} more pass the gates on UNVERIFIED prices · eligible first, then by annualised yield`;
+              })()}
         </span>
       </SectionTitle>
       {candidates.filter((c) => c.eligible).length === 0 && candidates.length > 0 ? (

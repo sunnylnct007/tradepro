@@ -108,6 +108,19 @@ function reasonCode(blocks: string[]): string | null {
   return "blocked";
 }
 
+/** Is this row's verdict resting on numbers we could NOT verify?
+ *
+ * A wheel row's whole claim — premium, yield, IV/HV — is computed from a quote.
+ * When that quote is carried, indicative or missing, the gates may still pass
+ * arithmetically while the inputs are stale. That is worth showing, not worth
+ * calling tradeable. */
+function unverified(r: WheelRow): boolean {
+  const src = r.premium_source ?? null;
+  if (src !== "live_mid") return true;
+  const worst = r.provenance?.worst;
+  return worst === "fallback" || worst === "carried" || worst === "unavailable";
+}
+
 /** One badge for data quality, instead of FALLBACK/CARRIED scattered in prose. */
 function quality(r: WheelRow): { label: string; degraded: boolean } {
   const src = r.premium_source ?? null;
@@ -188,7 +201,15 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 10px" }}>
         <span style={{ fontSize: 12, color: MUTED }}>
-          {eligibleCount} of {rows.length} tradeable
+          {(() => {
+            const verified = rows.filter((r) => r.eligible && !unverified(r)).length;
+            return verified === eligibleCount
+              ? <>{eligibleCount} of {rows.length} tradeable</>
+              : <>{verified} of {rows.length} tradeable
+                  <span style={{ color: WARN }}>
+                    {" "}· {eligibleCount - verified} pass the gates on UNVERIFIED prices
+                  </span></>;
+          })()}
         </span>
         <label style={{ fontSize: 12, color: "var(--text)", cursor: "pointer", marginLeft: "auto" }}>
           <input type="checkbox" checked={onlyEligible}
@@ -271,8 +292,21 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.iv_hv_ratio, 2)}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
                     {/* Icon + WORD, never colour alone. */}
+                    {/* A GREEN TICK ON UNVERIFIED DATA IS A FALSE POSITIVE.
+                        Owner, 11 Sep: "the wheel screen doesnt look
+                        trustworthy" — and it was right not to. The board said
+                        "prices are NOT live", "82/82 NOT priced off clean IBKR
+                        bars", and then "✓ tradeable" beside a 51% yield
+                        computed from exactly those prices. Passing the gates
+                        and being VERIFIABLE are two different claims; the
+                        screen must not merge them into one green word. */}
                     {r.eligible
-                      ? <span style={{ color: OK, fontWeight: 600 }}>✓ tradeable</span>
+                      ? (unverified(r)
+                          ? <span style={{ color: WARN, fontWeight: 600 }}
+                                  title="Passes every gate, but the numbers behind it are not live — re-check when market data returns.">
+                              ⚠ unverified
+                            </span>
+                          : <span style={{ color: OK, fontWeight: 600 }}>✓ tradeable</span>)
                       : <span style={{ color: MUTED }}>✗ {code}</span>}
                   </td>
                 </tr>,
