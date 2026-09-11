@@ -411,9 +411,7 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
             "below_20d_high_pct": (lambda hi20: round(100 * (hi20 - c[i]) / hi20, 1)
                                    if hi20 else None)(max(h[i - 19:i + 1])),
             "sma200_cushion_atr": (round((c[i] - sma200) / atr, 2) if atr else None),
-            "sma200_slope_20s_pct": (round(100 * (sum(c[i - 219:i - 19]) / 200
-                                                  and (sma200 / (sum(c[i - 219:i - 19]) / 200) - 1)), 2)
-                                     if i >= 219 else None),
+            "sma200_slope_20s_pct": _trend_slope_pct(c, i, sma200),
             "instrument_note": ("ETF — the dip rule is calibrated on single names"
                                 if (sym in ETFS or sym in {"USMV", "SPLV", "MTUM",
                                                            "QUAL", "VLUE", "SCHD"})
@@ -709,6 +707,31 @@ def _structure_note(l, c, i) -> str:
     if hl >= 2:
         return f"basing: {hl} higher lows, {down}/10 days down"
     return f"mixed: {down}/10 days down"
+
+# How many sessions back the trend-average slope is measured over. The WINDOW
+# itself is TREND_WINDOW, imported — never spelled out in a slice. Written
+# this way after test_one_rule_one_object caught `sum(c[i-219:i-19]) / 200`
+# here: the offsets 219/19 and the divisor 200 were TREND_WINDOW in disguise,
+# invisible to any search for the name, so changing the rule would have left
+# this line quietly computing the old one. Grep the VALUE, not the name.
+SLOPE_LOOKBACK = 20
+
+
+def _trend_slope_pct(c, i, sma200):
+    """Percent change in the trend average over SLOPE_LOOKBACK sessions.
+
+    A POSITIVE close-vs-average reading means nothing on its own if the
+    average itself is falling — SHOP sat 2.2% above a 200-day average that
+    was sliding 1% a month, and the screen called that 'trend filter passed'.
+    """
+    first = i - SLOPE_LOOKBACK - TREND_WINDOW + 1
+    if first < 0:
+        return None
+    prior = sum(c[first:i - SLOPE_LOOKBACK + 1]) / TREND_WINDOW
+    if prior <= 0:
+        return None
+    return round(100 * (sma200 / prior - 1), 2)
+
 
 def _with_relative(rows):
     """The Swing tab renders `candidates`, the combined board `candidates_v2`;
