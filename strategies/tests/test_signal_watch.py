@@ -91,12 +91,34 @@ def test_other_strategies_are_not_watched(monkeypatch):
     assert SW.check("http://api.test", None) == []
 
 
-def test_an_unreadable_order_book_is_reported_not_swallowed(monkeypatch):
-    def _boom(*a, **k): raise RuntimeError("connection refused")
+def test_an_unreadable_order_book_is_retried_then_reported_not_swallowed(monkeypatch):
+    """Still reported — but only after retrying, and NOT as a position event.
+
+    12 Sep 2026: a single read timeout mailed the owner a raw Python
+    exception ("HTTPConnectionPool(host=... Read timed out") under the banner
+    "ACT ON THESE ... an event on a position you already have". Three things
+    wrong at once: it had not retried (the API answered in 0.2s seconds
+    later), it leaked a stack-trace string, and it framed an infrastructure
+    blip as something to trade on. Retry, plain words, SYSTEM not ACT.
+    """
+    calls = []
+
+    def _boom(*a, **k):
+        calls.append(1)
+        raise RuntimeError("connection refused")
+
     monkeypatch.setattr("requests.get", _boom)
+    monkeypatch.setattr(SW, "RETRY_BACKOFF_S", 0)
     ev = SW.check("http://api.test", None)
-    assert ev and ev[0]["kind"] == "ERROR"
-    assert "could not read" in ev[0]["text"]
+
+    assert len(calls) == 3, "a transient blip must be retried before it is mailed"
+    assert ev and ev[0]["kind"] == "SYSTEM", (
+        "an unreachable API is not an event on a position — framing it as one "
+        "is what made the mail unreadable"
+    )
+    assert "Could not reach the order book" in ev[0]["text"]
+    assert "HTTPConnectionPool" not in ev[0]["text"], "no stack-trace text in the inbox"
+    assert "No trade action is implied" in ev[0]["text"]
 
 
 def test_a_missing_price_does_not_invent_a_breach(monkeypatch):

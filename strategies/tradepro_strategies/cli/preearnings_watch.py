@@ -217,6 +217,13 @@ def _store_15m(sym, day_et: "_dt.date | None" = None):
         return []
 
 
+# Days after a confirmed print during which further calendar rows are treated
+# as leftovers of the cycle just closed rather than the next one. A quarter is
+# ~63 sessions; 21 calendar days is comfortably inside that and well past the
+# few-day spread the feed's estimates show.
+EARNINGS_STALE_DAYS = 21
+
+
 def _confirmed_print(base, token, sym):
     """Exactly ONE future print or the module blocks (the 21st/30th lesson)."""
     import requests
@@ -225,9 +232,27 @@ def _confirmed_print(base, token, sym):
                      headers={"Authorization": f"Bearer {token}"} if token else {},
                      timeout=30)
     today = _dt.date.today().isoformat()
+    events = r.json().get("events") or []
+    # A CYCLE THAT HAS ALREADY PRINTED IS OVER. The bulk feed keeps emitting
+    # estimated dates after a company reports: ORCL printed 10 Sep AMC and the
+    # calendar still carried a bare 14 Sep row, so the board told the owner
+    # "1 session to earnings" the weekend AFTER the event. Third phantom of
+    # this shape (MU 21 Sep, CRDO 9 Sep, now ORCL). A recent print with a
+    # SESSION is the confirmation; anything dated within EARNINGS_STALE_DAYS
+    # after it belongs to the cycle just closed, not the next one.
+    recent = [str(e.get("report_date"))[:10] for e in events
+              if (e.get("session") or "").strip()
+              and _reported_within(str(e.get("report_date"))[:10], 14)]
+    floor = today
+    if recent:
+        last = max(recent)
+        floor = (_dt.date.fromisoformat(last)
+                 + _dt.timedelta(days=EARNINGS_STALE_DAYS)).isoformat()
+        log.info("%s reported %s — ignoring calendar rows before %s "
+                 "(post-print estimates)", sym, last, floor)
     fut = sorted({(str(e.get("report_date"))[:10], str(e.get("session") or "?"))
-                  for e in (r.json().get("events") or [])
-                  if str(e.get("report_date"))[:10] >= today})
+                  for e in events
+                  if str(e.get("report_date"))[:10] >= max(today, floor)})
     return fut
 
 

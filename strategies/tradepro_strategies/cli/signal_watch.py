@@ -59,12 +59,17 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import time as _time
 import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
 log = logging.getLogger("tradepro.signal_watch")
+
+# Seconds between order-book retries. A module constant so tests can drive
+# the retry path without actually waiting nine seconds.
+RETRY_BACKOFF_S = 3
 
 # One file, one line per fired event key. Same pattern as the strangle's
 # _fired_today — a watcher with no memory is a watcher that spams.
@@ -129,15 +134,30 @@ def check(base: str, token: str | None) -> list[dict]:
     already = _fired_today()
     events: list[dict] = []
 
-    try:
-        r = requests.get(f"{base.rstrip('/')}/api/oms/orders", headers=headers,
-                         timeout=45, params={"limit": 200})
-        r.raise_for_status()
-        d = r.json()
-        orders = d if isinstance(d, list) else (d.get("orders") or d.get("rows") or [])
-    except Exception as exc:  # noqa: BLE001 — say so rather than reporting "nothing"
-        return [{"key": "oms_unreachable", "kind": "ERROR", "symbol": "-",
-                 "text": f"could not read the order book: {str(exc)[:120]}"}]
+    # RETRY FIRST. A single read timeout used to mail the owner a raw Python
+    # exception under the banner "ACT ON THESE ... an event on a position you
+    # already have" — none of which was true: nothing had happened, there was
+    # nothing to act on, and the API was fine seconds later. Three attempts
+    # with a short backoff; only a persistent failure is worth his attention.
+    orders, last_exc = None, None
+    for attempt in range(3):
+        try:
+            r = requests.get(f"{base.rstrip('/')}/api/oms/orders", headers=headers,
+                             timeout=45, params={"limit": 200})
+            r.raise_for_status()
+            d = r.json()
+            orders = d if isinstance(d, list) else (d.get("orders") or d.get("rows") or [])
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < 2:
+                _time.sleep(RETRY_BACKOFF_S * (attempt + 1))
+    if orders is None:
+        log.warning("order book unreachable after 3 attempts: %s", last_exc)
+        return [{"key": "oms_unreachable", "kind": "SYSTEM", "symbol": "-",
+                 "text": "Could not reach the order book after three tries, so "
+                         "this run checked nothing. No trade action is implied. "
+                         "If this repeats, the desk API needs a look."}]
 
     OPEN = {"FILLED", "PARTIALLY_FILLED", "WORKING", "SUBMITTED"}
     for o in orders:
@@ -276,11 +296,20 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    subj = (f"[SIGNAL] {len(events)} event(s) — "
-            + ", ".join(sorted({e["symbol"] for e in events if e["symbol"] != "-"}))[:60])
+    _real = [e for e in events if e.get("kind") not in ("SYSTEM", "ERROR")]
+    if _real:
+        subj = (f"[SIGNAL] {len(_real)} event(s) — "
+                + ", ".join(sorted({e["symbol"] for e in _real if e["symbol"] != "-"}))[:60])
+    else:
+        # Don't announce "1 event" for a run that observed nothing. The
+        # subject is the only part read on a phone.
+        subj = "[SIGNAL] watcher could not run — no position events"
     body = ["TradePro signal watch", "",
-            "ACT ON THESE. This is not a board to browse — each line is an event",
-            "on a position you already have.", ""]
+            ("ACT ON THESE. This is not a board to browse — each line is an event"
+             " on a position you already have.")
+            if any(e.get("kind") not in ("SYSTEM", "ERROR") for e in events)
+            else "SYSTEM NOTE — nothing happened on your positions; this is about the watcher itself.",
+            ""]
     body += [f"  {ln}" for ln in lines]
     body += ["", "Each event fires ONCE per day. Nothing here is placed or closed",
              "automatically — the watcher says what happened, you decide.",
