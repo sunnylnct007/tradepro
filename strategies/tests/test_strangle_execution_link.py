@@ -16,6 +16,26 @@ from unittest.mock import patch
 
 import tradepro_strategies.cli.index_strangle_paper as P
 
+def _unparked():
+    """These tests are about PLACEMENT MECHANICS, not about whether SPY happens
+    to be parked today.
+
+    SPY/QQQ/GOLD were parked on 12 Sep 2026 while the IBKR market-data session
+    is dark. The park is a legitimate refusal and fires FIRST, before the
+    provisional / shut-session / stand-aside logic these tests exist to check —
+    so it must be lifted to reach them, exactly as the opening-auction clock is.
+
+    Lifted, not deleted: `placement_parked` is real behaviour with its own test
+    in test_index_strangle_markets_one_definition.py.
+    """
+    import copy
+    from tradepro_strategies.cli import index_strangle_paper as _P
+    m = copy.deepcopy(_P.MARKETS)
+    for c in m.values():
+        c.pop("placement_parked", None)
+    return patch.object(_P, "MARKETS", m)
+
+
 
 def _past_the_opening_auction():
     """Neutralise the entry-timing gate for tests that are not about timing.
@@ -68,7 +88,8 @@ def test_the_placement_reports_the_expiry_it_traded():
          patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
         import requests
         with patch.object(requests, "post", fake_post):
-            res = P.place_paper(_row(), contracts=1, shadow=True)
+            with _unparked():
+                res = P.place_paper(_row(), contracts=1, shadow=True)
 
     assert res["expiry_kind"] == "monthly"
     # And the strikes sent are the MONTHLY ones, not the weekly.
@@ -165,7 +186,8 @@ def test_an_api_rejection_carries_a_reason():
          patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
         import requests
         with patch.object(requests, "post", lambda *a, **k: R()):
-            res = P.place_paper(_row(), contracts=1, shadow=True)
+            with _unparked():
+                res = P.place_paper(_row(), contracts=1, shadow=True)
 
     assert res["placed"] is False
     assert res["partial"] is False
