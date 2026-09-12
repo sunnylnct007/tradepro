@@ -70,7 +70,15 @@ export function SymbolPositionCard({
 
       {!held ? (
         <div style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
-          Not held in any account.
+          {/* "Not held in any account" was FALSE and stated as fact. TradePro
+              can only see the accounts it is connected to — the paper clone —
+              and the owner's real IBKR book is invisible to it. He was short a
+              UNH put while this card said he held nothing. Say what we know,
+              and name what we cannot see. */}
+          Not held in any account TradePro can see.
+          <div style={{ marginTop: 3, fontStyle: "normal" }}>
+            Accounts outside the desk (your personal IBKR book) are not visible here.
+          </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
