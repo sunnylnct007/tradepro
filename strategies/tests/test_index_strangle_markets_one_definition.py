@@ -320,3 +320,39 @@ def test_a_parked_market_is_refused_with_its_own_reason():
     # The reason must name the PARK, not invent a different refusal.
     assert res["reason"].startswith("PARKED"), res["reason"]
     assert "market-data" in res["reason"]
+
+
+def test_both_expiries_are_placed_and_named_once():
+    """Owner, 12 Sep 2026: 'we shd target xsp and SPX weekly and monthly.'
+
+    Both expiries were always EVALUATED; only monthly was ever placed. The set
+    is named once so the placement loop and record_execution cannot disagree
+    about which expiries exist — that disagreement is exactly the 1 Sep bug
+    where SPY went on at the monthly strikes and the execution was recorded
+    against the weekly row that was never traded.
+    """
+    from tradepro_strategies.cli.index_strangle_paper import (
+        PLACE_EXPIRY_KIND, PLACE_EXPIRY_KINDS)
+
+    assert set(PLACE_EXPIRY_KINDS) == {"weekly", "monthly"}
+    # The legacy single name must stay INSIDE the set, or a refusal raised
+    # before an expiry is chosen would name one we do not trade.
+    assert PLACE_EXPIRY_KIND in PLACE_EXPIRY_KINDS
+
+
+def test_place_paper_trades_the_expiry_it_was_asked_for():
+    """Not the default. Placing both expiries means the caller chooses, and a
+    function that ignored the argument would put BOTH units on the same strikes
+    and record them as two different trades."""
+    from tradepro_strategies.cli import index_strangle_paper as P
+
+    row = {"market": "XSP", "as_of": "2026-09-14", "spot": 762.0,
+           "status": "CANDIDATE", "session_state": "open", "provisional": False,
+           "legs": {"weekly":  {"dte": 5,  "put_strike": 750, "call_strike": 773},
+                    "monthly": {"dte": 19, "put_strike": 745, "call_strike": 778}}}
+
+    for kind in ("weekly", "monthly"):
+        # No credentials patched, so it refuses at the request — but the
+        # refusal still has to carry the expiry it was asked to trade.
+        res = P.place_paper(row, contracts=1, shadow=True, kind=kind)
+        assert res["expiry_kind"] == kind, (kind, res)
