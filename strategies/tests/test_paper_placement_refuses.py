@@ -10,7 +10,28 @@ from __future__ import annotations
 
 import datetime as dt
 
+from unittest.mock import patch
+
 from tradepro_strategies.cli import index_strangle_paper as P
+
+
+def _unparked():
+    """These tests are about PLACEMENT MECHANICS, not about whether SPY happens
+    to be parked today.
+
+    SPY/QQQ/GOLD were parked on 12 Sep 2026 while the IBKR market-data session
+    is dark. The park is a legitimate refusal and fires FIRST, before the
+    provisional / shut-session / stand-aside logic these tests exist to check —
+    so it must be lifted to reach them.
+
+    Lifted, not deleted: `placement_parked` is real behaviour and has its own
+    test in test_index_strangle_markets_one_definition.py.
+    """
+    import copy
+    m = copy.deepcopy(P.MARKETS)
+    for c in m.values():
+        c.pop("placement_parked", None)
+    return patch.object(P, "MARKETS", m)
 
 
 def _row(**kw):
@@ -25,7 +46,8 @@ def _row(**kw):
 def test_india_is_never_placed():
     """No paper account exists for India — the owner places those by hand."""
     for m in ("NIFTY", "BANKNIFTY"):
-        res = P.place_paper(_row(market=m))
+        with _unparked():
+            res = P.place_paper(_row(market=m))
         assert res["placed"] is False
         assert "not paper-tradeable" in res["reason"]
 
@@ -33,19 +55,22 @@ def test_india_is_never_placed():
 def test_provisional_strikes_are_never_placed():
     """Placing off a stale close is the lopsided trade that was just fixed —
     on 31 Aug it left the put 116 points away and the call 384."""
-    res = P.place_paper(_row(provisional=True))
+    with _unparked():
+        res = P.place_paper(_row(provisional=True))
     assert res["placed"] is False and "PROVISIONAL" in res["reason"]
 
 
 def test_a_shut_session_is_never_placed():
     for state in ("pre_open", "closed"):
-        res = P.place_paper(_row(session_state=state))
+        with _unparked():
+            res = P.place_paper(_row(session_state=state))
         assert res["placed"] is False and state in res["reason"]
 
 
 def test_a_stand_aside_row_is_never_placed():
     """The gate is the whole strategy. If it says stand aside, nothing goes."""
-    res = P.place_paper(_row(status="stand aside"))
+    with _unparked():
+        res = P.place_paper(_row(status="stand aside"))
     assert res["placed"] is False and "not a candidate" in res["reason"]
 
 
