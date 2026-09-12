@@ -283,3 +283,40 @@ def test_published_worst_days_are_the_lagged_ones():
         assert ev[m]["historical"]["worst_pct"] < -1.0, (
             f"{m} worst day is {ev[m]['historical']['worst_pct']}% — that is the "
             f"same-day-gated figure; the evidence was regenerated without the lag")
+
+
+def test_parking_a_market_does_not_claim_it_is_untradeable():
+    """PARKED and NOT PAPER-TRADEABLE are different facts.
+
+    SPY, QQQ and GOLD are paper-tradeable and their chains are real — they were
+    parked on 12 Sep 2026 only because IBKR's market-data session is dark and
+    every attempt burns 5 primed calls over ~22s for nothing.
+
+    Reusing paper_trade=False would have written 'market is not paper-tradeable'
+    into the decision log, which is false. This desk has already lost days to a
+    refusal that misstated its own cause: GOLD's real problem — resolving to a
+    Hong Kong futures index carrying no options — hid for five sessions behind a
+    message about the option chain.
+    """
+    from tradepro_strategies.cli.index_strangle_paper import MARKETS
+
+    parked = {m: c for m, c in MARKETS.items() if c.get("placement_parked")}
+    assert parked, "expected some markets parked; if unparked, delete this test too"
+    for m, c in parked.items():
+        assert c.get("paper_trade") is True, (
+            f"{m} is parked AND flagged not paper-tradeable — one of those is a lie")
+        assert len(str(c["placement_parked"])) > 25, (
+            f"{m} is parked with no usable reason; a park nobody can undo is a deletion")
+
+
+def test_a_parked_market_is_refused_with_its_own_reason():
+    from tradepro_strategies.cli import index_strangle_paper as P
+
+    row = {"market": "SPY", "as_of": "2026-09-14", "spot": 758.0,
+           "status": "CANDIDATE", "session_state": "open", "provisional": False,
+           "legs": {"monthly": {"dte": 21, "put_strike": 745, "call_strike": 771}}}
+    res = P.place_paper(row, contracts=1, shadow=True)
+    assert res["placed"] is False
+    # The reason must name the PARK, not invent a different refusal.
+    assert res["reason"].startswith("PARKED"), res["reason"]
+    assert "market-data" in res["reason"]

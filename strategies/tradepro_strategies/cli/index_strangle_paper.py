@@ -211,6 +211,8 @@ MARKETS = {
             "family": "S&P 500", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "placement_parked": (
+                 "chain will not resolve while the IBKR market-data session is dark (12 Sep 2026); unpark once that is fixed"),
              "paper_trade": True,  # liquid ETF options, unambiguous IBKR symbol
              "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
                     "choice is settlement and size, not return"},
@@ -247,6 +249,8 @@ MARKETS = {
             "family": "Nasdaq 100", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
             "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "placement_parked": (
+                 "chain will not resolve while the IBKR market-data session is dark (12 Sep 2026); unpark once that is fixed"),
              "paper_trade": True,  # liquid ETF options, unambiguous IBKR symbol
              "note": "fires 2,015 times against SPY's 2,219 because VXN<=18 is a "
                     "reachable gate — this is what fixes the thin US sample"},
@@ -274,6 +278,8 @@ MARKETS = {
              "family": "Gold", "ccy": "$",
              "product": "ETF option · American · CAN be assigned early",
              "tz": "America/New_York", "open_local": "09:30", "close_local": "16:00",
+             "placement_parked": (
+                 "chain will not resolve while the IBKR market-data session is dark (12 Sep 2026); conid now correct (ARCA GLD 51529211), so this is the feed and not the contract"),
              "paper_trade": True,  # GLD — liquid ETF options
              "note": "best risk-adjusted of the eight (88.8% win, tightest p5) and "
                      "the only one not driven by equity risk — the others are two "
@@ -800,6 +806,22 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     if not cfg or not cfg.get("paper_trade"):
         return {"placed": False, "reason": "market is not paper-tradeable",
                 "expiry_kind": PLACE_EXPIRY_KIND}
+    # PARKED, WHICH IS NOT THE SAME AS UNTRADEABLE. A separate key on purpose:
+    # SPY, QQQ and GOLD ARE paper-tradeable and their option chains are real —
+    # we simply cannot resolve them while IBKR's market-data session is dark,
+    # so every attempt spends 5 primed calls over ~22s and returns nothing.
+    #
+    # Reusing paper_trade=False would have been one character cheaper and would
+    # have written 'market is not paper-tradeable' into the decision log, which
+    # is FALSE. A refusal that misstates its own reason is how this desk lost
+    # days: GOLD's real cause (resolving to a Hong Kong futures index with no
+    # options) hid for five sessions behind a message about the chain.
+    #
+    # Owner, 12 Sep 2026: park them until the market-data fault is understood.
+    # Deleting the key un-parks the market; nothing else changes.
+    if cfg.get("placement_parked"):
+        return {"placed": False, "expiry_kind": PLACE_EXPIRY_KIND,
+                "reason": f"PARKED — {cfg['placement_parked']}"}
     is_shadow = row.get("status") != "CANDIDATE"
     if is_shadow and not shadow:
         return {"placed": False, "reason": "not a candidate",

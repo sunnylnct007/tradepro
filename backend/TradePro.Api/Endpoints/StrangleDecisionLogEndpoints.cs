@@ -469,7 +469,12 @@ public static class StrangleDecisionLogEndpoints
                  WHERE placed IS TRUE
                    AND realised_pnl IS NOT NULL
                    AND session >= (CURRENT_DATE - (@days || ' days')::interval)
-                 ORDER BY market, entry_seq;",
+                 -- NEWEST FIRST. This sorted by MARKET, which was tolerable
+                 -- while the table showed no date and unreadable the moment it
+                 -- did: five SPX rows from four different sessions in a block,
+                 -- dates jumping 09-04, 09-11, 09-08, 09-09, 09-10. A trade log
+                 -- is read most-recent-first; market is the tie-break.
+                 ORDER BY session DESC, market, entry_seq;",
                 new { days = days <= 0 ? 1 : days })).AsList();
 
             var realised = closed.Sum(r => (double)(r.realised_pnl ?? 0d));
