@@ -760,10 +760,26 @@ def evaluate(sym, cfg, base, token, state):
         if px > ema and px > sma and d.ema20[i] >= d.ema20[i - 3]:
             fails.append(f"SMA50 rolling over {sma_fall_pct:+.2f}%/5s, beyond "
                          f"the −{tol}% tolerance")
-        why = ("NO LONG · " + (fails[0] if fails else "regime failed")
-               + " · repair: " + (f"close >{sma:.0f}" if px <= sma else
-                                  "EMA20 slope ≥0" if not d.ema20[i] >= d.ema20[i-3] else
-                                  f"SMA50 slope ≥−{tol}%"))
+        # THE REPAIR MUST FIX THE FAILURE IT NAMED. This printed fails[0]
+        # but computed the repair from an independent if/elif, so the two
+        # could describe different conditions — NVDA read "close 218.29
+        # below EMA20 219.92 · repair: SMA50 slope ≥−2.0%", naming a repair
+        # for a condition that was not even failing, while the one that was
+        # went unaddressed. Same family as the block narrative that once
+        # said "below the trend filter" about a price above both averages.
+        # Every failing condition, and the repair is the set that clears
+        # them — ALL of them, because the regime needs all.
+        repairs = []
+        if px <= ema:
+            repairs.append(f"close >{ema:.0f}")
+        if px <= sma:
+            repairs.append(f"close >{sma:.0f}")
+        if not d.ema20[i] >= d.ema20[i - 3]:
+            repairs.append("EMA20 slope ≥0")
+        if px > ema and px > sma and d.ema20[i] >= d.ema20[i - 3]:
+            repairs.append(f"SMA50 slope ≥−{tol}%")
+        why = ("NO LONG · " + ("; ".join(fails) if fails else "regime failed")
+               + " · repair: " + (" + ".join(repairs) if repairs else "—"))
         if px <= sma:
             trigger(f"daily close back above SMA50 ({sma:.2f}) re-opens setups")
         else:
