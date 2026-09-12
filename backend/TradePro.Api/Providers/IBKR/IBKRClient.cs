@@ -344,14 +344,42 @@ public sealed class IBKRClient
                     LastAuthStatusRaw = initText.Length > 400 ? initText[..400] : initText;
                     LastAuthStatusAtUtc = DateTime.UtcNow;
 
-                    if (LastCompeting != true || LastConnected != true)
+                    // REPORT THE FLAGS. DO NOT DIAGNOSE FROM THEM.
+                    //
+                    // This used to conclude "the brokerage session did NOT take
+                    // the market-data slot" whenever competing != true, on the
+                    // reading that we send compete:true and a true response
+                    // means we won. That reading is very likely BACKWARDS: in
+                    // IBKR's API `competing` in the RESPONSE reports that
+                    // ANOTHER session is competing with us, so competing=false
+                    // is the healthy state. If true were required for live
+                    // data, data would only flow while somebody else was
+                    // fighting us for it.
+                    //
+                    // The cost of getting that wrong was three days of
+                    // confident wrong explanations, 8-11 Sep 2026, while the
+                    // real fault (live quotes dark, intermittently, recovering
+                    // on their own) went unexamined because this line looked
+                    // like an answer.
+                    //
+                    // So: log the raw handshake as EVIDENCE at info level, and
+                    // warn only on the thing that is unambiguous — not
+                    // authenticated, or not connected. Whether market data
+                    // actually flows is measured elsewhere, by asking for a
+                    // quote and seeing if one arrives.
+                    _log.LogInformation(
+                        "IBKR ssodh/init: authenticated={Auth} competing={Comp} connected={Conn}. "
+                        + "These are RAW FLAGS, not a market-data verdict — `competing` reports "
+                        + "whether ANOTHER session contends, and a dark quote is diagnosed by "
+                        + "requesting one, not inferred from here. Raw: {Raw}",
+                        LastAuthenticated, LastCompeting, LastConnected, LastAuthStatusRaw);
+
+                    if (LastAuthenticated != true || LastConnected != true)
                     {
                         _log.LogWarning(
-                            "IBKR ssodh/init returned authenticated={Auth} competing={Comp} "
-                            + "connected={Conn} — the brokerage session did NOT take the "
-                            + "market-data slot. Live quotes will be dark while historical "
-                            + "bars may still answer. Raw: {Raw}",
-                            LastAuthenticated, LastCompeting, LastConnected, LastAuthStatusRaw);
+                            "IBKR ssodh/init: authenticated={Auth} connected={Conn} — the "
+                            + "brokerage session is NOT usable. This one is unambiguous. Raw: {Raw}",
+                            LastAuthenticated, LastConnected, LastAuthStatusRaw);
                     }
                 }
                 catch (System.Text.Json.JsonException)
