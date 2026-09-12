@@ -331,7 +331,31 @@ MARGIN_PCT = 0.12          # SPAN ESTIMATE ONLY - the broker's number governs
 #
 # The monthlies are chosen for liquidity: they carry ~2.3x the open interest of
 # the weeklies, which is the same finding that unblocked the wheel screen.
-PLACE_EXPIRY_KIND = "monthly"
+# Owner, 12 Sep 2026: "we shd target xsp and SPX weekly and monthly."
+#
+# Both expiries are already EVALUATED and recorded every session; only monthly
+# was ever placed. The pre-registered measurement (403 low-VIX BANKNIFTY
+# sessions, same-day close) says weekly earns ~64% more per trade for ~1.3x the
+# worst day on a THIRD of the capital: a one-day hold captures ONE day of theta
+# whatever the expiry, so the return barely moves while exposure changes
+# enormously.
+#
+# CAPITAL, HONESTLY. MARGIN_PCT is an ESTIMATE and says SPX in both expiries is
+# 121% of the $151k paper account. IBKR exposes no margin field we can read, so
+# that cannot be checked before the fact -- and a SPAN requirement on a short
+# strangle is usually well below a flat notional percentage, so the estimate is
+# probably pessimistic.
+#
+# Rather than decide from a number we do not have: place SMALLEST FIRST so a
+# shortfall drops the LARGEST unit with everything smaller already on. The
+# failure is then one refused placement carrying a broker reason, not a silent
+# gap. Monday measures what the estimate cannot.
+PLACE_EXPIRY_KINDS = ("weekly", "monthly")
+
+# Back-compat for call sites that name a single kind. The last kind is NOT
+# special; this exists only so a refusal raised before an expiry is chosen
+# still carries one, and must never be used to pick what to trade.
+PLACE_EXPIRY_KIND = PLACE_EXPIRY_KINDS[-1]
 
 
 def economics(row: dict, ev_entry: dict | None) -> dict | None:
@@ -786,7 +810,8 @@ def _monthly_expiry(dte_target: int, today: _dt.date | None = None) -> str:
     return min(future, key=lambda d: abs((d - today).days - dte_target)).isoformat()
 
 
-def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | None:
+def place_paper(row: dict, contracts: int = 1, shadow: bool = False,
+                kind: str | None = None) -> dict | None:
     """Place BOTH legs of this candidate on the IBKR PAPER account.
 
     THE POINT. Every figure this strategy publishes is a Black-Scholes premium
@@ -805,7 +830,7 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     cfg = MARKETS.get(row.get("market") or "")
     if not cfg or not cfg.get("paper_trade"):
         return {"placed": False, "reason": "market is not paper-tradeable",
-                "expiry_kind": PLACE_EXPIRY_KIND}
+                "expiry_kind": kind or PLACE_EXPIRY_KIND}
     # PARKED, WHICH IS NOT THE SAME AS UNTRADEABLE. A separate key on purpose:
     # SPY, QQQ and GOLD ARE paper-tradeable and their option chains are real —
     # we simply cannot resolve them while IBKR's market-data session is dark,
@@ -820,12 +845,12 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     # Owner, 12 Sep 2026: park them until the market-data fault is understood.
     # Deleting the key un-parks the market; nothing else changes.
     if cfg.get("placement_parked"):
-        return {"placed": False, "expiry_kind": PLACE_EXPIRY_KIND,
+        return {"placed": False, "expiry_kind": kind or PLACE_EXPIRY_KIND,
                 "reason": f"PARKED — {cfg['placement_parked']}"}
     is_shadow = row.get("status") != "CANDIDATE"
     if is_shadow and not shadow:
         return {"placed": False, "reason": "not a candidate",
-                "expiry_kind": PLACE_EXPIRY_KIND}
+                "expiry_kind": kind or PLACE_EXPIRY_KIND}
     # SHADOW PLACEMENT — trade the days the gate REFUSED, on paper only.
     #
     # Owner, 31 Aug 2026: "can we just put in paper trading the index even if
@@ -843,22 +868,25 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False) -> dict | N
     # of these answers "what is the gate worth?" in real money rather than
     # Black-Scholes.
     if row.get("provisional"):
-        return {"placed": False, "expiry_kind": PLACE_EXPIRY_KIND,
+        return {"placed": False, "expiry_kind": kind or PLACE_EXPIRY_KIND,
                 "reason": "strikes are PROVISIONAL — refusing to place off a stale close"}
     if row.get("session_state") != "open":
         return {"placed": False, "reason": f"session is {row.get('session_state')}",
-                "expiry_kind": PLACE_EXPIRY_KIND}
+                "expiry_kind": kind or PLACE_EXPIRY_KIND}
     # LET THE OPENING AUCTION PASS.
     _wait = _entry_min_minutes()
     _since = _minutes_since_open(cfg)
     if _since is not None and _since < _wait:
-        return {"placed": False, "expiry_kind": PLACE_EXPIRY_KIND,
+        return {"placed": False, "expiry_kind": kind or PLACE_EXPIRY_KIND,
                 "reason": (f"only {_since:.0f} min after the open — waiting for "
                            f"{_wait:.0f} min so the opening auction has passed")}
 
     # The expiry this desk actually trades. Named once, reported back in the
     # result, and consumed by record_execution — so the two can never drift.
-    kind = PLACE_EXPIRY_KIND
+    # The expiry to trade. Passed in by the caller, which places EACH of
+    # PLACE_EXPIRY_KINDS as its own unit; defaulted only so older call sites and
+    # tests keep working.
+    kind = kind or PLACE_EXPIRY_KIND
     leg = (row.get("legs") or {}).get(kind)
     if not leg:
         return {"placed": False, "reason": f"no {kind} leg", "expiry_kind": kind}
@@ -1986,28 +2014,46 @@ def main() -> int:
         # single LARGEST position rather than everything queued behind it.
         # Owner, 5 Sep 2026: "why are we not placing order for other indexes if
         # we can place within the money limit".
-        def _size(r: dict) -> float:
-            leg = (r.get("legs") or {}).get(PLACE_EXPIRY_KIND) or {}
+        # ONE UNIT PER (market, expiry). Both expiries are placed now, and the
+        # smallest-first rule has to span BOTH — otherwise SPX-weekly could be
+        # funded ahead of XSP-monthly purely because it came first in the row
+        # list, and a shortfall would drop the cheap position rather than the
+        # dear one.
+        def _size_of(r: dict, kind: str) -> float:
+            leg = (r.get("legs") or {}).get(kind) or {}
             k = leg.get("put_strike")
             lot = (MARKETS.get(r.get("market")) or {}).get("lot") or 1
             return float(k) * float(lot) if k else 0.0
 
-        for r in sorted(rows, key=_size):
+        units = [(r, kind) for r in rows for kind in PLACE_EXPIRY_KINDS
+                 if (r.get("legs") or {}).get(kind)]
+        units.sort(key=lambda u: _size_of(*u))
+
+        for r, kind in units:
             if only and r.get("market") not in only:
                 continue
-            res = place_paper(r, contracts=args.contracts, shadow=args.place_shadow)
+            res = place_paper(r, contracts=args.contracts,
+                              shadow=args.place_shadow, kind=kind)
             if not res:
                 # Even a None is reported. Silence is the one outcome that is
                 # never acceptable here.
                 print(f"  not placed {r.get('market')}: placement returned nothing")
             if res:
+                # PER EXPIRY. A single r["paper_order"] silently kept only the
+                # last one placed, so the weekly's link would overwrite the
+                # monthly's and one of the two executions would vanish from the
+                # row even though both were live at the broker.
+                r.setdefault("paper_orders", {})[kind] = res
                 r["paper_order"] = res
                 # Link the ATTEMPT, not just the success. A refusal is evidence
                 # too — three silent failures on 31 Aug are why this exists.
-                r["execution_link"] = record_execution(r, res)
+                link = record_execution(r, res)
+                r.setdefault("execution_links", {})[kind] = link
+                r["execution_link"] = link
                 if res.get("placed"):
                     tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
-                    print(f"  PLACED {r['market']}: {res['request']['putStrike']:,.0f}P + "
+                    print(f"  PLACED {r['market']} [{kind}]: "
+                          f"{res['request']['putStrike']:,.0f}P + "
                           f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
                 elif res.get("partial"):
                     print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
