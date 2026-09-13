@@ -81,6 +81,32 @@ def _setup_for(df) -> dict | None:
     # canonical verdict. Standard 26-period kijun (matches the chart).
     hi, lo, cl = df["high"], df["low"], df["close"]
     kj = float((hi.tail(26).max() + lo.tail(26).min()) / 2)
+    # ── DOES THE STRATEGY THIS ROW NAMES ACTUALLY AGREE? ──────────────────
+    #
+    # This screen labels rows "engine: BUY", which reads as the ichimoku_equity
+    # sleeve — the one strategy here with a validated record. It is not that
+    # sleeve's rule. `ms.entry_signal` is market_state's own verdict (RSI +
+    # 200-SMA; market_state computes no tenkan and no kijun at all), and the
+    # kijun above is the textbook 26 while the strategy runs 32.
+    #
+    # ichimoku_equity's ENTRY is: close > cloud_top AND tenkan(5) > kijun(32).
+    #
+    # On 13 Sep ABBV was starred here as "engine: BUY, above cloud, at the
+    # kijun" while the SAME symbol sat in the portfolio panel as "SIGNAL SAYS
+    # SELL, STILL HELD" — because its tenkan had crossed below its kijun, which
+    # is that strategy's exit. One screen, two verdicts, one name. Across the
+    # store, 23% of rows meeting this screen's entry also satisfy the
+    # strategy's EXIT at the same moment.
+    #
+    # So compute the strategy's real test and refuse to star a row it rejects.
+    _tk = float((hi.tail(5).max() + lo.tail(5).min()) / 2)
+    _kj32 = float((hi.tail(32).max() + lo.tail(32).min()) / 2)
+    strategy_entry_ok = bool(_tk > _kj32)
+    strategy_disagrees = (None if strategy_entry_ok else
+                          f"the ichimoku sleeve would NOT buy this — its entry needs "
+                          f"tenkan>kijun and tenkan {_tk:.2f} is below kijun {_kj32:.2f} "
+                          f"(that cross is also its EXIT, so a held position is being "
+                          f"told to sell)")
     # SCALE-INVARIANCE (addendum, 7 Sep; owner on rerated names, 8 Sep): a
     # 52-week range percentile permanently reads "extended" on a name that
     # re-rated 3-8x inside the year — the bottom of that range is a different
@@ -153,6 +179,11 @@ def _setup_for(df) -> dict | None:
                                 # reclaimed (RH/TSLA): a recovering dip, never a clean ⭐
     elif dist_atr is None or dist_atr < 0:
         cls = "weak"            # above cloud but below kijun — support breaking
+    elif not strategy_entry_ok:
+        cls = "hold"            # the named strategy rejects it — see strategy_disagrees.
+                                # Owner, 12 Sep: "i will better not see any signal rather
+                                # than signals creating confusion". A star on a row the
+                                # strategy would sell is the screen arguing with itself.
     elif dist_atr <= 1.0 and not thin_vol:
         cls = "consider"        # GENUINELY at the kijun (≤1 ATR) + real participation.
                                 # A pullback entry means price is ON the base line, not
@@ -187,6 +218,8 @@ def _setup_for(df) -> dict | None:
     return {
         "close": round(c, 2), "classification": cls,
         "cloud": cloud, "signal": sig,
+        "strategy_entry_ok": strategy_entry_ok,
+        "strategy_disagrees": strategy_disagrees,
         "momentum_3m_pct": round(mom3, 0) if mom3 is not None else None,
         "range_pctile": round(rng_pctile, 0), "pct_off_high": round((c / w.max() - 1) * 100, 1),
         "atr_pct": round(atr_pct, 1) if atr_pct else None,
@@ -209,6 +242,15 @@ def _setup_for(df) -> dict | None:
 
 def _why(s: dict) -> str:
     cls = s["classification"]
+    # THE REASON MUST BE THE REASON. A row demoted because the named strategy
+    # rejects it was still explaining itself with the generic distance text —
+    # ABBV read "0.6 ATR above the kijun, not a pullback entry", which is not
+    # merely unhelpful but FALSE (0.6 ATR is inside the pullback band). Same
+    # shape as the watch's "repair" naming a condition that was not failing.
+    if s.get("strategy_disagrees"):
+        return (f"NOT a setup — {s['strategy_disagrees']}. Geometry alone looks "
+                f"fine (above cloud, {s['dist_atr']} ATR from the kijun), which is "
+                f"exactly why this row needs the strategy's own verdict beside it.")
     if cls == "consider":
         vol = f"{s['volume_ratio']}x vol" + (" ⚠ THIN (low conviction)" if s.get("thin_volume") else "")
         # dist_atr ≤ 1.0 here (band tightened), so "at the kijun" is now TRUE, not a
