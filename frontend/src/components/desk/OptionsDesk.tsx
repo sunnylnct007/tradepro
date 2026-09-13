@@ -359,6 +359,22 @@ export function OptionsDesk() {
         <Stat label="Realised £" value={realised.toFixed(0)} tone={realised >= 0 ? "ok" : "bad"} />
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           {data?.generated_at_utc ? `last screen ${new Date(data.generated_at_utc).toLocaleString()}` : "no screen yet"}
+          {/* The banner above reports the market-data session RIGHT NOW; these
+              rows were priced whenever the screen last ran. On Sunday that is
+              Friday's close, so "market data LIVE" sat directly above 82 rows
+              marked FALLBACK and read as a contradiction. Name the gap. */}
+          {(() => {
+            const t = data?.generated_at_utc ? Date.parse(data.generated_at_utc) : null;
+            if (!t) return null;
+            const hrs = (Date.now() - t) / 3.6e6;
+            if (hrs < 2) return null;
+            return (
+              <span style={{ color: "var(--warn)", marginLeft: 8 }}>
+                · these prices are {hrs < 24 ? `${hrs.toFixed(0)}h` : `${(hrs / 24).toFixed(0)}d`} old,
+                from that screen — not from the live session above. Press Run now to reprice.
+              </span>
+            );
+          })()}
           {data && !data.market_open ? " · market closed (chain/Δ pending open)" : ""}
         </span>
         <button onClick={runNow} title="Re-screen now. Uses the same worker path as a scheduled run."
