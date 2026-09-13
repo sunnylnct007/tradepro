@@ -81,7 +81,24 @@ WATCHED_PREFIX = "candidates_"
 # The strategies' OWN max-hold, from their published artifacts. Not a number
 # invented here: holding past it makes the position a different trade from the
 # one that was measured.
-MAX_HOLD_SESSIONS = {"candidates_swing": 20, "candidates_momentum": 60}
+def _max_hold_sessions() -> dict[str, int]:
+    """Each strategy's OWN max-hold, imported from the strategy.
+
+    These were written out by hand as {swing: 20, momentum: 60}. Both matched
+    at the time, which is exactly how a duplicated constant hides: it is
+    correct until the day someone tunes the rule, and then this watcher goes
+    on closing positions at the OLD horizon. It does not merely report — it
+    CLOSES paper positions on "held too long", so a stale number here
+    silently exits trades at the wrong place and the forward-test record
+    then measures a holding period the strategy never had.
+
+    Imported lazily: momentum_candidates pulls pandas at module scope and this
+    watcher runs every fifteen minutes.
+    """
+    from ..signals.mean_reversion import MAX_HOLD as _SWING_MAX_HOLD
+    from .momentum_candidates import MAX_HOLD as _MOM_MAX_HOLD
+    return {"candidates_swing": int(_SWING_MAX_HOLD),
+            "candidates_momentum": int(_MOM_MAX_HOLD)}
 
 
 def _fired_today() -> set[str]:
@@ -205,7 +222,7 @@ def check(base: str, token: str | None) -> list[dict]:
             # HELD TOO LONG. The edge is a holding-period edge: a position kept
             # past the window it was measured over is no longer that trade.
             held = _sessions_held(o.get("signalBar") or o.get("signal_bar"))
-            cap = MAX_HOLD_SESSIONS.get(strat)
+            cap = _max_hold_sessions().get(strat)
             if held is not None and cap and held >= cap:
                 hit = ("HELD TOO LONG", "maxhold",
                        f"{sym} has been held {held} sessions against this "

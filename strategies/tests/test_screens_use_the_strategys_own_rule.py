@@ -132,3 +132,51 @@ def test_nobody_re_derives_the_ichimoku_lines_by_hand():
           "the day someone changes the periods, and the screen then reports a "
           "verdict the strategy does not hold."
     )
+
+
+def test_the_watcher_closes_on_each_strategys_own_max_hold():
+    """signal_watch CLOSES paper positions — its horizons must be the rules'.
+
+    These were written out as {swing: 20, momentum: 60}. Both matched at the
+    time, which is precisely how a copied constant hides: correct until the
+    day someone tunes the rule, after which the watcher goes on exiting at the
+    OLD horizon. It does not merely report "held too long" — it closes the
+    position, so a stale number here silently exits trades at the wrong place
+    and the forward-test record then measures a holding period the strategy
+    never had.
+    """
+    from tradepro_strategies.cli.signal_watch import _max_hold_sessions
+    from tradepro_strategies.signals.mean_reversion import MAX_HOLD as SWING
+    from tradepro_strategies.cli.momentum_candidates import MAX_HOLD as MOM
+
+    got = _max_hold_sessions()
+    assert got["candidates_swing"] == SWING, (
+        f"the watcher would close swing positions at {got['candidates_swing']} "
+        f"sessions while the rule says {SWING}"
+    )
+    assert got["candidates_momentum"] == MOM, (
+        f"the watcher would close momentum positions at "
+        f"{got['candidates_momentum']} sessions while the rule says {MOM}"
+    )
+
+
+def test_no_screen_restates_a_strategys_holding_horizon():
+    """The horizons are imported, never typed. Catches the next copy."""
+    offenders = []
+    for path in SRC.rglob("*.py"):
+        rel = path.relative_to(SRC).as_posix()
+        if "/tests/" in rel or rel.startswith("signals/"):
+            continue
+        if rel in ("cli/momentum_candidates.py",):      # momentum OWNS its 60
+            continue
+        src = path.read_text(encoding="utf-8")
+        for lit in ('"candidates_swing": 20', "'candidates_swing': 20",
+                    '"candidates_momentum": 60', "'candidates_momentum': 60"):
+            if lit in src:
+                offenders.append(f"{rel}  →  {lit}")
+    assert not offenders, (
+        "a strategy's holding horizon is written out instead of imported:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nImport MAX_HOLD from the strategy. This value decides when a "
+          "live paper position is CLOSED."
+    )
