@@ -254,6 +254,9 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   // chart doesn't reset every time the component remounts.
   // Renko crosshair readout — a BRICK, not a session, so it carries the
   // brick's own edges plus the bar it formed on.
+  // Lifted out of the render memo so the header can state it. 0 = not in Renko
+  // mode, or too little history to compute an ATR.
+  const [_brickSize, _setBrickSize] = useState(0);
   const [brickHover, setBrickHover] = useState<
     { open: number; close: number; up: boolean; sourceTime: string } | null>(null);
   const [renko, setRenko] = useState<boolean>(() => {
@@ -363,6 +366,12 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     // Renko bricks, sized at ATR(14) so one brick means "about a typical day's
     // range" whether the name trades at $8 or $800.
     const brickSize = renko ? atrBrickSize(candles) : 0;
+    // SAY WHAT A BRICK IS WORTH. Owner, 13 Sep 2026: "the renko chart doesn't
+    // specify what the move is, is it 1 or 5$". Neither — it is ATR(14), so it
+    // is DYNAMIC per symbol and per window, and it was never displayed. A Renko
+    // chart means nothing without its brick size: two charts that look
+    // identical can be $0.40 bricks on PFE and $19 bricks on SPX.
+    _setBrickSize(brickSize);
     const bricks = renko ? renkoBricks(candles, brickSize) : [];
 
     const chart = createChart(el, {
@@ -884,6 +893,22 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
           visible without opening anything, because Renko and candles are
           different enough that mistaking one for the other matters. */}
       <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
+        {renko && _brickSize > 0 && (() => {
+          const last = series?.candles?.[(series?.candles?.length ?? 0) - 1]?.close;
+          const pct = last ? (100 * _brickSize) / Number(last) : null;
+          return (
+            <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 6 }}
+                  title={"Brick size is ATR(14) — one brick means price travelled about a "
+                       + "typical day's range. It is recomputed per symbol and per window, "
+                       + "so it is NOT a fixed dollar amount and two Renko charts are not "
+                       + "directly comparable."}>
+              1 brick = <b style={{ color: "var(--text)" }}>
+                {_brickSize < 1 ? _brickSize.toFixed(3) : _brickSize.toFixed(2)}
+              </b>
+              {pct != null && ` (${pct.toFixed(2)}% · ATR 14)`}
+            </span>
+          );
+        })()}
         {([["Candles", false], ["Renko", true]] as const).map(([label, val]) => (
           <button
             key={label}
