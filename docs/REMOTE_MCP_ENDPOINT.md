@@ -1,8 +1,9 @@
 # Remote MCP endpoint — read-only TradePro for any agent
 
-**Status:** built 13 Sep 2026. Ships with the next `aws-build-push` +
-`aws-redeploy`. Requires one ECR repo and one GH secret first — see
-*Before the first deploy* below.
+**Status: LIVE** since 13 Sep 2026. Verified on the live URL — bare
+`/mcp` 404, `/mcp/<token>` GET 406, `tools/list` 101 tools with zero
+mutating, `tools/call get_health` returning a real payload from
+`api:5080`.
 
 ## What this fixes
 
@@ -72,26 +73,40 @@ The token is never in this repo — the repo is public. It lives in
 `/opt/tradepro/.env`, written from the `TRADEPRO_MCP_PATH_TOKEN` GH
 secret by `aws-set-env`.
 
-## Before the first deploy
+## The landmine, and it is not hypothetical
 
-Two one-time steps. Neither could be done from this session — the
-`infoccit-admin` SSO token has expired.
+**The EC2 role must be allowed to PULL the mcp repo. Creating the repo
+is not enough.** Inline policy `ccit-dev-tradepro-ec2-ecr-pull` on role
+`ccit-dev-tradepro-ec2-20260510220637811100000002` scopes
+`ecr:BatchGetImage` to a Resource **list** of individual repos. A repo
+missing from it is denied, worded as *"repository does not exist or may
+require docker login"* — which reads as a missing repo. It is not.
 
-1. **Create the ECR repo** (the build will fail without it):
-   ```
-   aws ecr create-repository --repository-name ccit-dev-tradepro-mcp \
-     --region eu-west-2 --profile infoccit-admin
-   ```
-2. **Set the GH secret** `TRADEPRO_MCP_PATH_TOKEN`:
-   ```
-   openssl rand -hex 24
-   ```
-   Then run `aws-set-env` to write it to the box. If it is left unset
-   the endpoint is served with **no access control** and the container
-   logs a warning at startup — that is the correct config only on a
-   private network.
+That denial **took the whole site down on 13 Sep**, because
+`aws-redeploy` runs `up -d --remove-orphans --force-recreate`, and
+force-recreate tears containers down *before* it pulls. One unpullable
+image left nothing running.
 
-Then: `aws-build-push` → `aws-redeploy`.
+Two guards now, so it cannot recur:
+
+- `mcp` sits behind `profiles: ["mcp"]`, so a plain `up -d` skips it.
+- `aws-redeploy` brings the site up first, then starts mcp as a separate
+  **best-effort** step. An MCP failure prints a warning naming this
+  policy and cannot fail the deploy.
+
+⚠ **The current IAM fix was applied with the CLI, not terraform.** That
+role is TF-managed, so the next `terraform apply` reverts the Resource
+list — the pull starts failing and the endpoint dies at the deploy after
+that, long enough later that the cause is easy to miss. **Put the mcp
+repo ARN in the TF module.**
+
+## Rotating the token
+
+Regenerate (`openssl rand -hex 24`), update the GH secret
+`TRADEPRO_MCP_PATH_TOKEN`, run `aws-set-env` — it rewrites `/opt/tradepro/.env`
+and recreates the mcp container. Then update the connector URL. If the
+secret is unset the endpoint is served with **no access control** and the
+container warns at startup; that is correct only on a private network.
 
 ## Registering it
 
