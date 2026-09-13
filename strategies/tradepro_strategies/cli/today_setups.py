@@ -99,8 +99,16 @@ def _setup_for(df) -> dict | None:
     # strategy's EXIT at the same moment.
     #
     # So compute the strategy's real test and refuse to star a row it rejects.
-    _tk = float((hi.tail(5).max() + lo.tail(5).min()) / 2)
-    _kj32 = float((hi.tail(32).max() + lo.tail(32).min()) / 2)
+    # IMPORTED, not re-derived. My first cut computed tenkan(5)/kijun(32) here
+    # by hand — which is the same mistake one layer down: a second copy that
+    # silently stops matching the day someone changes the periods. This is the
+    # strategy's own module, the one the live sleeve runs.
+    from ..paper.strategies._equity_trader_signal import compute_indicators
+    _ich = compute_indicators(
+        df.rename(columns={"high": "High", "low": "Low", "close": "Close"})
+        if "high" in df.columns else df)
+    _tk = float(_ich["tenkan"].iloc[-1])
+    _kj32 = float(_ich["kijun"].iloc[-1])
     strategy_entry_ok = bool(_tk > _kj32)
     strategy_disagrees = (None if strategy_entry_ok else
                           f"the ichimoku sleeve would NOT buy this — its entry needs "
