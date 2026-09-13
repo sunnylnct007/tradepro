@@ -1120,3 +1120,36 @@ this session was denied the call):
 Image built and pushed fine: `ccit-dev-tradepro-mcp:latest` is in ECR,
 arm64, and the read-only surface test gated it. GH secret
 `TRADEPRO_MCP_PATH_TOKEN` is set and now written to /opt/tradepro/.env.
+
+## 2026-09-13 LATE — remote MCP endpoint is LIVE
+
+Verified against the LIVE url, not CI:
+
+  /health              -> 200
+  /mcp                 -> 404   (bare path, no token — by design)
+  /mcp/<token>  GET    -> 406   (bound and routing)
+  /mcp/<token>  POST   -> 101 tools, ZERO mutating
+  tools/call get_health -> real payload from http://api:5080/health/details
+
+Connector URL is in the GH secret TRADEPRO_MCP_PATH_TOKEN; the full URL
+is `https://tradepro.showsoldprice.com/mcp/<token>`. Update the EXISTING
+`TradePro-Web` / `tradepro-Aws` connector entries — both still point at
+the SPA origin and will keep failing until changed.
+
+What unblocked it: the EC2 role inline policy
+`ccit-dev-tradepro-ec2-ecr-pull` now lists the mcp repo. Starting it with
+`--profile mcp up -d` did NOT recreate the other containers (they stayed
+"Up 7 hours") — no second outage.
+
+⚠ TWO THINGS THAT WILL BITE LATER:
+  1. **The IAM change was made with the CLI, NOT terraform.** That role is
+     TF-managed. The next `terraform apply` reverts the Resource list, the
+     pull starts failing again, and the endpoint dies at the deploy after
+     that. Put the mcp repo ARN in the TF module.
+  2. `aws-redeploy` ran `up -d --remove-orphans` WITHOUT the profile, which
+     would have removed tradepro-mcp on the next deploy. Fixed: redeploy now
+     brings the site up first, then starts mcp best-effort — an MCP failure
+     prints a warning and CANNOT fail the deploy or take the site down.
+
+Endpoint still inherits desk hours: up only while the EC2 box is (Mon–Fri
+from 12:50 UTC, or an ad-hoc `aws-start`).
