@@ -1081,3 +1081,42 @@ did not have (infoccit-admin SSO expired):
 Endpoint inherits desk hours: **up only Mon–Fri from 12:50 UTC**. Owner
 confirmed the weekend shutdown is deliberate and `aws-start` covers ad-hoc
 access. Full runbook: `docs/REMOTE_MCP_ENDPOINT.md`.
+
+## 2026-09-13 — I TOOK THE SITE DOWN for ~7 min deploying the MCP service
+
+Sunday, markets closed. 13:36Z → 13:43Z. `/health` 200 again at 13:43Z,
+all four containers healthy.
+
+**Cause: a new compose service can take the WHOLE STACK down.** The EC2
+role's `ccit-dev-tradepro-ec2-ecr-pull` policy scopes `ecr:BatchGetImage`
+to a Resource LIST naming only the api and frontend repos. The new
+`ccit-dev-tradepro-mcp` repo was not on it. Creating the ECR repo is NOT
+enough — the instance role must be allowed to pull from it.
+
+The pull was denied, and `aws-redeploy` runs
+`up -d --remove-orphans --force-recreate`, which **tears containers down
+BEFORE it pulls**. So the failure did not just skip the new service, it
+left NOTHING running. 443 stopped answering — the exact symptom this
+whole workstream started from, which is its own lesson about reading a
+connection-refused.
+
+Fixed so it cannot recur (commit on main):
+  - `mcp` is behind `profiles: ["mcp"]`. Plain `docker compose up -d` —
+    what every deploy runs — skips it. Start it explicitly:
+    `docker compose --profile mcp up -d`.
+  - caddy NO LONGER `depends_on: mcp`. The edge comes up and serves the
+    site whether or not MCP is running; `/mcp*` 502s meanwhile.
+
+STILL TO DO to turn the endpoint on (needs an owner with IAM write —
+this session was denied the call):
+  1. Add `arn:aws:ecr:eu-west-2:108703420282:repository/ccit-dev-tradepro-mcp`
+     to the Resource list of inline policy `ccit-dev-tradepro-ec2-ecr-pull`
+     on role `ccit-dev-tradepro-ec2-20260510220637811100000002`.
+     NOTE: that role is terraform-managed — change it in TF, or the next
+     apply reverts it and the endpoint dies at the following deploy.
+  2. `docker compose --profile mcp up -d` (or add the profile to redeploy).
+  3. Verify on the LIVE url: bare `/mcp` → 404, `/mcp/<token>` GET → 406.
+
+Image built and pushed fine: `ccit-dev-tradepro-mcp:latest` is in ECR,
+arm64, and the read-only surface test gated it. GH secret
+`TRADEPRO_MCP_PATH_TOKEN` is set and now written to /opt/tradepro/.env.
