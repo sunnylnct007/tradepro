@@ -1029,3 +1029,55 @@ OPEN / needs an owner call:
 - `npx vite build` does NOT typecheck. Use `npm run build` (tsc -b && vite build) before any frontend push. A green vite on untypechecked code blocked ALL deploys for 9h on 10 Sep (CandidatesView TONE undeclared).
 - Run `uv run pytest tests/ -q` in strategies/ before merging to main. main is shared; a red build blocks both sessions.
 - test_strangle_execution_link's 2 failures were NOT a regression: place_paper refuses for the first 20 min of a session (dc5b7a2), returning early with no POST and no `partial` key. Tests fail only during that window. Any new test driving place_paper MUST pin the clock. Fixed by tradepro-7f in #136.
+
+## 2026-09-13 — the MCP connectors were never going to work (built the missing piece)
+
+`TradePro-Web` / `tradepro-Aws` point at `https://tradepro.showsoldprice.com`
+— the SPA origin, behind nginx Basic Auth. `/mcp` and `/sse` answer 401,
+so tools/list never runs and Claude renders "connected, no tools".
+
+Behind that there was nothing anyway: **the MCP server has only ever had a
+stdio transport**, spawned by uv on the Mac. It works with the desktop link
+and nowhere else. Not a config fault — a missing component.
+
+Two wrong diagnoses got spent on this first. For the record:
+  - NOT OAuth / stale registration / a per-chat toggle.
+  - NOT a dead cloudflared. `~/.cloudflared/config.yml` serves openclaw +
+    ollama only; tradepro.showsoldprice.com resolves straight to the EC2
+    elastic IP (16.60.201.137). If it HAD been an orange-clouded tunnel,
+    a dead cloudflared gives a 1033 page, not ECONNREFUSED.
+  - The Saturday `Connection refused` was the box stopped for the weekend.
+    `aws-scheduled-start.yml` is `50 12 * * 1-5`. Normal, by design.
+
+Shipped 44e9aec on live-main (NOT yet on main):
+  - `tradepro-mcp-http` — streamable-HTTP, read-only, `mcp` compose service.
+  - Caddy routes `/mcp*` straight to it, bypassing the nginx Basic Auth gate.
+  - stdio surface UNCHANGED; the Mac keeps all 113 tools.
+
+READ-ONLY IS ENFORCED, NOT A CONVENTION. 12 tools stripped (113 → 101):
+approve/reject_paper_order, set_paper_placement_mode, close_option_leg,
+flatten_short_options, run_paper_session, apply_paper_override (has
+FORCE_CLOSE), configure_paper_llm_gate, update_paper_strategy_config,
+record_strangle_manual_trade, run_comparison, and ibkr_fetch_bars — that
+last one needs the SINGLE IBKR market-data session the live desk holds.
+Two startup guards abort rather than serve a surface we can't vouch for:
+a stale MUTATING_TOOLS entry (= someone renamed a mutating tool) and a
+mutating-verb tripwire. aws-build-push runs those tests BEFORE pushing
+the image.
+
+Auth = secret path segment: server answers on `/mcp/<token>`, 404s bare
+`/mcp`. claude.ai's connector UI takes a URL and nothing else, so the
+secret rides in the URL. Accepted for a surface that cannot trade —
+do NOT widen the surface without replacing this with real auth.
+GH secret `TRADEPRO_MCP_PATH_TOKEN` is set; it reaches the box via
+`aws-set-env`.
+
+NOT LIVE YET. Blocked on two owner steps, both needing creds this session
+did not have (infoccit-admin SSO expired):
+  1. `aws ecr create-repository --repository-name ccit-dev-tradepro-mcp
+      --region eu-west-2` — aws-build-push FAILS without it.
+  2. merge live-main → main, then aws-build-push → aws-set-env → aws-redeploy.
+
+Endpoint inherits desk hours: **up only Mon–Fri from 12:50 UTC**. Owner
+confirmed the weekend shutdown is deliberate and `aws-start` covers ad-hoc
+access. Full runbook: `docs/REMOTE_MCP_ENDPOINT.md`.
