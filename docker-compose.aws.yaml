@@ -165,6 +165,57 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Remote MCP server (read-only) ──────────────────────────
+  # The endpoint claude.ai in the browser — and any other agent that
+  # is not this Mac — connects to. Until this existed, the registered
+  # connectors pointed at the SPA origin and could never complete a
+  # tools/list, which read as "connected, no tools".
+  #
+  # Surface is build_server(read_only=True): the 12 tools that move a
+  # position, change what the desk trades, or write a shared store are
+  # removed, and the process REFUSES to start if one survives. The full
+  # surface stays on the Mac over stdio (`tradepro-mcp`).
+  #
+  # Internal-only — no host port. Caddy routes /mcp* here directly,
+  # bypassing the frontend nginx whose Basic Auth would kill the
+  # handshake. Access control is the secret path segment below.
+  mcp:
+    image: ${ECR_REGISTRY}/ccit-dev-tradepro-mcp:${IMAGE_TAG:-latest}
+    container_name: tradepro-mcp
+    restart: unless-stopped
+    depends_on:
+      # service_started, not service_healthy — same reasoning as the
+      # frontend: a slow API cold start shouldn't leave the MCP
+      # endpoint permanently unstarted. Tools return a connection
+      # error for the brief window the API isn't up, which is honest.
+      api:
+        condition: service_started
+    expose:
+      - "5085"
+    environment:
+      # The .NET API on the compose network. Without this the tools
+      # module defaults to http://localhost:5080 — nothing, inside
+      # this container — and every tool fails looking like an outage.
+      TRADEPRO_API_URL: "http://api:5080"
+      TRADEPRO_MCP_HOST: "0.0.0.0"
+      TRADEPRO_MCP_PORT: "5085"
+      TRADEPRO_MCP_PATH: "/mcp"
+      # Secret path segment: the server answers on /mcp/<token> and
+      # 404s on bare /mcp. Set in /opt/tradepro/.env from the
+      # TRADEPRO_MCP_PATH_TOKEN GH secret — NEVER committed, this repo
+      # is public. Empty = endpoint served unauthenticated; the
+      # container logs a warning rather than failing, because that is
+      # the right config on a private network.
+      TRADEPRO_MCP_PATH_TOKEN: "${TRADEPRO_MCP_PATH_TOKEN:-}"
+      # Fresh transport per request — no session affinity to preserve
+      # across a container restart or a client reconnect.
+      TRADEPRO_MCP_STATELESS: "1"
+      # The bar-cache tools read the S3 bar store (source of truth for
+      # market data), so this container needs the same creds as the API.
+      AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-eu-west-2}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+
   # ── Caddy reverse proxy (TLS termination + ACME auto-cert) ─
   # Serves tradepro.showsoldprice.com on :443 with a Let's Encrypt
   # certificate that Caddy fetches and renews automatically. Also
@@ -187,6 +238,7 @@ services:
       - caddy_config:/config
     depends_on:
       - frontend
+      - mcp
 
 volumes:
   api_compare_cache:

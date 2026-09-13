@@ -12,13 +12,37 @@
 # nginx serves the SPA + reverse-proxies /api/* to the api container.
 
 tradepro.showsoldprice.com {
-	reverse_proxy frontend:80
-	encode gzip
 	# Standard hardening headers — minimal because the frontend nginx
 	# already sets the SPA-specific ones (CSP, X-Content-Type-Options).
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		Referrer-Policy "no-referrer-when-downgrade"
+	}
+
+	# ── MCP endpoint for remote agents (claude.ai in the browser, any
+	# other Claude Code session). Routed straight to the `mcp` container
+	# — deliberately NOT through the frontend nginx, whose Basic Auth
+	# gate would 401 the handshake before tools/list could run. That was
+	# the whole reason the registered connectors showed "connected, no
+	# tools": the URL resolved to the Basic-Auth'd SPA.
+	#
+	# The surface behind this is read-only (build_server(read_only=True)
+	# strips everything that can trade). Access control is the secret
+	# path segment the mcp container requires — TRADEPRO_MCP_PATH_TOKEN,
+	# supplied from /opt/tradepro/.env, never from this file. This
+	# matcher is a prefix so the token stays out of the repo.
+	#
+	# No `encode` here and flush_interval -1: streamable HTTP replies are
+	# SSE, and compressing or buffering them stalls the stream.
+	handle /mcp* {
+		reverse_proxy mcp:5085 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		encode gzip
+		reverse_proxy frontend:80
 	}
 }
 

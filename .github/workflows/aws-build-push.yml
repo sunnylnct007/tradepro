@@ -24,6 +24,12 @@ on:
     paths:
       - 'backend/**'
       - 'frontend/**'
+      # The read-only remote MCP server ships from here.
+      - 'strategies/tradepro_strategies/mcp/**'
+      - 'strategies/tradepro_strategies/cli/mcp_http.py'
+      - 'strategies/Dockerfile.mcp'
+      - 'strategies/pyproject.toml'
+      - 'strategies/uv.lock'
       - '.github/workflows/aws-build-push.yml'
   workflow_dispatch:
 
@@ -37,6 +43,7 @@ env:
   ECR_REGISTRY: 108703420282.dkr.ecr.eu-west-2.amazonaws.com
   API_REPO:      ccit-dev-tradepro-api
   FRONTEND_REPO: ccit-dev-tradepro-frontend
+  MCP_REPO:      ccit-dev-tradepro-mcp
 
 jobs:
   build:
@@ -66,6 +73,8 @@ jobs:
           echo "api_latest=${ECR_REGISTRY}/${API_REPO}:latest"         >> "$GITHUB_OUTPUT"
           echo "frontend_sha=${ECR_REGISTRY}/${FRONTEND_REPO}:${SHA}"   >> "$GITHUB_OUTPUT"
           echo "frontend_latest=${ECR_REGISTRY}/${FRONTEND_REPO}:latest" >> "$GITHUB_OUTPUT"
+          echo "mcp_sha=${ECR_REGISTRY}/${MCP_REPO}:${SHA}"                >> "$GITHUB_OUTPUT"
+          echo "mcp_latest=${ECR_REGISTRY}/${MCP_REPO}:latest"             >> "$GITHUB_OUTPUT"
 
       - name: Build + push API image (linux/arm64)
         uses: docker/build-push-action@v6
@@ -100,11 +109,35 @@ jobs:
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:cache
           cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:cache,mode=max
 
+      # The remote MCP server. Guard the build with the read-only
+      # surface tests: the image must not be publishable if a
+      # mutating tool can reach the public endpoint.
+      - name: Verify the MCP read-only surface
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          cd strategies
+          uv run pytest tests/test_mcp_read_only_surface.py -q
+
+      - name: Build + push MCP image (linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./strategies
+          file: ./strategies/Dockerfile.mcp
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.mcp_sha }}
+            ${{ steps.tags.outputs.mcp_latest }}
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.MCP_REPO }}:cache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.MCP_REPO }}:cache,mode=max
+
       - name: Summary
         run: |
           echo "## Built + pushed image tags" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- \`${{ steps.tags.outputs.api_sha }}\`"      >> "$GITHUB_STEP_SUMMARY"
           echo "- \`${{ steps.tags.outputs.frontend_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`${{ steps.tags.outputs.mcp_sha }}\`"      >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Trigger \`aws-redeploy\` with \`image_tag=${{ steps.tags.outputs.sha }}\` to roll out (or leave as \`latest\`)." >> "$GITHUB_STEP_SUMMARY"

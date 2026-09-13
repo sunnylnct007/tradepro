@@ -1,8 +1,16 @@
 """FastMCP server registering tools, resources, and decomposition prompts.
 
-Run via the `tradepro-mcp` CLI. Default transport is stdio (Claude
-Desktop's expectation); HTTP/SSE will be added when the in-app /chat
-page lands.
+Two transports, two surfaces:
+
+  `tradepro-mcp`       stdio, FULL surface — Claude Desktop on the Mac.
+  `tradepro-mcp-http`  streamable-HTTP, READ-ONLY — the deployed
+                       endpoint any remote agent (claude.ai in the
+                       browser, another Claude Code) connects to.
+
+The read-only surface is not a convention, it is enforced: see
+MUTATING_TOOLS and _apply_read_only below. Anything that moves a
+position, rewrites strategy config, or writes a shared store is
+removed from the registry before the server ever binds a port.
 """
 from __future__ import annotations
 
@@ -15,12 +23,99 @@ from .session import instrumented, session, session_path
 from .trace import new_trace, AnswerTrace, TRACE_ROOT
 
 
-def build_server():
+# Tools removed from the READ-ONLY (remote HTTP) surface. Each one
+# either moves a position, changes what the desk will trade, or writes
+# a store something else reads. Money-touching entries first.
+#
+# This list is the security boundary for the public endpoint. Adding a
+# tool that mutates anything means adding it HERE in the same commit.
+MUTATING_TOOLS = frozenset({
+    # --- moves a position / places or cancels an order -----------------
+    "approve_paper_order",        # releases a pending order to the broker
+    "reject_paper_order",
+    "set_paper_placement_mode",   # flips manual -> auto placement
+    "close_option_leg",
+    "flatten_short_options",
+    "run_paper_session",          # spawns tradepro-paper as a subprocess
+    # --- changes what the desk will trade ------------------------------
+    "apply_paper_override",       # PAUSE/RESUME/VETO/FORCE_CLOSE
+    "configure_paper_llm_gate",
+    "update_paper_strategy_config",
+    # --- writes a shared store -----------------------------------------
+    "record_strangle_manual_trade",  # books a REAL trade into the record
+    "ibkr_fetch_bars",               # queues a backfill; needs the single
+                                     # IBKR market-data session, which the
+                                     # live desk is holding
+    "run_comparison",                # push=True overwrites the compare
+                                     # cache the Compare page renders
+})
+
+# Per-process trace bookkeeping. Verb-shaped names, no shared state —
+# they write only this process's own trace file, so they survive the
+# tripwire below.
+_READ_ONLY_TRACE_TOOLS = frozenset({
+    "begin_trace", "record_step", "finalize_trace",
+})
+
+# Default-deny backstop. A denylist alone fails open: rename
+# `flatten_short_options` and it silently reappears on the public
+# endpoint. Any surviving tool whose name starts with a mutating verb
+# and is not explicitly exempted aborts startup instead.
+_MUTATING_VERBS = (
+    "apply_", "approve_", "arm_", "cancel_", "close_", "configure_",
+    "delete_", "disarm_", "execute_", "flatten_", "place_", "record_",
+    "reject_", "reset_", "set_", "submit_", "update_",
+)
+
+
+def _apply_read_only(mcp) -> list[str]:
+    """Strip the mutating tools, then prove none got through.
+
+    Raises RuntimeError rather than serving a surface we cannot vouch
+    for — a public endpoint that can flatten the book is worse than no
+    public endpoint.
+    """
+    present = {tool.name for tool in mcp._tool_manager.list_tools()}
+
+    # A name in the denylist that is no longer registered means the tool
+    # was renamed or dropped. Fail loudly: the rename may have landed a
+    # mutating tool back on the surface under a new name.
+    stale = MUTATING_TOOLS - present
+    if stale:
+        raise RuntimeError(
+            "MUTATING_TOOLS names tools that are no longer registered: "
+            f"{sorted(stale)}. A rename? Update MUTATING_TOOLS in the "
+            "same commit as the rename."
+        )
+
+    for name in sorted(MUTATING_TOOLS):
+        mcp.remove_tool(name)
+
+    survivors = {tool.name for tool in mcp._tool_manager.list_tools()}
+    leaked = sorted(
+        name for name in survivors
+        if name.startswith(_MUTATING_VERBS) and name not in _READ_ONLY_TRACE_TOOLS
+    )
+    if leaked:
+        raise RuntimeError(
+            f"read-only surface still exposes mutating-looking tools: {leaked}. "
+            "Add each to MUTATING_TOOLS, or to _READ_ONLY_TRACE_TOOLS if it "
+            "genuinely writes nothing shared."
+        )
+    return sorted(survivors)
+
+
+def build_server(read_only: bool = False, **fastmcp_kwargs):
     """Construct and return the FastMCP server. Lazily imports so the
-    package can be loaded without mcp installed (e.g. for tests)."""
+    package can be loaded without mcp installed (e.g. for tests).
+
+    read_only=True removes every tool in MUTATING_TOOLS — the surface
+    served over HTTP to remote agents. Extra kwargs (host, port,
+    stateless_http, ...) pass straight through to FastMCP.
+    """
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("tradepro")
+    mcp = FastMCP("tradepro", **fastmcp_kwargs)
     # Touch the session so its file exists from process start, even
     # before the LLM has called anything — gives the operator something
     # to tail while waiting for the first tool call.
@@ -1720,6 +1815,9 @@ def build_server():
     def get_paper_run_status(run_id: str) -> str:
         """Check status of a paper session launched by run_paper_session."""
         return _json(t.get_paper_run_status(run_id))
+
+    if read_only:
+        _apply_read_only(mcp)
 
     return mcp
 
