@@ -278,8 +278,31 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
           metric: c.annualized_yield_pct ?? null, metricLabel: "%/yr",
           asOf: r?.generated_at_utc ?? null,
           eligible: !!c.eligible,
-          why: c.eligible ? "clears every gate"
-                          : (c.blocks?.[0] ?? "blocked"),
+          // "clears every gate" was INVENTED here, discarding what the
+          // producer actually said. The screen's own why is
+          // "passes today's screen · wheel BACKTEST FAILED (CAGR 7.61% vs 8%
+          // bar; worst name -71.4% vs 40% bar)" — written deliberately so the
+          // row could not read as an endorsement. The frontend then replaced
+          // it with three cheerful words sitting next to a "failed" badge,
+          // which is the contradiction the owner asked about.
+          why: c.eligible
+            ? (c.why ?? "passes today's screen · wheel BACKTEST FAILED")
+            : (c.blocks?.[0] ?? "blocked"),
+          // Option context on a row the board calls "sell put". Without it a
+          // wheel row showed a strike and a yield and nothing about the
+          // contract behind them.
+          extra: {
+            optionContext: {
+              expiry: c.expiry ?? null,
+              dte: c.dte ?? null,
+              delta: c.suggested_delta ?? null,
+              premium: c.suggested_premium ?? null,
+              openInterest: c.open_interest ?? null,
+              spread: c.spread_usd ?? null,
+              ivHv: c.iv_hv_ratio ?? null,
+              sigma: c.sigma_context ?? null,
+            },
+          },
         });
       }
     } catch (e) { problems.push(`Wheel: ${String((e as Error)?.message || e)}`); }
@@ -646,6 +669,46 @@ function Detail({ r }: { r: Row }) {
         )}
       </div>
 
+      {(r.extra as any)?.optionContext?.premium != null && (() => {
+        const o = (r.extra as any).optionContext;
+        const sg = o.sigma || {};
+        return (
+          <div style={{ minWidth: 280, flex: "1 1 340px" }}>
+            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em",
+                          color: "var(--text-dim)", marginBottom: 5 }}>
+              The contract — what "sell put" actually means here
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+              <div>
+                Sell the <b>{o.expiry}</b> put{o.dte != null ? ` (${o.dte} days)` : ""} for{" "}
+                <b>${Number(o.premium).toFixed(2)}</b>
+                {o.delta != null ? ` · delta ${Math.abs(Number(o.delta)).toFixed(2)}` : ""}
+              </div>
+              {sg.strike_sigma_distance != null && (
+                <div>
+                  Strike sits <b>{Number(sg.strike_sigma_distance).toFixed(2)}σ</b> below spot
+                  {sg.assignment_prob_pct != null && (
+                    <> · <b style={{ color: sg.assignment_prob_pct <= 15 ? TONE.ok
+                                            : sg.assignment_prob_pct <= 30 ? TONE.warn : TONE.bad }}>
+                        {Number(sg.assignment_prob_pct).toFixed(0)}% chance of assignment</b></>
+                  )}
+                </div>
+              )}
+              {sg.strike_at_1_sigma != null && (
+                <div style={{ color: "var(--text-dim)" }}>
+                  A 1σ strike would be ${Number(sg.strike_at_1_sigma).toFixed(2)};
+                  1.5σ would be ${Number(sg.strike_at_1_5_sigma).toFixed(2)}.
+                </div>
+              )}
+              <div style={{ color: "var(--text-dim)" }}>
+                {o.openInterest != null ? `${o.openInterest} open interest` : "open interest unknown"}
+                {o.spread != null ? ` · $${Number(o.spread).toFixed(2)} spread` : ""}
+                {o.ivHv != null ? ` · IV/HV ${Number(o.ivHv).toFixed(2)}` : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {(r.extra as any)?.relative?.line && (
         <div style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "8px 0" }}>
           <span style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 11.5 }}>
