@@ -103,6 +103,26 @@ const num = (v: number | null | undefined, d = 2, suf = "") =>
     : `${v.toFixed(d)}${suf}`;
 
 /** Age of an artifact in hours, or null when it carries no as_of. */
+function marketHours(asOf: string | null | undefined): number {
+  /** Hours since `asOf`, counting only Mon-Fri. A signal published at Friday's
+   *  close is not stale on Sunday — no newer data exists. Counting calendar
+   *  hours made every weekend look like a data outage. */
+  if (!asOf) return 0;
+  const t0 = Date.parse(asOf);
+  if (!Number.isFinite(t0)) return 0;
+  const now = Date.now();
+  if (now <= t0) return 0;
+  let hrs = 0;
+  // Hour steps, capped so an ancient timestamp cannot spin: past the cap it is
+  // unambiguously stale anyway.
+  const HOUR = 3600e3, CAP = 24 * 30;
+  for (let k = 0, t = t0; t < now && k < CAP; k++, t += HOUR) {
+    const d = new Date(t).getUTCDay();
+    if (d !== 0 && d !== 6) hrs += 1;
+  }
+  return hrs;
+}
+
 function ageHours(asOf: string | null): number | null {
   if (!asOf) return null;
   const t = Date.parse(asOf);
@@ -466,14 +486,25 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                           fontVariantNumeric: "tabular-nums" }}>
             <thead>
               <tr>
-                {["Symbol", "Strategy", "Action", "Entry", "Level", "Rank", "Data", "Why"]
+                {/* NOT "Rank" — this cell renders each strategy's OWN metric
+                    (σ for swing, %/yr for the wheel, ATR% for setups, d→ER for
+                    the watch) and each row carries its own unit beside it. Under
+                    the old header the Setups lane sorted by ATR% descending, so
+                    the most VOLATILE name led the board and read as the top-ranked
+                    one. A column cannot be called a rank when it holds four
+                    different units that are not comparable. */}
+                {["Symbol", "Strategy", "Action", "Entry", "Level", "Metric", "Data", "Why"]
                   .map((h, i) => th(h, i === 3 || i === 4 || i === 5))}
               </tr>
             </thead>
             <tbody>
               {view.map((r, i) => {
                 const age = ageHours(r.asOf);
-                const stale = age != null && age > 20;
+                // Staleness in MARKET time, not wall-clock. Friday's close is
+                // the freshest data that can exist on a Sunday, and flagging it
+                // amber taught the reader to ignore the one badge that means
+                // "this is old". Weekend hours do not age a signal.
+                const stale = age != null && marketHours(r.asOf) > 20;
                 const rowKey = `${r.strategy}:${r.symbol}:${i}`;
                 const isOpen = open === rowKey;
                 return [
