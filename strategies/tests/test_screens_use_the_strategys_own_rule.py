@@ -180,3 +180,39 @@ def test_no_screen_restates_a_strategys_holding_horizon():
         + "\n\nImport MAX_HOLD from the strategy. This value decides when a "
           "live paper position is CLOSED."
     )
+
+
+def test_no_rows_why_text_names_a_strategy_that_did_not_pick_it():
+    """The rationale on a row must belong to the rule that selected it.
+
+    Momentum rows carried why="Ichimoku, above cloud" — a rationale from a
+    different strategy entirely. Momentum has no cloud, no tenkan, no kijun:
+    it fires when a name in an uptrend pulls back TO its 10-day average. The
+    row was describing a test it never ran, which is the same defect as the
+    Setups screen's "engine: BUY" label, one layer cheaper to make and just
+    as misleading to read.
+    """
+    import re
+    ICHIMOKU_WORDS = re.compile(r"ichimoku|above cloud|kijun|tenkan", re.I)
+    # Modules that legitimately talk about the cloud because they RUN it.
+    ICHIMOKU_OWNERS = ("cli/today_setups.py", "paper/strategies/ichimoku",
+                       "paper/strategies/_equity_trader_signal.py",
+                       "paper/strategies/_fx_trader_signal.py")
+
+    offenders = []
+    for path in SRC.rglob("*.py"):
+        rel = path.relative_to(SRC).as_posix()
+        if "/tests/" in rel or any(rel.startswith(o) for o in ICHIMOKU_OWNERS):
+            continue
+        for ln, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):        # comments may discuss anything
+                continue
+            if "why" in line and ICHIMOKU_WORDS.search(line):
+                offenders.append(f"{rel}:{ln}  {stripped[:80]}")
+
+    assert not offenders, (
+        "a row's why-text names Ichimoku in a module that does not run it:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nState the rule that actually selected the row."
+    )

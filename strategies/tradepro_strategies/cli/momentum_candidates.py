@@ -541,7 +541,19 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
                 entry=(c.get("calcs") or {}).get("entry", {}).get("value") or c.get("close"),
                 level=c.get("stop"), level_label="stop",
                 metric=(c.get("calcs") or {}).get("atr_pct", {}).get("value"), metric_label="ATR%",
-                eligible=True, why="Ichimoku, above cloud",
+                # THE WHY MUST DESCRIBE THE RULE THAT PICKED THE ROW.
+                # This said "Ichimoku, above cloud" on every momentum row —
+                # a rationale belonging to a DIFFERENT strategy. Momentum has
+                # no cloud, no tenkan, no kijun: it fires when a name in an
+                # uptrend (close>200-SMA, 20-SMA>50-SMA, close>20-SMA) pulls
+                # back TO its 10-day average having been above it the day
+                # before. Third instance of this shape, after the Setups
+                # screen's "engine: BUY" and the watch's mismatched "repair".
+                eligible=True,
+                why=(f"pullback to the 10-day avg in an uptrend · "
+                     f"{c.get('pct_above_20sma')}% over the 20-day, "
+                     f"{c.get('pct_above_200sma')}% over the 200-day · "
+                     f"trails {c.get('trailing_pct')}%"),
             ))
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
             pass
