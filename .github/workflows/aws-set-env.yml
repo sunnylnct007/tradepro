@@ -13,6 +13,12 @@
 #                                      newer accounts have a single key and leave this empty
 #   T212_MODE             (optional) — disabled | demo | live (default disabled)
 #   FINNHUB_API_KEY       (optional) — Finnhub earnings calendar
+#   TRADEPRO_MCP_PATH_TOKEN (optional) — secret path segment for the
+#                           read-only remote MCP endpoint. The server
+#                           answers on /mcp/<token> and 404s bare /mcp.
+#                           Generate with: openssl rand -hex 24
+#                           Unset = the endpoint is served with NO
+#                           access control (the container warns).
 #
 # After updating .env, restarts tradepro.service so the API picks
 # up the new values.
@@ -78,6 +84,7 @@ jobs:
           FIREBASE_REQUIRE_AUTH: ${{ github.event.inputs.firebase_require_auth }}
           CORS_ORIGIN: ${{ github.event.inputs.cors_origin }}
           BASIC_AUTH_HTPASSWD: ${{ secrets.BASIC_AUTH_HTPASSWD }}
+          TRADEPRO_MCP_PATH_TOKEN: ${{ secrets.TRADEPRO_MCP_PATH_TOKEN }}
         run: |
           # Build the SSM payload. The shell helper `upsert KEY VALUE`
           # replaces an existing KEY=... line in .env, or appends one if
@@ -97,6 +104,7 @@ jobs:
             --arg firebase_auth "$FIREBASE_REQUIRE_AUTH" \
             --arg cors "$CORS_ORIGIN" \
             --arg htpasswd "$BASIC_AUTH_HTPASSWD" \
+            --arg mcp_token "$TRADEPRO_MCP_PATH_TOKEN" \
             '{
               commands: [
                 "set -euo pipefail",
@@ -111,6 +119,7 @@ jobs:
                 ("FIREBASE_AUTH_VAL=" + ($firebase_auth | @sh)),
                 ("CORS_VAL=" + ($cors | @sh)),
                 ("HTPASSWD_VAL=" + ($htpasswd | @sh)),
+                ("MCP_TOKEN_VAL=" + ($mcp_token | @sh)),
                 "upsert() { local k=$1; local v=$2; [ -z \"$v\" ] && return 0; if grep -q \"^${k}=\" \"$ENV_FILE\"; then sed -i \"s|^${k}=.*|${k}=${v}|\" \"$ENV_FILE\"; else echo \"${k}=${v}\" >> \"$ENV_FILE\"; fi; }",
                 "upsert INGEST_TOKEN \"$INGEST_TOKEN_VAL\"",
                 "upsert TRADEPRO_T212_API_KEY \"$T212_KEY_VAL\"",
@@ -119,9 +128,11 @@ jobs:
                 "upsert TRADEPRO_FINNHUB_API_KEY \"$FINNHUB_VAL\"",
                 "upsert FIREBASE_REQUIRE_AUTH \"$FIREBASE_AUTH_VAL\"",
                 "upsert CORS_ORIGIN_0 \"$CORS_VAL\"",
+                "upsert TRADEPRO_MCP_PATH_TOKEN \"$MCP_TOKEN_VAL\"",
                 "if [ -n \"$HTPASSWD_VAL\" ]; then echo \"$HTPASSWD_VAL\" > .htpasswd; chmod 644 .htpasswd; echo wrote .htpasswd; fi",
                 "echo \"Final .env keys:\"; cut -d= -f1 \"$ENV_FILE\" | sort",
                 "if docker ps --format \"{{.Names}}\" | grep -q tradepro-frontend; then docker restart tradepro-frontend; fi",
+                "if docker ps --format \"{{.Names}}\" | grep -q tradepro-mcp; then docker compose -f docker-compose.aws.yaml up -d --force-recreate mcp; fi",
                 "systemctl restart tradepro.service || true",
                 "echo Done."
               ]

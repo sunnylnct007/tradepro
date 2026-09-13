@@ -1,0 +1,62 @@
+# TradePro REMOTE MCP server — read-only surface over streamable HTTP.
+#
+# This is what claude.ai in the browser (and any other remote agent)
+# connects to. The full, trade-capable surface stays on the Mac over
+# stdio via `tradepro-mcp`; this image runs `tradepro-mcp-http`, which
+# builds the server with read_only=True and refuses to start if a
+# mutating tool survives the strip.
+#
+# Reaches the .NET API over the compose network as api:5080. Not
+# internet-facing on its own — Caddy fronts it and only forwards
+# requests carrying the secret path prefix.
+FROM python:3.12-slim
+
+# uv: same single-binary tool the host and the worker image use.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# curl for the container healthcheck; kept to a single layer and
+# purged of apt lists so the image stays small.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Deps layer before source so edits to tradepro_strategies/ don't bust
+# the wheel cache.
+COPY pyproject.toml uv.lock ./
+COPY tradepro_strategies/ tradepro_strategies/
+COPY tools/ tools/
+COPY README.md ./
+
+# --no-dev keeps behave/ruff/mypy out of the runtime image.
+RUN uv sync --frozen --no-dev
+
+ENV TRADEPRO_MCP_HOST=0.0.0.0 \
+    TRADEPRO_MCP_PORT=5085 \
+    TRADEPRO_MCP_PATH=/mcp \
+    TRADEPRO_API_URL=http://api:5080 \
+    TRADEPRO_PROJECT_DIR=/app
+
+EXPOSE 5085
+
+# Probe the REAL served path. With a token set the server 404s bare
+# /mcp on purpose, so a healthcheck against /mcp would mark a perfectly
+# healthy container unhealthy — and Caddy's depends_on would then never
+# route to it. Shell form because the URL is assembled from env.
+#
+# A GET on the streamable-HTTP path is not a valid MCP request; the app
+# answers 4xx/405/406 rather than 404. Any of those proves it is bound
+# and routing, which is what liveness means here. A 404 means the path
+# is wrong, and that IS a failure.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD code=$(curl -sS -o /dev/null -w '%{http_code}' \
+        "http://localhost:${TRADEPRO_MCP_PORT}${TRADEPRO_MCP_PATH}${TRADEPRO_MCP_PATH_TOKEN:+/$TRADEPRO_MCP_PATH_TOKEN}") \
+   && echo "$code" | grep -qE '^(200|400|405|406)$' || exit 1
+
+# NOT `uv run`: that re-resolves the environment on every start and
+# pulls the dev group back in (it was caught downloading ruff + mypy at
+# container startup), which is slow and needs network the container
+# should not need. The venv `uv sync` already built is complete —
+# invoke its console script directly.
+CMD ["/app/.venv/bin/tradepro-mcp-http"]
