@@ -153,11 +153,34 @@ def _setup_for(df) -> dict | None:
                                 # reclaimed (RH/TSLA): a recovering dip, never a clean ⭐
     elif dist_atr is None or dist_atr < 0:
         cls = "weak"            # above cloud but below kijun — support breaking
-    elif dist_atr <= 1.0 and not very_thin:
+    elif dist_atr <= 1.0 and not thin_vol:
         cls = "consider"        # GENUINELY at the kijun (≤1 ATR) + real participation.
                                 # A pullback entry means price is ON the base line, not
                                 # 1.2 ATR above it (BLK) — that's chasing the bounce, not
-                                # buying the dip. Extreme-thin is de-starred here too.
+                                # buying the dip.
+                                #
+                                # THIN VOLUME NOW DEMOTES, IT NO LONGER MERELY FLAGS.
+                                # This used to read `not very_thin` (<0.3x), so anything
+                                # from 0.3x to 0.8x kept a clean star while the WHY text
+                                # said "light volume hasn't confirmed a hold — could be
+                                # drift, not defense". On 11 Sep that produced FIVE of
+                                # five considers, FOUR carrying that warning:
+                                #
+                                #   PFE 0.71x  FIVE 0.58x  FLR 0.44x  ANET 0.79x  ⚠ THIN
+                                #   ABBV 0.81x                                     clean
+                                #
+                                # The cockpit rendered it as ⭐5 · ⚠5 — every star with a
+                                # warning beside it.
+                                #
+                                # Owner, 13 Sep 2026: "i will better not see any signal
+                                # rather than signals creating confusion" / "this pollutes
+                                # the cockpit as well". A list the engine does not believe
+                                # is worse than a short list, and the engine ALREADY
+                                # computed thin_vol — it just declined to act on it.
+                                #
+                                # They are not deleted: they fall to `hold`, visible under
+                                # "show extended", carrying the same reasoning. What they
+                                # lose is the star and the cockpit slot.
     else:
         cls = "hold"            # above kijun but not a pullback entry (1-3 ATR), OR at the
                                 # kijun but too thin to trust — constructive, no clean edge
