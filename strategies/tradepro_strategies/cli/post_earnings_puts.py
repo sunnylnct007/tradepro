@@ -266,9 +266,30 @@ def scan(api_base: str) -> tuple[list[dict], list[dict], dict]:
         }
         row.update(_tradeable_size(row["strike"], size_factor(vol)))
         if not qualifies(move):
-            row["why_not"] = (f"fell {100 * move:.1f}% on the report, needs "
-                              f"{100 * DROP_PCT:.0f}%") if move is not None \
-                else "report-day move unavailable"
+            # SAY WHICH WAY IT WENT. This read "fell {move}%" for every row
+            # regardless of sign, so a stock that ROSE was described as having
+            # fallen: SNOW gained 16.6% on its print and the screen said "fell
+            # 16.6% on the report". CIEN, ADBE, DELL and HPE all rose and all
+            # read as falls. A negative move also produced "fell -3.8%", which
+            # is a double negative that means the opposite.
+            #
+            # The screen is a candidate list a human acts on. A row that states
+            # the direction of an earnings move backwards is not a wording
+            # nit — it is the one fact the setup turns on.
+            if move is None:
+                row["why_not"] = "report-day move unavailable"
+            else:
+                pct = 100 * move
+                need = abs(100 * DROP_PCT)
+                if pct < 0:
+                    row["why_not"] = (f"fell {abs(pct):.1f}% on the report — "
+                                      f"needs a drop of {need:.0f}% or more")
+                elif pct > 0:
+                    row["why_not"] = (f"ROSE {pct:.1f}% on the report — "
+                                      f"this setup needs a drop of {need:.0f}% or more")
+                else:
+                    row["why_not"] = (f"was flat on the report — "
+                                      f"needs a drop of {need:.0f}% or more")
             near.append(row)
             continue
         if market.get("ok") is not True:
