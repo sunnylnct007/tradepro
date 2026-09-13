@@ -183,6 +183,16 @@ services:
     image: ${ECR_REGISTRY}/ccit-dev-tradepro-mcp:${IMAGE_TAG:-latest}
     container_name: tradepro-mcp
     restart: unless-stopped
+    # OPT-IN, and that is deliberate. `up --force-recreate` tears the
+    # stack down BEFORE it pulls, so on 13 Sep one unpullable image took
+    # the ENTIRE SITE down — the EC2 role's ecr-pull policy is scoped to
+    # a Resource list naming only the api and frontend repos, and the new
+    # mcp repo was not on it. A new service must never be able to do that
+    # again: `docker compose up -d` skips this, and the MCP endpoint is
+    # started explicitly with
+    #     docker compose --profile mcp up -d
+    # Re-enabling it needs the IAM Resource list widened first.
+    profiles: ["mcp"]
     depends_on:
       # service_started, not service_healthy — same reasoning as the
       # frontend: a slow API cold start shouldn't leave the MCP
@@ -237,8 +247,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
+      # NOT mcp: Caddy must come up and serve the site whether or not
+      # the MCP endpoint is running. /mcp* 502s while it is down, which
+      # is the honest answer and costs nobody the desk.
       - frontend
-      - mcp
 
 volumes:
   api_compare_cache:
