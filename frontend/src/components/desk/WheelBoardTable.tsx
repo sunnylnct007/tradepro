@@ -60,6 +60,19 @@ export interface WheelRow {
   symbol: string;
   regime: string | null;
   iv_hv_ratio?: number | null;
+  /** Distance-to-strike in standard deviations + the assignment odds.
+   *  Delta flatters distance: our HOOD pick read "0.30 delta" while sitting
+   *  0.41σ below spot with a 1-in-3 chance of finishing through it. */
+  sigma_context?: {
+    one_sigma_move?: number | null;
+    one_sigma_move_pct?: number | null;
+    strike_sigma_distance?: number | null;
+    assignment_prob_pct?: number | null;
+    touch_prob_pct_approx?: number | null;
+    strike_at_1_sigma?: number | null;
+    strike_at_1_5_sigma?: number | null;
+    formula?: string | null;
+  } | null;
   open_interest: number | null;
   spread_usd: number | null;
   eligible: boolean;
@@ -131,7 +144,8 @@ function quality(r: WheelRow): { label: string; degraded: boolean } {
   return { label: "no quote", degraded: true };
 }
 
-type SortKey = "symbol" | "yield" | "oi" | "ivhv" | "delta" | "premium" | "strike" | "dte";
+type SortKey = "symbol" | "yield" | "oi" | "ivhv" | "delta" | "premium" | "strike" | "dte"
+  | "sigma" | "assign";
 
 // GENERIC over the row type on purpose. The callers hold a richer `Candidate`
 // and their handlers need those extra fields, so a non-generic
@@ -158,6 +172,9 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
         case "symbol": return r.symbol;
         case "oi": return r.open_interest ?? -1;
         case "ivhv": return r.iv_hv_ratio ?? -1;
+        case "sigma": return r.sigma_context?.strike_sigma_distance ?? -1;
+        // Safest first when sorted: invert so low assignment odds rank high.
+        case "assign": return -(r.sigma_context?.assignment_prob_pct ?? 999);
         case "delta": return r.suggested_delta ?? -1;
         case "premium": return r.suggested_premium ?? -1;
         case "dte": return r.dte ?? 9999;
@@ -235,6 +252,12 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
               {th("OI", "oi", true)}
               {th("Spread", undefined, true)}
               {th("IV/HV", "ivhv", true)}
+              {/* The two numbers a put-seller needs and this board never had:
+                  how far out the strike really is, and the odds of being
+                  assigned. Delta flatters distance — a 0.30-delta put can sit
+                  0.4σ from spot with a 1-in-3 chance of finishing through. */}
+              {th("σ out", "sigma", true)}
+              {th("Assign", "assign", true)}
               {th("Status")}
             </tr>
           </thead>
@@ -290,6 +313,26 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
                   </td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.spread_usd, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.iv_hv_ratio, 2)}</td>
+                  {/* HOW FAR OUT, and WHAT ARE THE ODDS. The two numbers a
+                      put-seller actually needs and the board never had. */}
+                  <td style={{ padding: "7px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {r.sigma_context?.strike_sigma_distance != null ? (
+                      <b style={{ color: r.sigma_context.strike_sigma_distance >= 1
+                                    ? OK : r.sigma_context.strike_sigma_distance >= 0.7
+                                    ? WARN : "var(--text)" }}>
+                        {r.sigma_context.strike_sigma_distance.toFixed(2)}σ
+                      </b>
+                    ) : <span style={{ color: MUTED }}>—</span>}
+                  </td>
+                  <td style={{ padding: "7px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {r.sigma_context?.assignment_prob_pct != null ? (
+                      <span style={{ color: r.sigma_context.assignment_prob_pct <= 15
+                                       ? OK : r.sigma_context.assignment_prob_pct <= 30
+                                       ? WARN : BAD }}>
+                        {r.sigma_context.assignment_prob_pct.toFixed(0)}%
+                      </span>
+                    ) : <span style={{ color: MUTED }}>—</span>}
+                  </td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
                     {/* Icon + WORD, never colour alone. */}
                     {/* A GREEN TICK ON UNVERIFIED DATA IS A FALSE POSITIVE.

@@ -1663,6 +1663,54 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         forward_price = round(ref_close * _m.exp((_r - (_q or 0.0)) * dte / 365.0), 2)
         forward_basis = "r_and_div_yield" if _q is not None else "r_only_div_yield_unavailable"
 
+    # ── HOW FAR OUT IS THIS STRIKE, REALLY? (owner, 13 Sep) ───────────────
+    #
+    # The wheel picks strikes by DELTA, and delta flatters the distance. Our
+    # own HOOD row — 0.298 delta, strike 105 against a 113.77 spot at 60.1%
+    # IV and 35 DTE — sits just 0.41 SIGMA below spot, with roughly a 1-in-3
+    # chance of finishing below it. "0.30 delta" sounds comfortably out of
+    # the money; "0.4 sigma" does not, and the second is the honest one.
+    #
+    # Owner's aim: "some options we can sell where we are sure we can avoid
+    # assignment". You cannot be sure — but you can price it, and this is the
+    # arithmetic that does: 1 sigma to expiry = S x IV x sqrt(DTE/365), then
+    # the assignment odds from the lognormal (N(-d2)), not a normal eyeball.
+    #
+    # Also published: the TRUE 1-sigma move beside the straddle-derived
+    # "implied move" we already show, because they are not the same number.
+    # A straddle is ~0.7979 of a sigma, so reading our implied move as one
+    # standard deviation understates the range by a fifth.
+    # Prefer the selected quote's own IV; fall back to the row's solved IV,
+    # which is what carries the number when the broker's IV field is dark
+    # (HOOD's 60.1% was solved from the mid, not served).
+    _sig_iv = chain_iv if (chain_iv and chain_iv > 0) else (
+        ivr.iv if (ivr.available and ivr.iv and ivr.iv > 0) else None)
+    sigma_ctx = None
+    if ref_close and dte > 0 and _sig_iv and strike:
+        import math as _m2
+        from statistics import NormalDist as _ND
+        _T = dte / 365.0
+        _one = ref_close * _sig_iv * _m2.sqrt(_T)
+        _sig_dist = (ref_close - strike) / _one if _one > 0 else None
+        _d2 = ((_m2.log(ref_close / strike)
+                + ((_r - (_div_y or 0.0)) - 0.5 * _sig_iv ** 2) * _T)
+               / (_sig_iv * _m2.sqrt(_T)))
+        _p_assign = _ND().cdf(-_d2)
+        sigma_ctx = {
+            "one_sigma_move": round(_one, 2),
+            "one_sigma_move_pct": round(100 * _one / ref_close, 1),
+            "strike_sigma_distance": round(_sig_dist, 2) if _sig_dist is not None else None,
+            "assignment_prob_pct": round(100 * _p_assign, 1),
+            # Touching is roughly twice as likely as finishing below, by the
+            # reflection principle. Stated as approximate because it is.
+            "touch_prob_pct_approx": round(min(99.0, 200 * _p_assign), 0),
+            "strike_at_1_sigma": round(ref_close - _one, 2),
+            "strike_at_1_5_sigma": round(ref_close - 1.5 * _one, 2),
+            "formula": (f"1σ = spot × IV × √(DTE/365) = {ref_close:.2f} × "
+                        f"{_sig_iv:.4f} × √({dte}/365) = {_one:.2f}; "
+                        f"strike {strike:g} is {_sig_dist:.2f}σ below spot"),
+        }
+
     # ── TIER_SHORT (SPEC §1) — earnings-avoidance only ───────────────────
     # Attempted ONLY when the standard band conflicts with earnings (the
     # MRVL case: Sep04 holds through the 27-Aug print, Aug21 clears it).
@@ -1694,6 +1742,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "iv_rank": round(ivr.iv_rank, 1) if (ivr.available and ivr.iv_rank is not None) else None,
         "iv": round(ivr.iv, 4) if (ivr.available and ivr.iv is not None) else None,
         "iv_hv_ratio": ivr.iv_hv_ratio if ivr.available else None,
+        # Distance-to-strike in standard deviations + the assignment odds.
+        "sigma_context": sigma_ctx,
         "iv_rank_days": ivr.days if ivr.available else None,
         "vega_gate": _vega_gate_val,
         # Current IV's percentile within the name's own 1y realised-vol
