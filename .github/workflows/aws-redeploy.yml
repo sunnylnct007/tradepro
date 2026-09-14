@@ -146,7 +146,7 @@ jobs:
                 "docker compose -f docker-compose.aws.yaml pull > /tmp/tradepro-pull.log 2>&1 && tail -12 /tmp/tradepro-pull.log",
                 "echo === docker compose up ===",
                 "docker compose -f docker-compose.aws.yaml up -d --remove-orphans --force-recreate > /tmp/tradepro-up.log 2>&1 && tail -20 /tmp/tradepro-up.log",
-                "echo === docker compose up (mcp, best-effort) ===",
+                "echo \"=== docker compose up (mcp, best-effort) ===\"",
                 "docker compose -f docker-compose.aws.yaml --profile mcp up -d mcp > /tmp/tradepro-mcp-up.log 2>&1 && tail -8 /tmp/tradepro-mcp-up.log || echo \"WARNING: MCP endpoint did not start — site is UNAFFECTED. Check the EC2 role ecr-pull Resource list includes ccit-dev-tradepro-mcp, then: docker compose --profile mcp up -d\"",
                 "echo === docker compose ps ===",
                 "docker compose -f docker-compose.aws.yaml --profile mcp ps",
