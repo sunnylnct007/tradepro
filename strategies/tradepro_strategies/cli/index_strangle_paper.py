@@ -925,9 +925,17 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False,
     if not ok:
         legs_said = " ".join(
             f"{side}={(out.get(side) or {}).get('status') or '?'}"
-            f"{'/' + str((out.get(side) or {}).get('reason'))[:60] if (out.get(side) or {}).get('reason') else ''}"
+            # DO NOT TRUNCATE THE BROKER'S WORDS. 60 chars cut IBKR's rejection
+            # mid-sentence: on 14 Sep 2026 SPX monthly came back as
+            #   'We are unable to acc'
+            # twice, and the whole point of that run was to learn WHY it was
+            # refused. place_error is TEXT in postgres (074) — the column never
+            # needed this. A reason clipped before its verb is not a reason.
+            f"{'/' + str((out.get(side) or {}).get('reason')) if (out.get(side) or {}).get('reason') else ''}"
             for side in ("put", "call") if out.get(side))
-        reason = (str(out.get("error") or out.get("warning") or "")[:200]
+        # Same rule for the API's own error. 200 was generous where 60 was not,
+        # but a broker message that runs long is exactly the interesting case.
+        reason = (str(out.get("error") or out.get("warning") or "")
                   or legs_said or f"HTTP {r.status_code}: {str(out)[:160]}")
     return {"placed": ok, "request": body, "response": out, "reason": reason,
             "partial": bool(out.get("partial")), "expiry_kind": kind,
