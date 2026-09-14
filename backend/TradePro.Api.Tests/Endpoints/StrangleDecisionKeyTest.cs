@@ -354,4 +354,29 @@ public class StrangleDecisionKeyTest
         Assert.Contains("NOT BACKFILLED", sql);
         Assert.DoesNotContain("UPDATE strangle_execution", sql);
     }
+
+    [Fact]
+    public void AnExitIsMatchedByTheStrikesItClosed()
+    {
+        // 14 Sep 2026, first session running BOTH expiries: three strangles
+        // went on, all six legs closed correctly at the broker, and only ONE
+        // exit was recorded. The close job sent expiryKind="monthly" for every
+        // close — hardcoded from when monthly was the only expiry placed — so
+        //   XSP weekly  looked for an open XSP monthly (already closed)
+        //   SPX weekly  looked for an open SPX monthly (never existed; refused)
+        // Both matched no row and were lost.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("put_strike = @PutStrike AND call_strike = @CallStrike", s);
+    }
+
+    [Fact]
+    public void AnExitThatMatchesNoRowIsAnERROR()
+    {
+        // The UPDATE ran and returned ok regardless, so two closed round-trips
+        // vanished with a clean log. A close is real money leaving a position;
+        // failing to file it must not read as success.
+        var s = CodeOnly(Src(Endpoint));
+        Assert.Contains("if (closedRows == 0)", s);
+        Assert.Contains("matched NO open execution row", s);
+    }
 }

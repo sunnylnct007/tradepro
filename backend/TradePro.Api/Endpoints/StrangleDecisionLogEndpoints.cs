@@ -70,6 +70,10 @@ public static class StrangleDecisionLogEndpoints
         // the fills grade the execution.
         decimal? PutEntry = null, decimal? CallEntry = null,
         decimal? PutExit = null, decimal? CallExit = null,
+        // The strikes actually CLOSED. They identify which round-trip an exit
+        // belongs to when a session holds more than one — the expiry kind
+        // cannot, because the caller has no reliable way to know it.
+        decimal? PutStrike = null, decimal? CallStrike = null,
         decimal? DeltaPutStrike = null, decimal? DeltaCallStrike = null,
         decimal? DeltaModeNet = null, decimal? DeltaTarget = null,
         bool? DeltaInBand = null);
@@ -225,7 +229,7 @@ public static class StrangleDecisionLogEndpoints
                 // The OPEN entry, newest first. Nothing to close is not an
                 // error here: a close can legitimately arrive for a position
                 // opened before this table existed.
-                await conn.ExecuteAsync(@"
+                var closedRows = await conn.ExecuteAsync(@"
                     UPDATE strangle_execution SET
                         exit_cost_actual = COALESCE(@ExitCostActual, exit_cost_actual),
                         close_trigger    = COALESCE(@CloseTrigger, close_trigger),
@@ -236,12 +240,41 @@ public static class StrangleDecisionLogEndpoints
                       WHERE id = (
                         SELECT id FROM strangle_execution
                          WHERE market = @Market AND session = @Session
-                           AND expiry_kind = @Kind
                            AND placed IS TRUE AND closed_at_utc IS NULL
+                           -- MATCH THE STRIKES ACTUALLY CLOSED, not a guessed
+                           -- expiry. The caller sent expiryKind=monthly for
+                           -- EVERY close (hardcoded from when monthly was the
+                           -- only expiry placed), so on 14 Sep 2026 — the first
+                           -- session running both — two of three exits matched
+                           -- no row and vanished without an error.
+                           --
+                           -- Strikes differ between expiries and are stored
+                           -- here, so they identify the round-trip exactly.
+                           -- expiry_kind stays as the fallback for callers that
+                           -- send no strikes.
+                           AND ((@PutStrike IS NULL AND @CallStrike IS NULL)
+                                OR (put_strike = @PutStrike AND call_strike = @CallStrike))
+                           AND (@PutStrike IS NOT NULL OR expiry_kind = @Kind)
                          ORDER BY entry_seq DESC LIMIT 1)",
                     new { row.ExitCostActual, row.CloseTrigger, row.ClosedAtUtc,
                           row.RealisedPnl, row.PutExit, row.CallExit,
+                          row.PutStrike, row.CallStrike,
                           row.Market, Session = session, Kind = kind });
+
+                // AN EXIT THAT MATCHED NOTHING IS NOT A SUCCESS. The old code
+                // ran the UPDATE and returned ok regardless, so two closed
+                // round-trips were lost on 14 Sep with a clean log. A close is
+                // real money leaving a position; if we cannot file it, say so.
+                if (closedRows == 0)
+                    return Results.Json(new
+                    {
+                        ok = false,
+                        error = $"exit for {row.Market} matched NO open execution row "
+                              + $"(session {session:yyyy-MM-dd}, strikes "
+                              + $"{row.PutStrike?.ToString() ?? "?"}P/"
+                              + $"{row.CallStrike?.ToString() ?? "?"}C). The position "
+                              + "closed at the broker but its realised P&L is UNRECORDED.",
+                    }, statusCode: 409);
             }
             else if (row.Placed == true)
             {

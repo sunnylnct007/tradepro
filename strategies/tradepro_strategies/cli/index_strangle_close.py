@@ -226,7 +226,8 @@ def _current_vol(sym: str) -> float | None:
 def _record_exit(base, tok, market: str, expiry: str,
                  credit: float, cost: float, trigger: str | None,
                  unmarkable: bool, session: str | None = None,
-                 exit_px: dict | None = None) -> None:
+                 exit_px: dict | None = None,
+                 strikes: dict | None = None) -> None:
     """Attach the exit to the decision that opened the position.
 
     Owner, 31 Aug 2026: "f the strangell worked or not". Closing a position and
@@ -251,8 +252,27 @@ def _record_exit(base, tok, market: str, expiry: str,
     # The session that OPENED the position, falling back to today only when it
     # cannot be determined. A stale position closes the morning AFTER it was
     # opened; filing its exit under the closing date misses the decision row.
+    # WHICH ROUND-TRIP THIS EXIT BELONGS TO — matched on the STRIKES actually
+    # closed, not on a guessed expiry.
+    #
+    # This sent expiryKind="monthly" for every close, hardcoded from when
+    # monthly was the only expiry placed. On 14 Sep 2026, the first session
+    # running BOTH, three strangles went on and all six legs closed correctly
+    # at the broker — and only ONE exit was recorded:
+    #
+    #   XSP monthly  -> matched the monthly row          RECORDED +28.39
+    #   XSP weekly   -> looked for an open XSP monthly    LOST (already closed)
+    #   SPX weekly   -> looked for an open SPX monthly    LOST (never existed;
+    #                                                      SPX monthly was refused)
+    #
+    # Two round-trips with no realised P&L, and the update matched no row so it
+    # failed SILENTLY. Strikes are stored on the execution row and differ
+    # between expiries (XSP 750/773 weekly vs 752/775 monthly), so they say
+    # which row this is without anyone inferring a calendar rule.
     body = {"market": market, "asOf": session or _dt.date.today().isoformat(),
             "expiryKind": "monthly" if expiry else None,
+            "putStrike": (strikes or {}).get("P"),
+            "callStrike": (strikes or {}).get("C"),
             "exitCostActual": cost_out,
             # Only when the pair was markable. An unmarkable close records the
             # trigger and NO prices — inventing one here is the same sin as
@@ -460,6 +480,7 @@ def main() -> int:
         credit = cost = 0.0            # per share, for the ratio
         credit_money = cost_money = 0.0  # dollars, for the record
         exit_px: dict[str, float] = {}   # per share, per leg, for the audit
+        leg_strikes: dict[str, float] = {}  # right -> strike, to identify the row
         unmarkable = False
         for p, _occ, _c in legs:
             c = p.get("averagePricePaid")
@@ -479,8 +500,10 @@ def main() -> int:
             # apart from a quiet +412.
             if _occ.get("right") == "P":
                 exit_px["put_exit"] = round(float(m), 6)
+                leg_strikes["P"] = float(_occ.get("strike") or 0) or None
             elif _occ.get("right") == "C":
                 exit_px["call_exit"] = round(float(m), 6)
+                leg_strikes["C"] = float(_occ.get("strike") or 0) or None
 
         verdict = decide_close(
             {"credit": None if unmarkable else credit,
@@ -595,7 +618,7 @@ def main() -> int:
             # MONEY here, not the per-share figures the ratio used.
             _record_exit(base, tok, market, expiry, credit_money, cost_money,
                          verdict.get("trigger"), unmarkable, sess,
-                         exit_px=exit_px)
+                         exit_px=exit_px, strikes=leg_strikes)
 
     if failed:
         print(f"\n  !! {failed} position(s) COULD NOT BE CLOSED and remain short.")
