@@ -356,3 +356,24 @@ def test_place_paper_trades_the_expiry_it_was_asked_for():
         # refusal still has to carry the expiry it was asked to trade.
         res = P.place_paper(row, contracts=1, shadow=True, kind=kind)
         assert res["expiry_kind"] == kind, (kind, res)
+
+
+def test_a_broker_rejection_is_not_clipped_before_its_verb():
+    """14 Sep 2026: SPX monthly was refused and the desk recorded
+
+        put=REJECTED/"SELL 1 SPX (SPXW) OCT 16 '26 7515 Put"
+        We are unable to acc
+
+    twice — cut at 60 characters, mid-word, before IBKR said WHY. That run
+    existed to measure the real margin requirement; the answer arrived and we
+    threw away the half that mattered.
+
+    place_error is TEXT in postgres (migration 074). The column never needed a
+    limit; only the formatter imposed one.
+    """
+    import inspect
+    from tradepro_strategies.cli import index_strangle_paper as P
+
+    src = inspect.getsource(P.place_paper)
+    assert "get('reason'))[:60]" not in src, "the broker's reason is being clipped"
+    assert 'get(\'reason\'))[:60]' not in src
