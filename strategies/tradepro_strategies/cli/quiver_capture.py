@@ -37,6 +37,8 @@ log = logging.getLogger("tradepro.quiver_capture")
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="re-capture even if today's slice already exists")
     ap.add_argument("--days", type=int, default=7,
                     help="keep filings dated within N days (default 7). The "
                          "feed reaches back years; we only need the new edge, "
@@ -48,6 +50,27 @@ def main() -> int:
     from ..quiver import _get
     from ..universe import universe_symbols
     from .push_to_api import load_credentials
+
+    import requests
+    base, token = load_credentials()
+    base = base.rstrip("/")
+    label = f"quiver-insiders-{_dt.date.today().isoformat()}"
+
+    # ONE CAPTURE A DAY, NOT FORTY. This rides the swing cadence, which runs
+    # every ~15 minutes through the session — so without this check we would
+    # pull an identical payload from someone else's API dozens of times a day
+    # for a single stored snapshot. The key was lent to us by a trader; being
+    # noisy with it is both rude and a good way to get rate-limited.
+    if not args.force and not args.dry_run:
+        try:
+            probe = requests.get(f"{base}/api/today-setups/{label}/latest",
+                                 headers={"Authorization": f"Bearer {token}"},
+                                 timeout=20)
+            if probe.status_code == 200 and (probe.json().get("artifact") or {}).get("rows"):
+                log.info("%s already captured — skipping (use --force to redo)", label)
+                return 0
+        except Exception as exc:  # noqa: BLE001 — a failed probe means capture anyway
+            log.debug("capture probe failed, proceeding: %s", str(exc)[:70])
 
     uni = {s.upper() for s in universe_symbols(strict=False)}
     rows = _get("/beta/live/insiders")
@@ -99,10 +122,6 @@ def main() -> int:
         print(json.dumps({k: v for k, v in art.items() if k != "rows"}, indent=1))
         return 0
 
-    import requests
-    base, token = load_credentials()
-    base = base.rstrip("/")
-    label = f"quiver-insiders-{_dt.date.today().isoformat()}"
     r = requests.post(f"{base}/api/ingest/today-setups",
                       json={"universe": label, "label": "latest",
                             "uploaded_by": "quiver-capture", "artifact": art},
