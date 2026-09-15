@@ -1153,3 +1153,39 @@ What unblocked it: the EC2 role inline policy
 
 Endpoint still inherits desk hours: up only while the EC2 box is (Mon–Fri
 from 12:50 UTC, or an ad-hoc `aws-start`).
+
+## 2026-09-15 — terraform pipeline BACK, four-month gap closed
+
+Owner ran the apply. `terraform plan` is clean both locally AND in CI:
+"No changes. Your infrastructure matches the configuration."
+
+The last two faults only CI could find:
+  - `secretsmanager:GetResourcePolicy` — the provider calls it on EVERY
+    refresh of an aws_secretsmanager_secret, even with no policy set.
+    INVISIBLE locally: an admin profile has it implicitly, so the laptop
+    plan was green while the deploy role died on the same config. "Works
+    for me" is not evidence the pipeline works — dispatch it.
+  - **Version skew.** CI pinned TF 1.7.5; state stamped 1.15.1 by local
+    runs. `required_version = ">= 1.6.0"` allowed both, so nothing
+    errored — they just resolved different providers. Local said "No
+    changes"; CI said "4 to change" (random_password.rds, the RDS
+    instance, the secret version, an access key) — ALL phantom, every
+    attribute unchanged. Dangerous because a diff naming random_password
+    + the db instance reads as a password rotation at a glance. CI now
+    pinned to 1.15.1 and the two agree. Whatever writes the state sets
+    the floor; bump CI and the local toolchain together.
+
+Drift deliberately CODIFIED rather than reverted (owner call):
+  - IMDS `http_put_response_hop_limit` stays **2**. hop_limit 1 confines
+    instance-role creds to the host; containers need 2. Ours use static
+    keys from .env so 1 was probably fine — not good enough to risk.
+  - Auto-stop schedule stays **DISABLED**, now via `schedule_stop_state`.
+    Start/stop is the aws-start / aws-stop workflows.
+
+Also: `terraform apply` on push is GONE. Push plans and stops; apply is
+workflow_dispatch only. The `aws-prod` environment has ZERO protection
+rules despite the workflow claiming it gates on approval — still worth
+adding required reviewers.
+
+MCP endpoint verified again after all of it: 101 tools, zero mutating,
+bare /mcp 404.
