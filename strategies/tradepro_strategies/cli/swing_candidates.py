@@ -529,7 +529,7 @@ def build_artifact(rows: list[dict], universe: str,
         ],
         "quarantined": quarantined or [],
         "count": len(rows),
-        "candidates": _with_relative(rows),
+        "candidates": _with_insiders(_with_relative(rows)),
         # PHASE 3: additive. `candidates` stays as-is for this strategy's own
         # tab; `candidates_v2` is the shape every strategy emits so the combined
         # Candidates screen stops needing to know our private field names.
@@ -731,6 +731,30 @@ def _trend_slope_pct(c, i, sma200):
     if prior <= 0:
         return None
     return round(100 * (sma200 / prior - 1), 2)
+
+
+def _with_insiders(rows):
+    """Open-market insider buying, as CONTEXT beside the row.
+
+    Owner, 14 Sep: "start slowly in this new strategy". This is the slow
+    version — it shows, it never decides. Measured before wiring: only 11 of
+    our 244 names saw an open-market purchase in a year, so this will be
+    blank on most rows, which is the honest outcome rather than a fault.
+    Dollar value carries as much information as the count: TSM shows 36 buys
+    by 30 people totalling $450k (an employee scheme), while UBER shows its
+    CEO putting in $15.3m. Those are not the same event.
+    """
+    try:
+        from ..quiver import insider_buys
+        syms = {str(r.get("symbol", "")).upper() for r in rows}
+        found = insider_buys(syms, within_days=180)
+    except Exception:  # noqa: BLE001 — alt data must never cost us the screen
+        return rows
+    for r in rows:
+        rec = found.get(str(r.get("symbol", "")).upper())
+        if rec:
+            r.setdefault("extra", {})["insider_buys"] = rec
+    return rows
 
 
 def _with_relative(rows):
