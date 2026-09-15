@@ -1225,14 +1225,49 @@ def scout(base, token, watched: list, state: dict) -> list:
     except Exception as exc:  # noqa: BLE001
         log.warning("scout earnings lens failed: %s", str(exc)[:120])
 
+    # Fourth lens: FEDERAL AWARD SURGE. A name whose contract rate jumps far
+    # above its own baseline is a research candidate the same way a repeat
+    # mover is — something changed that the price may not have absorbed. Held
+    # to a HIGH bar (10x) precisely because awards are lumpy: at 2x this would
+    # emit noise every week, and BA already reads 10.5x off a single contract.
+    try:
+        from ..quiver import gov_contract_surge
+        min_ratio = float(cfg.get("contract_surge_min_ratio", 10.0))
+        _already = {h["sym"] for h in hits}
+        for sy, rec in gov_contract_surge(set(sweep)).items():
+            if (rec.get("ratio") or 0) < min_ratio:
+                continue
+            if sy in watched or sy in barred or sy in _already:
+                continue
+            try:
+                d = _daily(sy, store_only=(sy not in extras))
+            except Exception:  # noqa: BLE001
+                continue
+            i = len(d.close) - 1
+            if i < 63:
+                continue
+            hits.append({"sym": sy, "ret13w": 100 * (d.close[i] / d.close[i - 63] - 1),
+                         "atr_pct": 100 * d.atr14[i] / d.close[i], "regime": "CONTRACTS",
+                         "px": d.close[i], "src": d.source, "contracts": rec})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scout contract lens failed: %s", str(exc)[:110])
+
     movers_hits = [h for h in hits if h.get("n_app")]
     earn_hits = [h for h in hits if h.get("earnings")]
+    contract_hits = [h for h in hits if h.get("contracts")]
     keep = [h for h in hits if not h.get("n_app") and not h.get("earnings")][:int(cfg.get("top_n", 5))]
     keep += movers_hits          # repeat movers are never crowded out by rank
     keep += sorted(earn_hits, key=lambda h: h["earnings"][2])  # soonest first
+    keep += sorted(contract_hits, key=lambda h: -(h["contracts"]["ratio"] or 0))
     rows = []
     for h in keep:
-        if h.get("earnings"):
+        if h.get("contracts"):
+            c = h["contracts"]
+            why = (f"SCOUT: federal awards running {c['ratio']}x its own rate — "
+                   f"${c['recent_usd']:,.0f} in 30 days across {c['awards']} "
+                   f"contract(s) vs ${c['baseline_usd_per_period']:,.0f} normally. "
+                   f"Awards are lumpy, so this is an event rather than a trend")
+        elif h.get("earnings"):
             rd, sess, days = h["earnings"]
             when = ("TODAY" if days == 0 else "tomorrow" if days == 1
                     else f"in {days} days")

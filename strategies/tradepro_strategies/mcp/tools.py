@@ -4723,6 +4723,23 @@ def symbol_workup(symbol: str) -> dict:
         out["journal"] = j or []
     except Exception:  # noqa: BLE001
         out["journal"] = []
+    # ALT DATA, so the owner's external review loop sees exactly what the
+    # board sees. Context only — nothing here gates, and a reviewer told
+    # "insiders are buying" without being told insiders sell 33x more often
+    # would draw the wrong conclusion, so the lines carry their own base rate.
+    try:
+        from ..quiver import insider_buys, insider_sells, gov_contract_surge
+        _one = {sym.upper()}
+        _alt = {
+            "insider_buys": insider_buys(_one, within_days=180).get(sym.upper()),
+            "insider_sells": insider_sells(_one, within_days=90).get(sym.upper()),
+            "gov_contracts": gov_contract_surge(_one).get(sym.upper()),
+        }
+        out["alt_data"] = ({k: v for k, v in _alt.items() if v}
+                           or "no insider or federal-contract activity on record")
+    except Exception as exc:  # noqa: BLE001 — a third party may not break a workup
+        out["alt_data"] = f"unavailable: {str(exc)[:70]}"
+
     out["not_covered_here"] = (
         "earnings-call quality, guidance narrative, customer concentration, "
         "news — the desk measures price/vol/options structure; the "
