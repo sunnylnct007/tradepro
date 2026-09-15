@@ -68,6 +68,12 @@ SOURCES: tuple[tuple[str, str], ...] = (
 )
 
 
+def _wrap(text: str, width: int) -> list[str]:
+    """Soft-wrap on word boundaries, never mid-word."""
+    import textwrap
+    return textwrap.wrap(str(text or ""), width=width) or [""]
+
+
 def _age_h(as_of: str | None, now: _dt.datetime) -> float | None:
     if not as_of:
         return None
@@ -120,6 +126,31 @@ def gather(base: str, token: str | None, now: _dt.datetime | None = None
     return rows, problems
 
 
+def dedupe(rows: list[dict]) -> list[dict]:
+    """Drop rows that are the SAME candidate said twice.
+
+    15 Sep 2026: Scout emitted 7 rows of which 4 were distinct — GE, T and BA
+    each appeared twice, identical symbol AND identical reasoning. A reader
+    counting names gets the wrong number, and a duplicate reads as
+    corroboration when it is one observation printed again.
+
+    Keyed on (strategy, symbol, why) so only genuinely identical rows collapse;
+    the same symbol from two strategies, or with two different reasons, is two
+    facts and both survive.
+
+    Presentation-layer only — the duplicate is upstream in Scout's publish, and
+    hiding it here does not fix it. Flagged separately.
+    """
+    seen, out = set(), []
+    for c in rows:
+        k = (c.get("strategy"), c.get("symbol"), str(c.get("why") or ""))
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(c)
+    return out
+
+
 def split_for_reading(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     """(listed, withheld). ONE policy for every surface that renders candidates.
 
@@ -161,6 +192,7 @@ def _withheld_lines(withheld: list[dict]) -> list[str]:
 
 
 def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[str, str]:
+    rows = dedupe(rows)
     """(subject, text). The text IS the email — one monospace block, scannable."""
     rows, withheld = split_for_reading(rows)
     n = len(rows)
@@ -218,7 +250,13 @@ def render(rows: list[dict], problems: list[str], now: _dt.datetime) -> tuple[st
             out.append(f"  {c.get('symbol',''):<7}{c.get('action',''):<10}"
                        f"entry {entry:>10}   {lvl:<16}{met:>9}{stale}")
             if c.get("why"):
-                out.append(f"          {c['why'][:96]}")
+                # WRAP, DO NOT CLIP. 96 characters cut every explanation
+                # mid-sentence — "EMA20 falling (957.1", "13 contract(s) ",
+                # "support hold," — so the plain-text part told the reader
+                # almost nothing. This is the FALLBACK rendering; it is read
+                # precisely when the rich one failed, which is the worst moment
+                # to also be unreadable.
+                out.extend(f"          {ln}" for ln in _wrap(c["why"], 96))
 
     if withheld:
         out += ["", "NOT LISTED — counted, never hidden:", ""]

@@ -134,18 +134,36 @@ def _gates_html(gates: list[dict]) -> str:
             f"{rows}</table></div>")
 
 
-def _prov_html(prov: list[dict]) -> str:
+def _prov_html(prov: list) -> str:
     if not prov:
         return ""
     weak = {"fallback", "carried", "unavailable"}
     chips = ""
     for p in prov[:8]:
-        t = str(p.get("trust", ""))
+        # PROVENANCE ARRIVES IN TWO SHAPES. Most strategies send dicts
+        # ({label, source_label, trust}); SWING sends bare strings. This called
+        # p.get() unconditionally, so a single Swing candidate raised
+        #   AttributeError: 'str' object has no attribute 'get'
+        # build_html then failed WHOLESALE and the digest fell back to plain
+        # text — which is why every candidates mail has been unformatted, with
+        # its why-lines clipped at 96 characters mid-sentence.
+        #
+        # One strategy of four, taking down the formatting of all of them. Same
+        # shape-collision as `onboarded` in preearnings_watch a week ago: a
+        # field that carries a dict from one writer and a string from another.
+        if isinstance(p, dict):
+            t = str(p.get("trust", ""))
+            label = p.get("label") or p.get("input")
+            source = p.get("source_label") or t
+        else:
+            # A bare string is the label; it asserts no trust level, so it must
+            # not be styled as though it had one.
+            t, label, source = "", str(p), ""
         col = _WARN if t in weak else _MUTED
+        body = f"{_esc(label)}: {_esc(source)}" if source else _esc(label)
         chips += (f"<span style='display:inline-block;margin:2px 4px 0 0;padding:1px 6px;"
                   f"border:1px solid {col}55;border-radius:3px;font-size:10px;color:{col}'>"
-                  f"{_esc(p.get('label') or p.get('input'))}: "
-                  f"{_esc(p.get('source_label') or t)}</span>")
+                  f"{body}</span>")
     return (f"<div style='margin-top:6px'><div style='font-size:10px;color:{_MUTED};"
             f"text-transform:uppercase;letter-spacing:.06em'>Data — where it came from</div>"
             f"{chips}</div>")
