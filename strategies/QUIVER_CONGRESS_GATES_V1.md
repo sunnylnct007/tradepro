@@ -51,3 +51,51 @@ overwhelmingly large-cap names that a placebo in the same names over the same
 decade will match. I give it ~15%. If it passes G1 but fails G2, that is the
 most likely interesting outcome: an edge that existed before 2021 and was
 arbitraged away once the data became a retail product.
+
+## RESULT — run 15 Sep 2026. FAILS at every horizon.
+
+102 of our 244 symbols have congressional history; 7,683 disclosed purchases
+with usable price data.
+
+| horizon | n | congress | placebo | edge | cong median | placebo median |
+|---|---|---|---|---|---|---|
+| 21s | 7682 | +1.94% | +2.73% | **−0.79** | +1.58% | +1.51% |
+| 63s | 7682 | +6.06% | +7.89% | **−1.83** | +4.42% | +4.06% |
+| 126s | 7682 | +10.89% | +17.67% | **−6.79** | +8.21% | +8.13% |
+
+SPY-relative excess is negative at all three horizons too (−1.58, −1.58,
+−2.48). **G1 and G3 fail everywhere.** G0 and G4 pass — the median is
+fractionally better than the placebo's — but a signal whose mean loses to
+random dates by 0.8pp at our horizon and 6.8pp at six months is not a signal.
+
+## Where my prediction was right, and where it was wrong
+
+Right on the verdict (I said ~15% and it fails). **Wrong on the mechanism.**
+I expected an edge that existed and was then arbitraged away once the data
+became a retail product. The era split says the reverse:
+
+| horizon | pre-2021 (vs placebo) | post-2021 (vs placebo) |
+|---|---|---|
+| 21s | +1.75% vs +3.69% | +2.11% vs +1.45% |
+| 63s | +6.31% vs +10.69% | +5.84% vs +4.16% |
+| 126s | +11.28% vs +24.31% | +10.54% vs +8.88% |
+
+Congress looks WORSE than the placebo before 2021 and slightly BETTER after.
+I do not believe that is a real reversal — it is the placebo moving, not the
+signal: random dates drawn from 2019-2020 catch the post-COVID recovery, which
+inflates the pre-2021 placebo enormously (+24.31% at 126 sessions). The era
+split is confounded by regime and should not be read as evidence either way.
+Recorded because it was pre-registered, not because it is interpretable.
+
+The honest correction to my own reasoning: the lag argument was not what
+killed this. **Congressional purchases simply do not beat a random date in
+the same names.** They are mostly large caps bought during a bull decade, and
+the placebo captures exactly that. The disclosure delay is a second reason,
+not the reason.
+
+## Consequence
+Congressional trading is retired — not displayed, not scouted, not gated. It
+stays reachable in the client for anyone who asks, labelled with this result.
+Insider buying and federal contracts remain as display context, still
+untested on our names (insiders cannot be tested until the daily capture
+accumulates; that is why it now runs).
