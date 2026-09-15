@@ -25,3 +25,11 @@ echo "[$(date -u +%FT%TZ)] scorecard starting" >>"$LOG"
 "$PY" -m tradepro_strategies.cli.forward_scorecard \
     --strategy mean_reversion_swing_ibkr --push >>"$LOG" 2>&1 || true
 echo "[$(date -u +%FT%TZ)] scorecard done rc=$?" >>"$LOG"
+
+# Quiver insider capture. The feed has NO historical endpoint (404), so the
+# only insider history we will ever have for our names is what we record from
+# today onward — a day missed is a day lost. Guarded like the scorecard: a
+# third party must never cost us the screen above.
+echo "[$(date -u +%FT%TZ)] quiver capture starting" >>"$LOG"
+"$PY" -m tradepro_strategies.cli.quiver_capture >>"$LOG" 2>&1 || true
+echo "[$(date -u +%FT%TZ)] quiver capture done rc=$?" >>"$LOG"
