@@ -113,3 +113,57 @@ def test_the_subject_counts_strategies_not_just_rows():
     subject, _ = render([_row(symbol="A", strategy="Wheel"),
                          _row(symbol="B", strategy="Momentum", tier="gated")], [], NOW)
     assert "2 across 2 strategies" in subject
+
+
+def test_the_rich_body_survives_a_provenance_string():
+    """Every candidates mail arrived as PLAIN TEXT because one strategy sends
+    provenance as strings while the rest send dicts.
+
+    _prov_html called p.get() unconditionally, so a single Swing candidate
+    raised `'str' object has no attribute 'get'`, build_html failed WHOLESALE,
+    and the digest fell back to the plain part — unformatted, with every
+    explanation clipped at 96 characters mid-sentence.
+
+    One strategy of four taking down the formatting of all of them. Same shape
+    collision as `onboarded` in preearnings_watch: a field carrying a dict from
+    one writer and a string from another.
+    """
+    from tradepro_strategies.cli.candidates_html import _prov_html
+
+    mixed = [{"label": "spot", "source_label": "IBKR", "trust": "live"},
+             "bar_cache 1d",                      # the Swing shape
+             {"label": "vol", "trust": "fallback"}]
+    html = _prov_html(mixed)
+    assert "bar_cache 1d" in html
+    assert "IBKR" in html
+    # A bare string asserts no trust level and must not be styled as if it had.
+    assert html.count("<span") == 3
+
+
+def test_identical_rows_are_not_printed_twice():
+    """Scout emitted GE, T and BA twice each on 15 Sep — identical symbol AND
+    reasoning. A duplicate reads as corroboration when it is one observation
+    printed again."""
+    from tradepro_strategies.cli.candidates_digest import dedupe
+
+    rows = [
+        {"strategy": "Scout", "symbol": "GE", "why": "federal awards 31.4x"},
+        {"strategy": "Scout", "symbol": "GE", "why": "federal awards 31.4x"},
+        {"strategy": "Scout", "symbol": "GE", "why": "earnings in 9 days"},
+        {"strategy": "Swing", "symbol": "GE", "why": "federal awards 31.4x"},
+    ]
+    out = dedupe(rows)
+    assert len(out) == 3, "only the identical pair collapses"
+
+
+def test_the_fallback_text_wraps_rather_than_clipping():
+    """The plain part is read PRECISELY when the rich one failed — the worst
+    moment to also be unreadable."""
+    from tradepro_strategies.cli.candidates_digest import _wrap
+
+    long = ("NO LONG · close 924.03 below EMA20 957.13; close 924.03 below "
+            "SMA50 927.58; EMA20 falling (957.13 vs 961.20 three sessions ago)")
+    lines = _wrap(long, 96)
+    assert len(lines) > 1
+    assert "".join(lines).replace(" ", "") == long.replace(" ", "")
+    assert all(len(ln) <= 96 for ln in lines)
