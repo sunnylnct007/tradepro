@@ -669,8 +669,10 @@ function Detail({ r }: { r: Row }) {
         )}
       </div>
 
-      {((r.extra as any)?.insider_buys || (r.extra as any)?.gov_contracts) && (() => {
+      {((r.extra as any)?.insider_buys || (r.extra as any)?.gov_contracts
+        || (r.extra as any)?.insider_sells) && (() => {
         const ib = (r.extra as any).insider_buys;
+        const isell = (r.extra as any).insider_sells;
         const gc = (r.extra as any).gov_contracts;
         return (
           <div style={{ flexBasis: "100%", margin: "6px 0" }}>
@@ -684,6 +686,15 @@ function Detail({ r }: { r: Row }) {
                   {ib.cluster ? "Insider CLUSTER buy" : "Insider buying"}
                 </b>{" — "}
                 <span style={{ color: "var(--text-dim)" }}>{ib.line}</span>
+              </div>
+            )}
+            {isell?.line && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                <b style={{ color: isell.personal ? TONE.warn : "var(--text-dim)" }}>
+                  {isell.personal ? "Insider selling (personal holdings)"
+                                  : "Fund/trust unwind, not executives"}
+                </b>{" — "}
+                <span style={{ color: "var(--text-dim)" }}>{isell.line}</span>
               </div>
             )}
             {gc?.line && (

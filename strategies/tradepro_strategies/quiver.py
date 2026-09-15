@@ -208,3 +208,88 @@ def gov_contract_surge(symbols: set[str] | None = None,
                      f"event, not a trend. Context only."),
         }
     return out
+
+
+# Selling is the DEFAULT behaviour, not a signal. Measured 15 Sep 2026 in our
+# own universe over 90 days: 1,719 open-market sales against 52 purchases —
+# 33x more selling — and the median sale is 1.9% of the holder's stake.
+# Large-cap executives are paid in stock and diversify out of it on schedule.
+# A screen that surfaced "insider selling" would light up on DELL (437
+# disposals) every single day and mean nothing.
+#
+# So only two shapes are surfaced, and both are about CONVICTION rather than
+# activity: a holder disposing of a large slice of their own stake, or several
+# doing it at once. Everything else is compensation mechanics.
+MEANINGFUL_SALE_FRACTION = 0.25      # p90 is 20%; only 3.5% of sales exceed 50%
+
+
+def insider_sells(symbols: set[str] | None = None, within_days: int = 90) -> dict:
+    """{TICKER: {...}} for sales large relative to the seller's OWN holding.
+
+    Reports the fraction of stake disposed, never a raw count. Absent from the
+    result is the normal state and means "nothing unusual", not "no selling".
+    """
+    rows = _get("/beta/live/insiders")
+    cutoff = _dt.date.today() - _dt.timedelta(days=within_days)
+    out: dict = {}
+    for x in rows:
+        if x.get("TransactionCode") != "S" or x.get("AcquiredDisposedCode") != "D":
+            continue
+        sym = str(x.get("Ticker") or "").upper()
+        if not sym or (symbols is not None and sym not in symbols):
+            continue
+        try:
+            when = _dt.date.fromisoformat(str(x["Date"])[:10])
+            shares = float(x.get("Shares") or 0)
+            owned_after = float(x.get("SharesOwnedFollowing") or 0)
+        except Exception:  # noqa: BLE001
+            continue
+        if when < cutoff or shares <= 0 or (shares + owned_after) <= 0:
+            continue
+        frac = shares / (shares + owned_after)
+        if frac < MEANINGFUL_SALE_FRACTION:
+            continue                      # routine trimming — say nothing
+        # DIRECT vs INDIRECT is the difference between a signal and a
+        # non-event. Of 25 full-line disposals in our universe, 14 were
+        # INDIRECT — DELL's are Silver Lake Technology Investors unwinding a
+        # private-equity stake, which is scheduled, public and says nothing
+        # about the business. A person selling their OWN directly-held shares
+        # is a different fact. Reporting them as one number would fire a
+        # false alarm on every fund exit.
+        direct = str(x.get("directOrIndirectOwnership") or "").upper() == "D"
+        rec = out.setdefault(sym, {"sales": 0, "sellers": set(), "max_fraction": 0.0,
+                                   "usd": 0.0, "latest": None, "direct_sales": 0,
+                                   "entity_sales": 0, "source": "quiver_insiders"})
+        rec["sales"] += 1
+        rec["direct_sales" if direct else "entity_sales"] += 1
+        rec["sellers"].add(str(x.get("Name") or "?"))
+        rec["max_fraction"] = max(rec["max_fraction"], frac)
+        rec["usd"] += shares * float(x.get("PricePerShare") or 0)
+        if rec["latest"] is None or when.isoformat() > rec["latest"]:
+            rec["latest"] = when.isoformat()
+    for sym, rec in out.items():
+        names = sorted(rec.pop("sellers"))
+        rec["distinct_sellers"] = len(names)
+        rec["usd"] = round(rec["usd"])
+        rec["max_fraction_pct"] = round(100 * rec.pop("max_fraction"), 0)
+        rec["cluster"] = len(names) >= 2
+        d, e = rec["direct_sales"], rec["entity_sales"]
+        # A row with no DIRECT sales is a fund/trust unwind. Say that plainly
+        # rather than letting it read as executives heading for the exit.
+        rec["personal"] = d > 0
+        who = (f"{d} directly-held" if d else "") + (" and " if d and e else "") \
+              + (f"{e} via a fund or trust" if e else "")
+        rec["line"] = (
+            f"{rec['sales']} large insider sale{'s' if rec['sales'] != 1 else ''} "
+            f"({who}) by {len(names)} "
+            f"{'holders' if len(names) != 1 else 'holder'}, the largest "
+            f"{rec['max_fraction_pct']:.0f}% of that line"
+            + (f" (${rec['usd']:,.0f})" if rec["usd"] else "")
+            + f", latest {rec['latest']}. "
+            + ("" if d else "None were personally-held shares — a fund or trust "
+                            "unwinding is scheduled and public. ")
+            + "Insiders sell 33x more often than they buy and the median sale is "
+              "1.9% of a stake, so only unusually large disposals appear. "
+              "Context only."
+        )
+    return out

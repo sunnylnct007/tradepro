@@ -2198,12 +2198,15 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
     # money" is the most apt question alternative data can answer here — far
     # more so than on a momentum row. Fetched ONCE for the whole screen, and
     # failure is silent: no board may depend on a third party being up.
-    _insiders, _contracts = {}, {}
+    _insiders, _contracts, _sells = {}, {}, {}
     try:
-        from ..quiver import insider_buys, gov_contract_surge
+        from ..quiver import insider_buys, insider_sells, gov_contract_surge
         _syms = {str(r.get("symbol", "")).upper() for r in rows}
         _insiders = insider_buys(_syms, within_days=180)
         _contracts = gov_contract_surge(_syms)
+        # Showing only buying would mean the alt-data panel could only ever
+        # say something encouraging — a bias built into the layout itself.
+        _sells = insider_sells(_syms, within_days=90)
     except Exception as exc:  # noqa: BLE001
         log.info("quiver context unavailable: %s", str(exc)[:90])
 
@@ -2232,6 +2235,7 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
                 provenance=((c.get("provenance") or {}).get("inputs") or []),
                 gates=c.get("decision_trace") or [],
                 extra={"insider_buys": _insiders.get(_sym),
+                       "insider_sells": _sells.get(_sym),
                        "gov_contracts": _contracts.get(_sym)},
             ))
         except Exception as exc:  # noqa: BLE001 — one bad row must not lose the screen
