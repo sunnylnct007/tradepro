@@ -2193,9 +2193,24 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
     actually raises.
     """
     from ..candidates import Candidate, emit
+    # ALT-DATA CONTEXT, never a gate. A cash-secured put is a promise to buy
+    # the stock lower, so "are the people who run it buying it with their own
+    # money" is the most apt question alternative data can answer here — far
+    # more so than on a momentum row. Fetched ONCE for the whole screen, and
+    # failure is silent: no board may depend on a third party being up.
+    _insiders, _contracts = {}, {}
+    try:
+        from ..quiver import insider_buys, gov_contract_surge
+        _syms = {str(r.get("symbol", "")).upper() for r in rows}
+        _insiders = insider_buys(_syms, within_days=180)
+        _contracts = gov_contract_surge(_syms)
+    except Exception as exc:  # noqa: BLE001
+        log.info("quiver context unavailable: %s", str(exc)[:90])
+
     out = []
     for c in rows:
         try:
+            _sym = str(c.get("symbol", "")).upper()
             out.append(Candidate(
                 symbol=c.get("symbol", ""), strategy="Wheel", tier="failed",
                 action="sell put", as_of=as_of or "",
@@ -2216,6 +2231,8 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
                      else (c.get("blocks") or ["blocked"])[0]),
                 provenance=((c.get("provenance") or {}).get("inputs") or []),
                 gates=c.get("decision_trace") or [],
+                extra={"insider_buys": _insiders.get(_sym),
+                       "gov_contracts": _contracts.get(_sym)},
             ))
         except Exception as exc:  # noqa: BLE001 — one bad row must not lose the screen
             log.warning("candidate record skipped for %s: %s", c.get("symbol"), exc)

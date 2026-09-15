@@ -146,3 +146,65 @@ def insider_buys(symbols: set[str] | None = None, within_days: int = 90) -> dict
                        + (f" — {rec['latest_title']}" if rec.get("latest_title") else "")
                        + " · context only, never a reason on its own")
     return out
+
+
+def gov_contract_surge(symbols: set[str] | None = None,
+                       recent_days: int = 30, baseline_days: int = 90) -> dict:
+    """Federal award value in the last `recent_days` vs that name's OWN prior rate.
+
+    A raw award total says nothing: ACN books ~$269m of federal work a quarter
+    against ~$65bn of revenue — routine, not news. The only framing with any
+    information is a name measured against ITSELF, which is the same
+    scale-invariance rule the desk applies to momentum and volatility.
+
+    TWO HONEST LIMITS, stated on the row rather than buried:
+      - Federal awards are LUMPY. One large contract in a business that wins
+        few produces a huge ratio, and that is an event, not a trend.
+      - The live feed spans about five months, so the baseline is short. A
+        ratio here is a description of a small window, not an estimate.
+
+    Returns {TICKER: {...}} only for names whose recent rate exceeds their own
+    baseline; everyone else is absent rather than reported as 1.0x.
+    """
+    rows = _get("/beta/live/govcontractsall")
+    today = _dt.date.today()
+    r_lo = (today - _dt.timedelta(days=recent_days)).isoformat()
+    b_lo = (today - _dt.timedelta(days=recent_days + baseline_days)).isoformat()
+
+    recent: dict = {}
+    base: dict = {}
+    n_recent: dict = {}
+    for x in rows:
+        sym = str(x.get("Ticker") or "").upper()
+        if not sym or (symbols is not None and sym not in symbols):
+            continue
+        d = str(x.get("Date") or x.get("action_date") or "")[:10]
+        try:
+            amt = float(x.get("Amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if d >= r_lo:
+            recent[sym] = recent.get(sym, 0.0) + amt
+            n_recent[sym] = n_recent.get(sym, 0) + 1
+        elif d >= b_lo:
+            base[sym] = base.get(sym, 0.0) + amt
+
+    out: dict = {}
+    months = max(baseline_days / 30.0, 1.0)
+    for sym, r in recent.items():
+        b = base.get(sym, 0.0) / months          # per-recent_days baseline
+        if r <= 0 or b <= 0 or r <= b:
+            continue
+        out[sym] = {
+            "recent_usd": round(r),
+            "baseline_usd_per_period": round(b),
+            "ratio": round(r / b, 1),
+            "awards": n_recent.get(sym, 0),
+            "source": "quiver_govcontracts",
+            "line": (f"${r:,.0f} of federal awards in {recent_days} days across "
+                     f"{n_recent.get(sym, 0)} contracts, against ${b:,.0f} per "
+                     f"{recent_days} days over the prior quarter ({r / b:.1f}x). "
+                     f"Awards are lumpy and this feed spans ~5 months — an "
+                     f"event, not a trend. Context only."),
+        }
+    return out

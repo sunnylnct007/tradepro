@@ -669,6 +669,32 @@ function Detail({ r }: { r: Row }) {
         )}
       </div>
 
+      {((r.extra as any)?.insider_buys || (r.extra as any)?.gov_contracts) && (() => {
+        const ib = (r.extra as any).insider_buys;
+        const gc = (r.extra as any).gov_contracts;
+        return (
+          <div style={{ flexBasis: "100%", margin: "6px 0" }}>
+            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em",
+                          color: "var(--text-dim)", marginBottom: 4 }}>
+              Outside the price — context, never a reason on its own
+            </div>
+            {ib?.line && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                <b style={{ color: ib.cluster ? TONE.ok : "var(--text)" }}>
+                  {ib.cluster ? "Insider CLUSTER buy" : "Insider buying"}
+                </b>{" — "}
+                <span style={{ color: "var(--text-dim)" }}>{ib.line}</span>
+              </div>
+            )}
+            {gc?.line && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                <b>Federal awards {gc.ratio}× its own rate</b>{" — "}
+                <span style={{ color: "var(--text-dim)" }}>{gc.line}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {(r.extra as any)?.optionContext?.premium != null && (() => {
         const o = (r.extra as any).optionContext;
         const sg = o.sigma || {};
