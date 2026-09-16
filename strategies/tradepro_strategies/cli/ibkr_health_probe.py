@@ -35,6 +35,7 @@ snapshot FLAG, not by row count, so a genuinely quiet day still reads healthy.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import sys
 import time
 
@@ -108,7 +109,6 @@ def main() -> int:
             open_now = None
             try:
                 from ..paper import market_hours
-                import datetime as _dt
                 open_now = market_hours.is_open("us_equity", _dt.datetime.now(_dt.UTC))
             except Exception as exc:  # noqa: BLE001
                 print(f"market-hours check unavailable: {str(exc)[:110]}", file=sys.stderr)
@@ -163,7 +163,14 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 — the probe must never crash-loop
         print(f"run_log write failed: {exc}", file=sys.stderr)
 
-    print(f"ibkr-health: {status} — {detail}")
+    # TIMESTAMPED. The log carried no clock at all, so on 16 Sep — the day the
+    # desk went dark at 14:12:21Z and recovered by itself — its verdicts could
+    # not be aligned to the failure at all. Reconstructing the sequence meant
+    # assuming perfectly regular 900s spacing with no missed ticks, which is an
+    # assumption, not evidence. A health signal you cannot place in time cannot
+    # settle an argument about when something broke.
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"[{stamp}] ibkr-health: {status} — {detail}")
     # "closed" is not a failure — exiting non-zero on every weekend tick would
     # just move the false alarm from the run log to launchd.
     return 0 if status in ("ok", "closed") else 1
