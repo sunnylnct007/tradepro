@@ -132,3 +132,57 @@ def test_monthly_expiry_never_returns_today_or_the_past():
     the credit collected."""
     third_friday = dt.date(2026, 9, 18)
     assert dt.date.fromisoformat(P._monthly_expiry(21, today=third_friday)) > third_friday
+
+
+def test_a_transient_chain_error_is_retried_but_a_real_refusal_is_not():
+    """16 Sep 2026: the run fired at 14:12:21 and ALL SIX markets returned
+    "IBKR returned NO strikes for conid ... month OCT26" — SPX and XSP included,
+    which had placed every session that week. Forty-five minutes later the
+    identical call returned 40 legs with a live spot. One transient blackout on
+    the placement minute, and the desk took a zero for the day.
+
+    We place once. Retrying the pass is the difference between a blank day and
+    a traded one — but only for causes that can change. A park, a margin
+    rejection, a shut session or PROVISIONAL strikes are ANSWERS; repeating
+    them burns the window and buries the real reason.
+    """
+    import inspect
+    from tradepro_strategies.cli import index_strangle_paper as P
+
+    src = inspect.getsource(P.main)
+    assert "TRANSIENT = (" in src
+    for phrase in ("could not resolve", "no strikes", "no two-sided quote"):
+        assert phrase in src, f"{phrase} should be retried"
+    # These must NOT be in the retry set.
+    i = src.index("TRANSIENT = (")
+    block = src[i:i + 400]
+    for never in ("PARKED", "not paper-tradeable", "PROVISIONAL", "insufficient"):
+        assert never.lower() not in block.lower(), f"{never} must not be retried"
+
+
+def test_the_retry_is_bounded_well_inside_the_lambda_ceiling():
+    """Lambda stops at 900s and the job spends ~120s before placing. A run
+    killed mid-placement is worse than one that gave up honestly."""
+    import inspect
+    from tradepro_strategies.cli import index_strangle_paper as P
+
+    src = inspect.getsource(P.main)
+    assert "RETRY_BUDGET_S" in src and "RETRY_WAIT_S" in src
+    assert "retry budget spent" in src, "exhausting the budget must be SAID"
+
+
+def test_a_transient_failure_is_not_recorded_as_a_refusal_first():
+    """Recording it would put a place_error on the row that the next attempt
+    then has to clear — and on 8 Sep exactly that left a row reading
+    placed=true WITH a stale refusal still attached."""
+    import inspect
+    from tradepro_strategies.cli import index_strangle_paper as P
+
+    src = inspect.getsource(P.main)
+    i = src.index("if _is_transient(res):")
+    # The branch body ends at its `continue`. Slicing past that swept in the
+    # _finish call that correctly sits OUTSIDE it — the first version of this
+    # test failed on the code being right.
+    branch = src[i:src.index("continue", i)]
+    assert "_finish" not in branch, "a transient failure must not be recorded yet"
+    assert "still_pending.append" in branch, "it must be queued for another go"
