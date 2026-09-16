@@ -103,6 +103,43 @@ const num = (v: number | null | undefined, d = 2, suf = "") =>
     : `${v.toFixed(d)}${suf}`;
 
 /** Age of an artifact in hours, or null when it carries no as_of. */
+function plainAction(r: Row): { text: string; tone: string; strong: boolean } {
+  /** What the reader should DO, in words a person uses.
+   *
+   *  The board spoke four private dialects at once — "scout", "watch", "hold",
+   *  "wait", "block", "failed", "unproven", "gated" — and none of them is an
+   *  instruction. A row saying "watch" next to a row saying "hold" reads as two
+   *  different states when both mean the same thing: nothing to do today.
+   */
+  const a = String(r.action || "").toLowerCase();
+  const failed = r.tierRaw === "failed";
+
+  if (a === "buy" || a === "consider") {
+    return failed
+      ? { text: "BUY — but this strategy failed its own backtest", tone: TONE.warn, strong: true }
+      : { text: "BUY today", tone: TONE.ok, strong: true };
+  }
+  if (a === "sell put") {
+    return failed
+      ? { text: "SELL A PUT — strategy unproven, size small", tone: TONE.warn, strong: true }
+      : { text: "SELL A PUT today", tone: TONE.ok, strong: true };
+  }
+  if (a === "sell" || a === "exit" || a === "close") {
+    return { text: "CLOSE this position", tone: TONE.bad, strong: true };
+  }
+  if (a === "block") return { text: "Do not buy — see why", tone: "var(--text-muted)", strong: false };
+  if (a === "watch" || a === "wait") {
+    return { text: "Nothing to do yet — waiting for its level", tone: "var(--text-dim)", strong: false };
+  }
+  if (a === "scout") {
+    return { text: "Research idea — not a trade", tone: "var(--text-muted)", strong: false };
+  }
+  if (a === "hold" || a === "review") {
+    return { text: "Not an entry today", tone: "var(--text-muted)", strong: false };
+  }
+  return { text: r.action || "—", tone: "var(--text-dim)", strong: false };
+}
+
 function marketHours(asOf: string | null | undefined): number {
   /** Hours since `asOf`, counting only Mon-Fri. A signal published at Friday's
    *  close is not stale on Sunday — no newer data exists. Counting calendar
@@ -566,7 +603,16 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                         </span>
                       ) : null}
                     </td>
-                    <td style={{ padding: "7px 8px", color: MUTED }}>{r.action}</td>
+                    {/* PLAIN ENGLISH. Owner, 16 Sep: "screen should be crystal
+                        clear in message. not just saying failed, wait, watch,
+                        scout terminology". Every one of those words is desk
+                        shorthand that tells a reader nothing about what to do,
+                        and four lanes each used their own. Say the action. */}
+                    <td style={{ padding: "7px 8px" }}>
+                      <span style={{ color: plainAction(r).tone, fontWeight: plainAction(r).strong ? 600 : 400 }}>
+                        {plainAction(r).text}
+                      </span>
+                    </td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.entry)}</td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>
                       {num(r.level)}
@@ -731,10 +777,40 @@ function Detail({ r }: { r: Row }) {
                   )}
                 </div>
               )}
-              {sg.strike_at_1_sigma != null && (
-                <div style={{ color: "var(--text-dim)" }}>
-                  A 1σ strike would be ${Number(sg.strike_at_1_sigma).toFixed(2)};
-                  1.5σ would be ${Number(sg.strike_at_1_5_sigma).toFixed(2)}.
+              {Array.isArray(sg.ladder) && sg.ladder.length > 1 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 4 }}>
+                    What safety costs you — the same name at three distances:
+                  </div>
+                  <table style={{ borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <tbody>
+                      {sg.ladder.map((L: any) => {
+                        const safe = L.assignment_prob_pct <= 15;
+                        const mid = L.assignment_prob_pct <= 30;
+                        return (
+                          <tr key={L.label}>
+                            <td style={{ padding: "2px 12px 2px 0", color: "var(--text-dim)" }}>{L.label}</td>
+                            <td style={{ padding: "2px 12px 2px 0", fontFamily: "var(--font-mono)" }}>
+                              strike {Number(L.strike).toFixed(0)}
+                            </td>
+                            <td style={{ padding: "2px 12px 2px 0", fontFamily: "var(--font-mono)" }}>
+                              ${Number(L.premium).toFixed(2)}
+                            </td>
+                            <td style={{ padding: "2px 12px 2px 0", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+                              {Number(L.annual_yield_pct).toFixed(0)}%/yr
+                            </td>
+                            <td style={{ padding: "2px 0", fontFamily: "var(--font-mono)", fontWeight: 600,
+                                         color: safe ? TONE.ok : mid ? TONE.warn : TONE.bad }}>
+                              {Number(L.assignment_prob_pct).toFixed(0)}% assigned
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
+                    The fat yield IS the risk — the same number seen twice.
+                  </div>
                 </div>
               )}
               <div style={{ color: "var(--text-dim)" }}>

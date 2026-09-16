@@ -1710,6 +1710,35 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                         f"{_sig_iv:.4f} × √({dte}/365) = {_one:.2f}; "
                         f"strike {strike:g} is {_sig_dist:.2f}σ below spot"),
         }
+        # THE LADDER (owner, 16 Sep). The screen picked ONE strike by delta and
+        # showed it. That hides the only decision that matters here: how much
+        # yield you give up to be genuinely safe. Today's board offered 44% on
+        # MRVL with a 40% chance of assignment — the fat yield IS the risk. At
+        # 1.5σ the same name pays 1%. Both facts belong on the row so the
+        # choice is the reader's rather than the delta target's.
+        _ladder = []
+        for _lbl, _mult in (("desk pick", None), ("1σ out", 1.0), ("1.5σ out", 1.5)):
+            _k = strike if _mult is None else round((ref_close - _mult * _one) / 5) * 5
+            if not _k or _k <= 0:
+                continue
+            try:
+                # OptionType is a Literal["call","put"] alias, not an enum —
+                # the kind is the bare string.
+                _p = pricer.price(ref_close, _k, _T, _sig_iv, "put")
+                _d2 = ((_m2.log(ref_close / _k)
+                        + ((_r - (_div_y or 0.0)) - 0.5 * _sig_iv ** 2) * _T)
+                       / (_sig_iv * _m2.sqrt(_T)))
+                _ladder.append({
+                    "label": _lbl,
+                    "strike": round(_k, 2),
+                    "premium": round(_p, 2),
+                    "annual_yield_pct": round(100 * (_p / _k) * (365.0 / dte), 1),
+                    "assignment_prob_pct": round(100 * _ND().cdf(-_d2), 0),
+                    "sigma_out": round((ref_close - _k) / _one, 2),
+                })
+            except Exception:  # noqa: BLE001 — a missing rung is not a broken row
+                continue
+        sigma_ctx["ladder"] = _ladder
 
     # ── TIER_SHORT (SPEC §1) — earnings-avoidance only ───────────────────
     # Attempted ONLY when the standard band conflicts with earnings (the
