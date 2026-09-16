@@ -96,11 +96,43 @@ def _in_capture_window(now=None) -> tuple[bool, str]:
     return ok, f"{et:%Y-%m-%d %H:%M} ET"
 
 
+def _scrub_nan(rows: list[dict]) -> tuple[list[dict], int]:
+    """Replace NaN/Inf with None so one bad field cannot discard a whole symbol.
+
+    ONE NaN KILLED THE ENTIRE PAYLOAD. json.dumps emits a bare `NaN` token,
+    which is not valid JSON, so the API rejected the request and the symbol
+    stored NOTHING — while the run printed a tick and a leg count beside it:
+
+        ✓ IWM    156 legs (OI 152, bid/ask 154) → upserted 0
+
+    On 16 Sep that was 136 symbols and 125 push errors in a single run: the
+    MAJORITY of the capture was being discarded, which is why there was no
+    option history to study. A missing greek on one leg is a gap; losing the
+    other 155 legs because of it is a bug.
+    """
+    import math
+    cleaned, scrubbed = [], 0
+    for row in rows:
+        out = {}
+        for k, v in row.items():
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                out[k] = None
+                scrubbed += 1
+            else:
+                out[k] = v
+        cleaned.append(out)
+    return cleaned, scrubbed
+
+
 def _post_rows(rows: list[dict]) -> int:
     """Batch-upsert captured legs. Best-effort: a push failure must not lose the
     rest of the run."""
     if not rows:
         return 0
+    rows, _scrubbed = _scrub_nan(rows)
+    if _scrubbed:
+        log.info("scrubbed %d non-finite value(s) before push — the row survives, "
+                 "the field is null", _scrubbed)
     try:
         import requests
         from .push_to_api import load_credentials
@@ -234,6 +266,7 @@ def main() -> int:
     started = time.monotonic()
     stopped_early = False
     total_rows = upserted = ok = rate_limited = failed = 0
+    stored_nothing: list[str] = []
     sym_with_oi = sym_with_ba = 0
     watch_syms, _b, _t = set(), None, None
     try:
@@ -314,7 +347,13 @@ def main() -> int:
         withba = sum(1 for r in rows if r.get("bid") and r.get("ask"))
         sym_with_oi += 1 if withoi else 0
         sym_with_ba += 1 if withba else 0
-        print(f"  ✓ {sym:<6} {len(rows):3d} legs (OI {withoi}, bid/ask {withba}) → upserted {n}",
+        # A TICK MEANS STORED, NOT FETCHED. Fetching 156 legs and storing none
+        # is a failure, and for months it was printed as a success.
+        _mark = "✓" if n else "✗"
+        _tail = f"upserted {n}" if n else f"STORED NOTHING ({len(rows)} legs lost)"
+        if not n:
+            stored_nothing.append(sym)
+        print(f"  {_mark} {sym:<6} {len(rows):3d} legs (OI {withoi}, bid/ask {withba}) → {_tail}",
               flush=True)
 
     print(f"\nDone: {ok} captured, {rate_limited} rate-limited, {failed} failed / {len(syms)}"
@@ -323,11 +362,23 @@ def main() -> int:
     print(f"      {total_rows} legs shaped, {upserted} upserted; final pace {pace:.0f}s")
     print(f"      liquidity coverage: OI on {sym_with_oi}/{ok} captured symbols, "
           f"bid/ask on {sym_with_ba}/{ok}")
+    if stored_nothing:
+        print(f"      ⚠ {len(stored_nothing)} symbol(s) fetched a chain and stored "
+              f"NOTHING: {', '.join(stored_nothing[:12])}"
+              + (" …" if len(stored_nothing) > 12 else ""), flush=True)
 
     # A run that collected no liquidity data is a FAILED run, not a quiet one.
     # Without this it exits 0, the wrapper logs rc=0, and the only visible
     # symptom is the wheel board blaming the market for our own empty capture.
     if stopped_early:
+        return 1
+    # HALF THE RUN LOST IS A FAILED RUN. On 16 Sep 136 symbols stored nothing
+    # (one NaN each, killing the whole payload) and the run still exited 0, so
+    # months of capture quietly kept only a fraction of what it fetched.
+    if ok and len(stored_nothing) > ok * 0.10:
+        print(f"\nFAILED: {len(stored_nothing)}/{ok} captured symbols persisted NOTHING. "
+              "The chains were fetched and thrown away — treat this snapshot as "
+              "incomplete, not as thin option markets.", flush=True)
         return 1
     if ok and (sym_with_oi / ok) < MIN_OI_COVERAGE:
         print(f"\nFAILED: open interest present on only {sym_with_oi}/{ok} symbols "

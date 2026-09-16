@@ -1029,6 +1029,31 @@ def _relative(sym, cfg):
         return None
 
 
+# Each typed lens owns a key on its hit dict. The generic slice must exclude
+# ALL of them; a lens added to the ranked lists below but forgotten here is
+# emitted twice. That is not hypothetical — the contract lens was added
+# without updating the filter and GE and BA sat on the board twice for a full
+# day ("scout: 5 new-name candidate(s): GE, BA, COST, GE, BA"). Keeping the
+# key list in ONE place makes the omission impossible rather than unlikely.
+SCOUT_LENS_KEYS = ("n_app", "earnings", "contracts")
+
+
+def _select_scout_keep(hits: list[dict], top_n: int) -> list[dict]:
+    """Rank the generic hits, then append each typed lens in its own order.
+
+    No symbol may appear twice: a name that qualifies under a typed lens is
+    represented by that lens alone.
+    """
+    generic = [h for h in hits if not any(h.get(k) for k in SCOUT_LENS_KEYS)]
+    keep = generic[:max(0, top_n)]
+    keep += [h for h in hits if h.get("n_app")]        # repeat movers, never crowded out
+    keep += sorted([h for h in hits if h.get("earnings")],
+                   key=lambda h: h["earnings"][2])      # soonest print first
+    keep += sorted([h for h in hits if h.get("contracts")],
+                   key=lambda h: -(h["contracts"].get("ratio") or 0))
+    return keep
+
+
 def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
          gates_extra=None, provenance=None, level_label="stop", options=None):
     """Owner, 6 Sep, looking at the desk: the Pre-Earn label "is fne for MU
@@ -1252,13 +1277,7 @@ def scout(base, token, watched: list, state: dict) -> list:
     except Exception as exc:  # noqa: BLE001
         log.warning("scout contract lens failed: %s", str(exc)[:110])
 
-    movers_hits = [h for h in hits if h.get("n_app")]
-    earn_hits = [h for h in hits if h.get("earnings")]
-    contract_hits = [h for h in hits if h.get("contracts")]
-    keep = [h for h in hits if not h.get("n_app") and not h.get("earnings")][:int(cfg.get("top_n", 5))]
-    keep += movers_hits          # repeat movers are never crowded out by rank
-    keep += sorted(earn_hits, key=lambda h: h["earnings"][2])  # soonest first
-    keep += sorted(contract_hits, key=lambda h: -(h["contracts"]["ratio"] or 0))
+    keep = _select_scout_keep(hits, int(cfg.get("top_n", 5)))
     rows = []
     for h in keep:
         if h.get("contracts"):
