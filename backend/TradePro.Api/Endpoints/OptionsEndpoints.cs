@@ -87,7 +87,10 @@ public static class OptionsEndpoints
         g.MapGet("/iv-daily/{symbol}", async (string symbol, NpgsqlDataSource db, int? days) =>
         {
             var sym = symbol.Trim().ToUpperInvariant();
-            var window = days is > 0 and <= 400 ? days.Value : 370;
+            // Same clamp rule as /quotes-daily below: an over-wide request gets
+            // the maximum window, never a silently smaller one.
+            const int maxIvWindow = 400;
+            var window = days is null or <= 0 ? 370 : Math.Min(days.Value, maxIvWindow);
             await using var conn = await db.OpenConnectionAsync();
             var rows = (await conn.QueryAsync(@"
                 SELECT trade_date, iv, hv30, source
@@ -100,6 +103,7 @@ public static class OptionsEndpoints
                 symbol = sym,
                 days = rows.Count,
                 windowDays = window,
+                requestedDays = days, windowClamped = days > maxIvWindow,
                 series = rows,
             });
         });
@@ -213,7 +217,16 @@ public static class OptionsEndpoints
         g.MapGet("/quotes-daily/{symbol}", async (string symbol, NpgsqlDataSource db, int? days) =>
         {
             var sym = symbol.Trim().ToUpperInvariant();
-            var window = days is > 0 and <= 90 ? days.Value : 5;
+            // CLAMP, NEVER SILENTLY SUBSTITUTE. This read `days is > 0 and <= 90
+            // ? days.Value : 5`, so ?days=400 returned FIVE days — less data for a
+            // wider request — and the caller had no way to tell a short history
+            // from a rejected window. It cost a wrong conclusion: the store held
+            // 24 days of chains back to 13 Aug while the answer read "2-3 days,
+            // not enough to measure", and that nearly closed a study.
+            // Out-of-range now clamps to the maximum and the response reports the
+            // window actually used.
+            const int maxWindow = 90;
+            var window = days is null or <= 0 ? 5 : Math.Min(days.Value, maxWindow);
             await using var conn = await db.OpenConnectionAsync();
             var rows = (await conn.QueryAsync(@"
                 SELECT expiry, strike, ""right"" AS right, capture_date,
@@ -228,7 +241,9 @@ public static class OptionsEndpoints
                 FROM option_quote_daily WHERE symbol = @sym;", new { sym });
             return Results.Ok(new
             {
-                symbol = sym, windowDays = window, quotes = rows,
+                symbol = sym, windowDays = window,
+                requestedDays = days, windowClamped = days > maxWindow,
+                quotes = rows,
                 coverage = new { totalRows = (int)cov.rows, firstDay = (DateTime?)cov.first_day,
                                  lastDay = (DateTime?)cov.last_day },
             });

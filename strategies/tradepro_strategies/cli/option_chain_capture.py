@@ -45,6 +45,7 @@ import argparse
 import datetime as _dt
 import logging
 import os
+import math
 import time
 from datetime import date
 
@@ -309,14 +310,25 @@ def main() -> int:
                               key=lambda x: abs(x["strike"] - spot0), default=None)
                     if atm:
                         import requests as _rq2
-                        _rq2.post(f"{_b.rstrip('/')}/api/options/iv-daily",
-                                  headers={"Authorization": f"Bearer {_t}"} if _t else {},
-                                  json={"rows": [{"symbol": sym, "tradeDate": None,
-                                                  "iv": float(atm["iv"]), "hv30": None,
-                                                  "source": "chain_capture_atm"}]},
-                                  timeout=15)
-                except Exception:  # noqa: BLE001 — history is a bonus, never a blocker
-                    pass
+                        _iv = float(atm["iv"])
+                        if not math.isfinite(_iv):
+                            raise ValueError(f"ATM iv is {_iv}")
+                        _resp = _rq2.post(
+                            f"{_b.rstrip('/')}/api/options/iv-daily",
+                            headers={"Authorization": f"Bearer {_t}"} if _t else {},
+                            json={"rows": [{"symbol": sym, "tradeDate": None,
+                                            "iv": _iv, "hv30": None,
+                                            "source": "chain_capture_atm"}]},
+                            timeout=15)
+                        # A 4xx IS NOT AN EXCEPTION. Without this check a rejected
+                        # write looked identical to a stored one, and this feeds
+                        # IV-Rank — the wheel's own gate.
+                        if _resp.status_code != 200:
+                            raise RuntimeError(
+                                f"HTTP {_resp.status_code}: {_resp.text[:90]}")
+                except Exception as _exc:  # noqa: BLE001 — never blocks the capture
+                    log.warning("%s: IV history not stored (IV-Rank window will "
+                                "not grow today): %s", sym, str(_exc)[:100])
         except Exception as exc:  # noqa: BLE001
             name = type(exc).__name__
             if "RateLimit" in name:
