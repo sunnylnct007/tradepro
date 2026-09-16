@@ -1308,3 +1308,61 @@ Whether shadow cycles may satisfy the RELIABILITY gates (S1-S3, B2, B3 test
 plumbing, and shadow fills exercise the identical path) — without this the
 strangle gates are unreachable while VIX stays above 13.5; the 13.5-vs-14.0
 threshold drift; and a cut list for retired lanes and probe jobs.
+
+
+## 2026-09-16 (later, DATA+RESEARCH): the three follow-ups, in order
+
+### 1. Shadow cycles now satisfy the RELIABILITY gates — owner ruling
+S1, S2, S3, B2, B3 may be graded on shadow fills; **S4 may not**. The split is
+the point: those five test PLUMBING (can it place, close, price, always exit,
+report its own failures) and a shadow fill is a real paper fill at a real price
+through the identical code path. S4 is the only gate asking whether the
+strategy makes money, and grading it on days the gate refused to trade would
+invert the strategy. Populations are already tagged `shadow: true` at source,
+so the split is enforced by data, not by memory. Full reasoning + the standing
+17-pair evidence is in FUNDING_GATES_V1.md. Without this the strangle sleeve
+could run the whole six-week window with S1 reading zero.
+
+### 2. The "13.5 vs 14.0 threshold drift" was NOT drift — it was a dead constant
+Retracting my own 16 Sep finding: **the live 13.5 is correct and always was.**
+It is computed by `choose_threshold` in index_strangle_sim — of a half-point
+grid, the largest threshold admitting ZERO trades inside any declared crisis
+window — and `test_thresholds_are_the_rules_output` already guards it.
+
+What was wrong is that `index_strangle_paper.py` opened with
+
+    VIX_MAX = {"US": 14.0, "INDIA": 12.0}
+
+under a large evidence block, and **rebound the same name ~200 lines later**
+from MARKETS. The first binding was dead from the moment the eight-market
+config landed, and both its values were stale (US gates 13.5, India 12.5).
+Nothing ever misbehaved — which is the danger. The most authoritative-looking
+constant in the file contradicted the live gate, and a desk review read it and
+reported drift that did not exist.
+
+The existing one-definition test could not catch it: it reads the module AFTER
+import and therefore only ever sees the LAST binding. The new
+`test_vix_max_is_defined_exactly_once` parses the SOURCE with `ast` and fails
+on a second module-level assignment — verified to fail on the old file
+("assigned on lines [80, 292]"). Same lesson as ever: **grep the VALUE, not the
+name**, and a test that reads the imported module cannot see a shadowed one.
+
+### 3. The cut list was mostly imaginary — correcting the 16 Sep entry
+Checked rather than assumed, and two of my three claims did not survive:
+
+* **`exec_path_probe` is NOT a scheduled lane.** It appears in no plist and
+  nowhere in the repo. The 30 cancelled probe orders were ad-hoc manual runs
+  that already finished. There was nothing to cut.
+* **No killed sleeve is still wired up.** I checked all ~30 loaded agents
+  against the killed scoreboard (QDB, S/R levels, wheel, Quiver congress) and
+  found no orphan. That claim was loose and is withdrawn.
+* **The four retired plists were real** and are now gone from
+  `~/Library/LaunchAgents`: the two `SUPERSEDED-BY-LAMBDA-2026-09-01`
+  strangle lanes (their Lambda replacements are live in `lambda_handler.JOBS`),
+  `paper-equity-ibkr.STOPPED-2026-08-22` and `paper-fx.PAUSED-2026-08-24`.
+  None was loaded. MOVED, not deleted, to
+  `~/.tradepro/retired-agents/cut-2026-09-16/` — reversible.
+
+So the real surface reduction today is four dead files, not a lane retirement.
+Worth recording precisely, because "we cut the probe lanes" would have entered
+the record as a saving that never happened.
