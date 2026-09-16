@@ -64,12 +64,15 @@ public sealed class IBKRClient
     private readonly IBKRPauseState _pause;
     private readonly ILogger<IBKRClient> _log;
 
+    private readonly IBKRMarketDataLines _lines;
+
     public IBKRClient(
         HttpClient http,
         IOptions<IBKROptions> options,
         IBKRSessionCache session,
         IBKREgressIpResolver ipResolver,
         IBKRPauseState pause,
+        IBKRMarketDataLines lines,
         ILogger<IBKRClient> log)
     {
         _http = http;
@@ -77,6 +80,7 @@ public sealed class IBKRClient
         _session = session;
         _ipResolver = ipResolver;
         _pause = pause;
+        _lines = lines;
         _log = log;
         if (_options.IsEnabled)
         {
@@ -827,6 +831,94 @@ public sealed class IBKRClient
 
     // ─── Market snapshot (read-only) ────────────────────────────────
 
+    // ─── Market-data lines ──────────────────────────────────────────
+    //
+    // /iserver/marketdata/snapshot SUBSCRIBES — it does not read. Every conid
+    // we pass takes a line on the ONE session this whole desk shares, and
+    // before this code existed nothing ever gave one back (there was not a
+    // single unsubscribe call in the repo on b085db4). Over the cap IBKR stops
+    // erroring and starts serving EMPTY FIELDS, which reaches callers as
+    // "no strikes" / "could not read spot" and clears itself when the lines
+    // age out — the 16 Sep blackout exactly.
+    //
+    // Every snapshot path now takes a lease: bounded going in, released on the
+    // way out, in a finally so a throw cannot leak the lines.
+
+    /// <summary>
+    /// Reserve market-data lines for <paramref name="conids"/> and release
+    /// them — with an actual unsubscribe — when the lease is disposed.
+    /// </summary>
+    private async Task<MarketDataLease> LeaseLinesAsync(
+        IReadOnlyList<long> conids, string purpose, CancellationToken ct)
+    {
+        await _lines.AcquireAsync(conids.Count, ct);
+        if (_lines.Waiting > 0)
+            _log.LogInformation(
+                "IBKR market-data lines: {InUse}/{Max} held for {Purpose} ({N} conids), "
+                + "{Waiting} caller(s) queued. Queuing is this working, not a fault.",
+                _lines.InUse, _lines.Max, purpose, conids.Count, _lines.Waiting);
+        return new MarketDataLease(this, conids, purpose);
+    }
+
+    /// <summary>
+    /// Release the lines a pass held: unsubscribe at IBKR, then return the
+    /// budget. Best-effort by design — a failed unsubscribe must NEVER
+    /// propagate into the caller's result, because the data it came for has
+    /// already been fetched successfully by this point. But it is LOGGED: a
+    /// persistent failure here means lines are leaking again and the blackouts
+    /// will come back, and that must not be silent.
+    /// </summary>
+    private async Task ReleaseLinesAsync(IReadOnlyList<long> conids, string purpose)
+    {
+        var failed = 0;
+        foreach (var conid in conids)
+        {
+            try
+            {
+                // CancellationToken.None deliberately: this runs on the way out,
+                // often when the caller's token has ALREADY been cancelled. Using
+                // that token would skip the unsubscribe in precisely the case
+                // (a timed-out pass) that leaks the most lines.
+                using var resp = await SendWithAuthAsync(
+                    HttpMethod.Get,
+                    $"v1/api/iserver/marketdata/{conid}/unsubscribe",
+                    null, CancellationToken.None);
+                if (!resp.IsSuccessStatusCode) failed++;
+            }
+            catch { failed++; }
+        }
+        _lines.Release(conids.Count);
+        if (failed > 0)
+            _log.LogWarning(
+                "IBKR market-data: {Failed} of {Total} unsubscribes FAILED after {Purpose}. "
+                + "The budget was returned, but IBKR may still hold those lines — if this "
+                + "recurs the session will start serving empty fields again.",
+                failed, conids.Count, purpose);
+    }
+
+    private sealed class MarketDataLease : IAsyncDisposable
+    {
+        private readonly IBKRClient _client;
+        private readonly IReadOnlyList<long> _conids;
+        private readonly string _purpose;
+        private bool _released;
+
+        public MarketDataLease(IBKRClient client, IReadOnlyList<long> conids, string purpose)
+        {
+            _client = client;
+            _conids = conids;
+            _purpose = purpose;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_released) return;
+            _released = true;
+            await _client.ReleaseLinesAsync(_conids, _purpose);
+        }
+    }
+
+
     /// <summary>
     /// Fetch a live market-data snapshot for one or more conids via
     /// GET /iserver/marketdata/snapshot?conids=…&amp;fields=…
@@ -850,6 +942,7 @@ public sealed class IBKRClient
         IReadOnlyList<long> conids, string fields, CancellationToken ct = default)
     {
         if (!_options.IsEnabled || conids.Count == 0) return null;
+        await using var lease = await LeaseLinesAsync(conids, "snapshot-batch", ct);
         try
         {
             using var resp = await SendWithAuthAsync(
@@ -866,6 +959,8 @@ public sealed class IBKRClient
         long conid, string fields, CancellationToken ct = default)
     {
         if (!_options.IsEnabled) return null;
+        var one = new[] { conid };
+        await using var lease = await LeaseLinesAsync(one, "snapshot-single", ct);
         try
         {
             using var resp = await SendWithAuthAsync(
@@ -1272,6 +1367,11 @@ public sealed class IBKRClient
         {
             var chunk = conids.Skip(i).Take(ChunkSize).ToArray();
             var conidsParam = string.Join(",", chunk);
+            // Leased PER CHUNK, not for the whole call. A 6-market strangle
+            // solve walks ~300 conids; holding every line to the end would be
+            // the oversubscription this is here to stop. Each chunk's lines go
+            // back before the next chunk asks for its own.
+            await using var lease = await LeaseLinesAsync(chunk, "option-chain", ct);
             try
             {
                 // /iserver/marketdata/snapshot SUBSCRIBES. The first request
