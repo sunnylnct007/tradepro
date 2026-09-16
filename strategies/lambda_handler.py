@@ -51,6 +51,25 @@ log.setLevel(logging.INFO)
 STALE_AFTER_DAYS = 21
 
 # job name -> (module, argv). Nothing here may need local disk beyond /tmp.
+# THE FUNDING FIGURE — FUNDING_GATES_V1 D1, closed 16 Sep 2026 by the owner.
+#
+# One number sets paper NAV, swing --capital-usd and strangle sizing. It is
+# named here rather than typed into each job because the swing sleeve's capital
+# already lives in TWO places — this table and the Mac's
+# com.tradepro.paper-swing-ibkr plist — and a sleeve sized differently in two
+# runners is the duplicate-definition failure this project keeps paying for.
+#
+# $150,000 was chosen because it is what the IBKR paper account already holds,
+# which is what let D3 (paper realignment) close with no account reset. It
+# clears S5 at the observed XSP monthly credit (8.8 x 1,490 = 13,112 = 8.7% of
+# NAV) and correctly FAILS B1 for SPX (90,420 margin = 60% of NAV), which is
+# the "XSP scale first" rule working rather than a problem.
+#
+# THE PLIST IS NOT IN THIS REPO. If this constant changes, change the plist in
+# the same breath or the live lane and the Lambda size the same sleeve
+# differently.
+FUNDING_NAV_USD = 150_000
+
 JOBS: dict[str, tuple[str, list[str]]] = {
     # --place --place-shadow: place EVERY day, including days the volatility
     # gate refused, tagged shadow=true.
@@ -115,7 +134,7 @@ JOBS: dict[str, tuple[str, list[str]]] = {
         "tradepro_strategies.cli.paper_session",
         ["--broker", "ibkr", "--strategy", "mean_reversion_swing",
          "--strategy-id", "mean_reversion_swing_ibkr", "--universe", "tradeable",
-         "--capital-usd", "100000", "--interval", "1d",
+         "--capital-usd", str(FUNDING_NAV_USD), "--interval", "1d",
          "--max-open-positions", "15", "--max-position-pct-of-capital", "5",
          "--placement-mode", "manual"]),
     "paper_equity_dryrun": (

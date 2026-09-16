@@ -359,23 +359,38 @@ PLACE_EXPIRY_KINDS = ("weekly", "monthly")
 PLACE_EXPIRY_KIND = PLACE_EXPIRY_KINDS[-1]
 
 
-def economics(row: dict, ev_entry: dict | None) -> dict | None:
-    """Money, per ONE weekly contract, at today's levels.
+def economics(row: dict, ev_entry: dict | None,
+              kind: str = "weekly") -> dict | None:
+    """Money, per ONE contract of `kind`, at today's levels.
 
     The credit is Black-Scholes and therefore MODELLED - it is labelled as such
     everywhere it is shown, because this file's whole discipline is that a
     modelled premium is never allowed to pass as a traded one. The loss figures
     are NOT modelled: they are the strategy's own realised history, scaled to
     this contract.
+
+    THE EXPIRY IS A PARAMETER, NOT A CONSTANT (16 Sep 2026). This function took
+    the weekly leg and 7/365 unconditionally, and push_decisions() stamped the
+    single result onto EVERY expiry row - so the monthly row carried dte 21
+    beside a credit priced at 7 DTE. Measured on XSP 15 Sep: both rows read
+    credit_modelled 546, while the weekly actually paid 245.56 and the monthly
+    1,364.56. The DTE table above puts the two ~2.2x apart; they cannot share a
+    number. That field feeds FUNDING_GATES_V1 S3 (credit received vs modelled)
+    and S5 (sizing off credit), so the funding figure itself was being derived
+    from it. Collateral and margin were wrong for the same reason - they came
+    off the weekly leg's strike.
     """
-    leg = (row.get("legs") or {}).get("weekly")
+    leg = (row.get("legs") or {}).get(kind)
     if not leg or not ev_entry:
         return None
     from ..quant_engine.options.black_scholes import BlackScholesPricer
     p = BlackScholesPricer()
     spot, iv, lot = row["spot"], row["iv_used"] / 100.0, row["lot"]
-    credit = (p.price(spot, leg["call_strike"], 7 / 365, iv, "call")
-              + p.price(spot, leg["put_strike"], 7 / 365, iv, "put")) * lot
+    # The leg carries its own DTE; DTE_SET is the fallback so a leg written
+    # without one still prices at its OWN expiry rather than silently at 7.
+    dte = leg.get("dte") or DTE_SET.get(kind) or DTE_SET["weekly"]
+    credit = (p.price(spot, leg["call_strike"], dte / 365, iv, "call")
+              + p.price(spot, leg["put_strike"], dte / 365, iv, "put")) * lot
     coll = leg["put_strike"] * lot
     margin = MARGIN_PCT * coll
     h, st = ev_entry["historical"], (ev_entry.get("stress") or {})
@@ -384,6 +399,11 @@ def economics(row: dict, ev_entry: dict | None) -> dict | None:
     def _m(pct):
         return None if pct is None else pct / 100.0 * coll
     return {
+        # WHICH CONTRACT THIS DESCRIBES. Without these two the block is
+        # anonymous, which is exactly how it came to be stamped onto the wrong
+        # expiry for weeks without anyone being able to see it.
+        "expiry_kind": kind,
+        "dte": dte,
         "collateral": round(coll),
         "margin_estimate": round(margin),
         "credit_modelled": round(credit),
@@ -971,12 +991,17 @@ def push_decisions(rows: list[dict]) -> dict:
         if r.get("status") == "no_data":
             continue
         legs = r.get("legs") or {}
-        econ = r.get("economics") or {}
+        econ_all = r.get("economics_by_kind") or {}
+        econ_fallback = r.get("economics") or {}
         decision = ("CANDIDATE" if r.get("status") == "CANDIDATE" else "STAND_ASIDE")
         # One row PER EXPIRY — weekly and monthly have different strikes because
         # they price off different forwards, so collapsing them would record a
         # trade that was never described.
         for kind, leg in (legs.items() or [("none", {})]):
+            # THE ROW'S OWN ECONOMICS. The loop comment above says weekly and
+            # monthly must not be collapsed because their strikes differ - and
+            # then every row was given the weekly's money anyway.
+            econ = econ_all.get(kind) or econ_fallback
             payload.append({
                 "market": r.get("market"), "asOf": r.get("as_of"),
                 "exchangeDate": r.get("exchange_date"),
@@ -1010,7 +1035,8 @@ def push_decisions(rows: list[dict]) -> dict:
                 "deltaTarget": (DELTA_TARGET if r.get("delta_mode") else None),
                 "deltaInBand": (r.get("delta_mode") or {}).get("in_band"),
                 "detail": json.dumps({k: v for k, v in r.items()
-                                      if k not in ("legs", "economics")}),
+                                      if k not in ("legs", "economics",
+                                                        "economics_by_kind")}),
             })
     if not payload:
         return {"pushed": 0}
@@ -1957,7 +1983,19 @@ def main() -> int:
         # rows are what make the threshold testable later, and they are worth
         # far more with the economics of the trade we declined recorded beside
         # them.
-        econ = economics(r, ev.get(r.get("market")))
+        ev_entry = ev.get(r.get("market"))
+        # ONE BLOCK PER EXPIRY. `economics` stays the WEEKLY block because the
+        # email bodies say "one weekly contract" and mean it; `economics_by_kind`
+        # is what the decision rows read, so each expiry records its own credit,
+        # collateral and margin instead of borrowing the weekly's.
+        by_kind = {}
+        for _kind in (r.get("legs") or {}):
+            _e = economics(r, ev_entry, _kind)
+            if _e:
+                by_kind[_kind] = _e
+        if by_kind:
+            r["economics_by_kind"] = by_kind
+        econ = by_kind.get("weekly") or economics(r, ev_entry)
         if econ:
             r["economics"] = econ
     # QUOTE BEFORE RECORDING, so the price sits on the decision row from the

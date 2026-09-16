@@ -1189,3 +1189,122 @@ adding required reviewers.
 
 MCP endpoint verified again after all of it: 101 tools, zero mutating,
 bare /mcp 404.
+
+---
+
+## 2026-09-16 (RESEARCH + DATA): desk-wide reanalysis — measured live, not recalled
+
+Owner asked for a fresh read of the whole application. Every number below came
+from the live API and the live OMS on 16 Sep, not from memory or a doc.
+
+### The flagship is idle, and that is the design working
+Last 40 days, per market: **26 evaluated, 0 traded, 26 declined** — SPX, XSP,
+SPY, QQQ, NDX, GOLD alike. Live reason, verbatim:
+
+    ^VIX 17.20 is ABOVE the 13.5 threshold — not a low-volatility day
+    (trailing 25th pctile 16.01)
+
+Under the trailing-quartile rule **16 of those 26 sessions would have traded.**
+That is NOT a missed-opportunity figure and must never be quoted as one. The
+quartile rule was rejected with evidence at index_strangle_paper.py:60-80 — it
+fires ~25% of days in every era BY CONSTRUCTION, and in 2009-16 that meant
+selling at a median India VIX of 16.7 while calling it low volatility, which is
+exactly the era that lost -427/trade. 16/26 measures what the absolute gate is
+SAVING, not what it is costing. VIX ran 14.3-17.8 all period; the gate is
+waiting for a regime that has not arrived.
+
+Minor drift to resolve: documented default is `VIX_MAX["US"] = 14.0`, the live
+threshold is **13.5** via env override. One of the two is wrong.
+
+### All P&L on the board is from trading AGAINST the gate
+17 closed pairs, every one `shadow: true` (deliberate paper fills on refused
+days). Total **+$191.54**, and it does not generalise:
+
+    SPX  6 pairs  +207.47
+    XSP  9 pairs    -1.92
+    QQQ  1 pair     -8.28
+    SPY  1 pair     -5.73
+
+Ex-SPX the shadow book is roughly break-even. **17 pairs is not yet evidence
+the gate is too tight** — and there is no pre-committed number that would make
+it evidence. Set one before the sample grows, or it gets read as whatever the
+board wants that week.
+
+BANKNIFTY/NIFTY show 20 traded of 24 — notional only, no Indian broker.
+
+### What actually transacts (live OMS, last 100 orders, 28 Aug - 15 Sep)
+    T212_DEMO  ichimoku_equity             FILLED     19
+    IBKR_PAPER mean_reversion_swing_ibkr   FILLED     12
+    IBKR_PAPER mean_reversion_swing_ibkr   REJECTED   22
+    IBKR_PAPER mean_reversion_swing_ibkr   CANCELLED  10
+    IBKR_PAPER exec_path_probe             CANCELLED  30
+
+- **A third of recent order volume is plumbing probes** (32 of 100).
+- The 22 rejections are NOT the execution outage. All one day (2 Sep), all
+  IWM, one cause — "No Trading Permission, Customer Ineligible" — retried 22
+  times, **zero brokerOrderId returned on any of them**. One permanently
+  unpermitted symbol burned 22 attempts. Needs a don't-retry-a-refusal guard.
+- Every broker is IBKR_PAPER / T212_DEMO / PAPER. **Nothing is funded.**
+
+### Scale vs evidence
+~196k lines (93k Python, 46.5k C#, 56.5k TS), 130 test files, ~30 loaded
+launchd agents, plus Lambda + EC2/compose + Postgres + S3 + MCP. Four plists
+carry SUPERSEDED/STOPPED/PAUSED suffixes and were never removed.
+
+13 pre-registered studies. Cleared their gates: mean_reversion_v2,
+post_earnings_put_v2, short_strangle_india_v2. Failed or killed: wheel v3,
+S/R levels, ICH S/R filter, ICH exit v1, ICH exit v2, momentum v3, Quiver
+congress, earnings v2. The gate discipline is why no bad strategy has been
+funded — but the standing result is **3 strategies past their own gates, 0
+funded**, against a platform that keeps growing.
+
+September's commits are ~80% repair: digest mails all falling back to plain
+text, close recording 2 of 3 exits against the wrong round-trip, IBKR's
+rejection reason truncated before it said why, a deploy script dying on
+unquoted parens, a compose service taking the whole site down, Terraform CI
+dead since May with RDS untracked.
+
+### THE FINDING THAT BLOCKS EVERYTHING ELSE
+FUNDING_GATES_V1's evidence window starts when failure-visibility is deployed
+(done, 5dfa6f7, 5 Sep) **AND paper NAV equals the D1 figure**. D1 is still
+OPEN, so **the 6-week clock has never started.** Every day D1 stays open is a
+day the clock is not running.
+
+Worse, the two interact: S1/S2 need >=10 consecutive placed-and-closed cycles
+and >=12 cycles across >=3 markets in >=6 weeks — and the vol gate has produced
+**zero** qualifying entries in 40 days. As written, **the strangle funding
+gates are unreachable while VIX stays above 13.5**, however long the window
+runs.
+
+### D2 is severable — it is not on the critical path
+Checked, not assumed: `YELLOW` appears ONLY in options_screen.py,
+quant_engine/options/wheel_backtest.py and quant_engine/options/risk.py. It is
+read by the wheel/puts sleeve. **Neither funded sleeve — strangle or swing —
+reads it.** So D2 blocks the wheel (already DO-NOT-FUND on its own backtest),
+not this book. Recommend striking D2 from the funding blockers, leaving D1 and
+a scheduling call in D3.
+
+### RESOLVED SAME DAY — D1 closed, D3 closed with it
+Owner set **D1 = $150,000** on 16 Sep. Derivation, both sites of the figure,
+and the consequences are in FUNDING_GATES_V1.md. Headlines:
+
+* **D3 closed for free.** $150k is what the paper account already holds, so
+  there is no NAV realignment and no paper reset. Had D1 landed elsewhere, D3
+  would still be open.
+* **D2 is NOT blocking** — `YELLOW` is read only by options_screen.py,
+  wheel_backtest.py and options/risk.py. Neither funded sleeve touches it.
+  Left OPEN in the doc because striking it is the owner's call.
+* **The live swing sleeve moved 100,000 -> 150,000** (a 50% sizing increase on
+  an auto-placing lane). Follows from D1 as the doc defines it; reversible in
+  one word if a sub-allocation was meant instead.
+* **credit_modelled was fixed before the window opened**, not after. Each
+  expiry now prices at its own DTE. S3 on the monthly leg reads 94.7%; the
+  weekly reads 45% because `iv_used` is a 30-day index applied to a 7-day
+  option — a term-structure blindness, not a pricing bug. **Grade S3 on the
+  monthly leg only** until the chain lane captures more than one DTE.
+
+### Still open for the owner
+Whether shadow cycles may satisfy the RELIABILITY gates (S1-S3, B2, B3 test
+plumbing, and shadow fills exercise the identical path) — without this the
+strangle gates are unreachable while VIX stays above 13.5; the 13.5-vs-14.0
+threshold drift; and a cut list for retired lanes and probe jobs.
