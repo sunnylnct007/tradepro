@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import time as _time
 import json
 import logging
 import math
@@ -2037,54 +2038,132 @@ def main() -> int:
                  if (r.get("legs") or {}).get(kind)]
         units.sort(key=lambda u: _size_of(*u))
 
-        for r, kind in units:
-            if only and r.get("market") not in only:
-                continue
-            res = place_paper(r, contracts=args.contracts,
-                              shadow=args.place_shadow, kind=kind)
-            if not res:
-                # Even a None is reported. Silence is the one outcome that is
-                # never acceptable here.
-                print(f"  not placed {r.get('market')}: placement returned nothing")
-            if res:
-                # PER EXPIRY. A single r["paper_order"] silently kept only the
-                # last one placed, so the weekly's link would overwrite the
-                # monthly's and one of the two executions would vanish from the
-                # row even though both were live at the broker.
-                r.setdefault("paper_orders", {})[kind] = res
-                r["paper_order"] = res
-                # Link the ATTEMPT, not just the success. A refusal is evidence
-                # too — three silent failures on 31 Aug are why this exists.
-                link = record_execution(r, res)
-                r.setdefault("execution_links", {})[kind] = link
-                r["execution_link"] = link
-                if res.get("placed"):
-                    tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
-                    print(f"  PLACED {r['market']} [{kind}]: "
-                          f"{res['request']['putStrike']:,.0f}P + "
-                          f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
-                elif res.get("partial"):
-                    print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
-                else:
-                    # AN ELSE, NOT ANOTHER CONDITION. This has now been the
-                    # silent-failure site twice.
-                    #
-                    # 31 Aug: it read `elif r.get("status") == "CANDIDATE"`, so
-                    # a failed SHADOW placement matched nothing. Three markets
-                    # were attempted, all three failed, and the run printed
-                    # nothing at all.
-                    #
-                    # 1 Sep: I "fixed" that to `elif res.get("reason")` — but
-                    # the API-rejection path returned no `reason` key, so SPY,
-                    # QQQ and GOLD failed silently AGAIN, in the scheduled run,
-                    # while the log looked clean.
-                    #
-                    # Twice is a pattern: any CONDITION here can be missed by a
-                    # return shape nobody thought about. An unconditional else
-                    # cannot.
-                    tag = " [shadow]" if r.get("status") != "CANDIDATE" else ""
-                    why = res.get("reason") or f"no reason given — raw: {str(res)[:200]}"
-                    print(f"  not placed {r['market']}{tag}: {why}")
+    def _finish(r: dict, kind: str, res: dict | None) -> None:
+        """Record and report ONE placement attempt, however it ended.
+
+        Split out of the loop so the retry pass can defer this: a transient
+        chain error must not be written as a refusal and then have to be
+        cleared by the next attempt. On 8 Sep exactly that left a row
+        reading placed=true WITH a stale PROVISIONAL refusal still on it.
+        """
+        if not res:
+            # Even a None is reported. Silence is the one outcome that is
+            # never acceptable here.
+            print(f"  not placed {r.get('market')}: placement returned nothing")
+        if res:
+            # PER EXPIRY. A single r["paper_order"] silently kept only the
+            # last one placed, so the weekly's link would overwrite the
+            # monthly's and one of the two executions would vanish from the
+            # row even though both were live at the broker.
+            r.setdefault("paper_orders", {})[kind] = res
+            r["paper_order"] = res
+            # Link the ATTEMPT, not just the success. A refusal is evidence
+            # too — three silent failures on 31 Aug are why this exists.
+            link = record_execution(r, res)
+            r.setdefault("execution_links", {})[kind] = link
+            r["execution_link"] = link
+            if res.get("placed"):
+                tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
+                print(f"  PLACED {r['market']} [{kind}]: "
+                      f"{res['request']['putStrike']:,.0f}P + "
+                      f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
+            elif res.get("partial"):
+                print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
+            else:
+                # AN ELSE, NOT ANOTHER CONDITION. This has now been the
+                # silent-failure site twice.
+                #
+                # 31 Aug: it read `elif r.get("status") == "CANDIDATE"`, so
+                # a failed SHADOW placement matched nothing. Three markets
+                # were attempted, all three failed, and the run printed
+                # nothing at all.
+                #
+                # 1 Sep: I "fixed" that to `elif res.get("reason")` — but
+                # the API-rejection path returned no `reason` key, so SPY,
+                # QQQ and GOLD failed silently AGAIN, in the scheduled run,
+                # while the log looked clean.
+                #
+                # Twice is a pattern: any CONDITION here can be missed by a
+                # return shape nobody thought about. An unconditional else
+                # cannot.
+                tag = " [shadow]" if r.get("status") != "CANDIDATE" else ""
+                why = res.get("reason") or f"no reason given — raw: {str(res)[:200]}"
+                print(f"  not placed {r['market']}{tag}: {why}")
+
+
+
+        # ── RETRY A DARK CHAIN, ONCE THE MINUTE HAS PASSED ───────────────
+        #
+        # 16 Sep 2026: the run fired at 14:12:21 and ALL SIX markets came back
+        # "IBKR returned NO strikes for conid ... month OCT26" — SPX and XSP
+        # included, which had placed every session that week. Forty-five minutes
+        # later the identical call returned 40 legs with a live spot. One
+        # transient blackout, landing exactly on the placement minute, and the
+        # desk took a zero for the day.
+        #
+        # We place ONCE. If that minute is dark we get nothing, and the strategy
+        # is measured on days the feed happened to be up. That is the fragility,
+        # not the outage — which lasted well under an hour.
+        #
+        # RETRIES THE PASS, NOT THE CALL. When the feed is dark every market
+        # fails together, so hammering each symbol would multiply calls into an
+        # outage we may already be contributing to (rate limits on this desk
+        # have been overwhelmingly self-inflicted). One quiet wait, then the
+        # whole remaining set again.
+        #
+        # ONLY FOR TRANSIENT CAUSES. A park, a margin rejection, a shut session
+        # or PROVISIONAL strikes are answers — repeating them wastes the window
+        # and buries the real reason.
+        TRANSIENT = ("could not resolve", "no strikes", "no two-sided quote",
+                     "no honest mid", "could not read", "request failed")
+
+        def _is_transient(res: dict | None) -> bool:
+            if not res or res.get("placed"):
+                return False
+            why = str(res.get("reason") or "").lower()
+            return any(t in why for t in TRANSIENT)
+
+        # Lambda stops at 900s and this job already spends ~120s before placing.
+        # Budget 420s of retrying and leave the rest as headroom — a run killed
+        # mid-placement is worse than a run that gave up honestly.
+        RETRY_BUDGET_S = float(os.environ.get("TRADEPRO_PLACE_RETRY_BUDGET_S", "420"))
+        RETRY_WAIT_S = float(os.environ.get("TRADEPRO_PLACE_RETRY_WAIT_S", "75"))
+        _t0 = _time.monotonic()
+        pending = [(r, kind) for r, kind in units
+                   if not (only and r.get("market") not in only)]
+        attempt = 0
+
+        while pending:
+            attempt += 1
+            if attempt > 1:
+                waited = _time.monotonic() - _t0
+                if waited + RETRY_WAIT_S > RETRY_BUDGET_S:
+                    print(f"  retry budget spent ({waited:.0f}s) — "
+                          f"{len(pending)} unit(s) left unplaced, reasons recorded")
+                    break
+                print(f"  {len(pending)} unit(s) failed on a transient chain error — "
+                      f"waiting {RETRY_WAIT_S:.0f}s and trying again (attempt {attempt})")
+                _time.sleep(RETRY_WAIT_S)
+
+            still_pending = []
+            for r, kind in pending:
+                res = place_paper(r, contracts=args.contracts,
+                                  shadow=args.place_shadow, kind=kind)
+                if _is_transient(res):
+                    # Do NOT record yet. A transient failure recorded as a
+                    # refusal would put a place_error on the row that the next
+                    # attempt then has to clear — and on 8 Sep exactly that
+                    # left a row reading placed=true WITH a stale refusal.
+                    still_pending.append((r, kind))
+                    continue
+                _finish(r, kind, res)
+            pending = still_pending
+
+        # Whatever is still pending has exhausted the budget: record it now so
+        # the row carries the broker's words rather than nothing at all.
+        for r, kind in pending:
+            _finish(r, kind, place_paper(r, contracts=args.contracts,
+                                         shadow=args.place_shadow, kind=kind))
 
     if args.json:
         print(json.dumps(rows, indent=1))
