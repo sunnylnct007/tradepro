@@ -94,6 +94,48 @@ and their clock starts only at 5dfa6f7.
 | S4 | Win rate and mean cycle P&L | ≥ 65% and > 0 |
 | S5 | Sizing math, written down: one 8.8×-credit loss day (the modelled worst) | NAV drawdown ≤ 10% |
 
+### SHADOW CYCLES COUNT FOR THE RELIABILITY GATES — owner, 16 Sep 2026
+
+**The problem this answers.** S1 wants ≥10 placed-and-closed cycles and S2 wants
+≥12 across ≥3 markets. Measured over the 40 sessions to 16 Sep, the vol gate
+declined **26 of 26** US sessions on every market — VIX ran 14.3–17.8 against a
+13.5 threshold. That is the gate working exactly as designed, not a fault. But
+it means the evidence window can run its full six weeks with **S1 still reading
+zero**, and the sleeve would be no closer to funding than on day one.
+
+**The ruling.** S1, S2, S3, B2 and B3 may be satisfied by **shadow** cycles.
+S4 may NOT.
+
+**Why the split is principled and not a convenience.** Read what each gate
+actually tests:
+
+| gate | what it measures | needs a gate-approved trade? |
+|---|---|---|
+| S1 | can the system place AND close without silent failure | no — plumbing |
+| S2 | does it do so repeatedly, across markets, over time | no — plumbing |
+| S3 | does the credit received match the credit modelled | no — pricing |
+| B2 | were there positions the system could not close | no — plumbing |
+| B3 | did any failure hide in the logs instead of the desk | no — observability |
+| **S4** | **win rate and mean P&L** | **YES — this one is the edge** |
+
+A shadow fill is a REAL paper fill at a REAL price, placed and closed through
+the identical code path; it is tagged `shadow: true` and never blended with
+signal fills. For everything except S4 the gate cannot tell the difference and
+should not try. S4 is the only gate asking "does this strategy make money", and
+grading it on days the strategy refused to trade would answer a question nobody
+asked.
+
+**The constraint that keeps this honest.** Shadow cycles are days the gate said
+STAND ASIDE. Counting them toward S4 would invert the strategy. The populations
+are already tagged at the source (`place_paper`, `record_execution`), so the
+split is enforced by data, not by discipline.
+
+**Standing evidence at the time of the ruling**, so it is not re-derived later:
+17 closed shadow pairs, +$191.54 total — SPX 6 pairs +207.47, XSP 9 pairs
+−1.92, QQQ 1 −8.28, SPY 1 −5.73. Ex-SPX that is roughly break-even, so this
+ruling is **not** a claim the gate is too tight, and must never be quoted as
+one. It is a claim that the PLUMBING can be graded while the regime is wrong.
+
 Implementation contract: funding starts at **XSP scale** (~$8k margin per
 contract); SPX scale only after 10 funded XSP cycles clear the same gates.
 NDX stays off (f6a6368 — it cannot be funded; paper money does not change
