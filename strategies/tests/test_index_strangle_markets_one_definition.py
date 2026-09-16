@@ -377,3 +377,38 @@ def test_a_broker_rejection_is_not_clipped_before_its_verb():
     src = inspect.getsource(P.place_paper)
     assert "get('reason'))[:60]" not in src, "the broker's reason is being clipped"
     assert 'get(\'reason\'))[:60]' not in src
+
+
+def test_vix_max_is_defined_exactly_once():
+    """A SECOND binding of a config name is invisible to every value test.
+
+    `test_per_market_values_have_exactly_one_definition` above reads the module
+    AFTER import, so it only ever sees the LAST binding — it passes happily
+    while an earlier, stale assignment of the same name sits in the file being
+    read by humans.
+
+    That is not hypothetical. Until 16 Sep 2026 this module opened with
+
+        VIX_MAX = {"US": 14.0, "INDIA": 12.0}
+
+    under a large evidence block, and rebound the name ~200 lines later from
+    MARKETS. Both original values were stale (US gates at 13.5, India at 12.5).
+    Nothing misbehaved — but a desk-wide review read the dead constant and
+    reported threshold DRIFT between "documented 14.0" and "live 13.5".
+
+    So this test reads the SOURCE, not the module.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(P))
+    bindings = [
+        node.lineno
+        for node in tree.body                      # module level only
+        if isinstance(node, ast.Assign)
+        for t in node.targets
+        if isinstance(t, ast.Name) and t.id == "VIX_MAX"
+    ]
+    assert len(bindings) == 1, (
+        f"VIX_MAX is assigned at module level on lines {bindings} — a second "
+        "binding silently wins and the first becomes documentation that lies")

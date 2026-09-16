@@ -74,10 +74,22 @@ log = logging.getLogger("tradepro.index_strangle_paper")
 #     VIX <= 14   66 trades/yr  worst -1.05%   0 trades in 2008-09
 #     VIX <= 16  100 trades/yr  worst -1.05%   0 trades in 2008-09
 #     VIX <= 18  131 trades/yr  worst -1.05%   8 trades in 2008-09  <- GFC leaks
-# The mean barely moves across thresholds; the TAIL does. 14 is the default
-# because it sits out the GFC entirely and triples the frequency of 12, while
-# 18 starts trading into a crash.
-VIX_MAX = {"US": 14.0, "INDIA": 12.0}
+# The mean barely moves across thresholds; the TAIL does — which is the whole
+# argument for an absolute gate, and why the per-market thresholds below are
+# set by the crisis-window rule rather than by picking a round number.
+#
+# THERE IS NO `VIX_MAX` HERE ANY MORE, DELIBERATELY (16 Sep 2026). This spot
+# held `VIX_MAX = {"US": 14.0, "INDIA": 12.0}` — DEAD from the moment the
+# eight-market config landed, because line ~292 rebinds the same name from
+# MARKETS. Both of its values were stale: the US markets gate at 13.5 and the
+# Indian ones at 12.5. Nothing misbehaved, and that is exactly the danger — the
+# live gate was always right while the most authoritative-looking constant in
+# the file said otherwise, directly under this evidence block. A desk-wide
+# review on 16 Sep reported "documented default 14.0 vs live 13.5" as threshold
+# DRIFT on the strength of it. The number to trust is `MARKETS[m]["vol_max"]`,
+# and `test_vix_max_is_defined_exactly_once` now fails if a second binding
+# reappears. See [[project_duplicate_definition_dominant_failure_mode]] —
+# grep the VALUE, not the name.
 VIX_LOOKBACK = 250          # sessions, still reported as CONTEXT alongside
 STRIKE_MULT = 1.5           # strikes at N x the implied DAILY move
 
