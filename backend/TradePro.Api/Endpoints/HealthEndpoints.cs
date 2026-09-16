@@ -8,11 +8,28 @@ public static class HealthEndpoints
 {
     public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/health", () => Results.Ok(new
+        // ALWAYS 200, even when degraded. This endpoint is the Docker
+        // HEALTHCHECK for both the api and frontend containers (`curl -fsS`,
+        // which fails on any non-2xx) and the frontend gates on the api being
+        // healthy — so answering 503 on a degraded dependency would restart-loop
+        // the API and take the site down. That would be the preflight causing
+        // the very outage it exists to reveal. The verdict goes in the BODY.
+        //
+        // `status` was a hardcoded "ok" that could not fail while the process
+        // lived. On 16 Sep 2026 it reported ok all afternoon while the IBKR
+        // integration was entirely disabled (the EC2 role had lost permission to
+        // read tradepro/ibkr; the loader logged the denial and continued with
+        // defaults). It now reflects what was actually verified.
+        app.MapGet("/health", (TradePro.Api.Health.DependencyReport deps) => Results.Ok(new
         {
-            status = "ok",
+            status = deps.Status,
             service = "tradepro-api",
-            utc = DateTime.UtcNow
+            utc = DateTime.UtcNow,
+            checkedUtc = deps.LastCheckedUtc,
+            // Named so a monitor can alert on the SPECIFIC thing that broke
+            // rather than on "something". Empty when healthy.
+            failing = deps.Failing.Select(c => new { c.Name, c.Detail }),
+            dependencies = deps.All.Select(c => new { c.Name, c.Ok, c.Detail, c.Critical })
         }));
 
         // Friendly index at the root — without it, opening

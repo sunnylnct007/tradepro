@@ -765,6 +765,9 @@ public class IBKRAuthTest
             new IBKRSessionCache(),
             ipResolver,
             new IBKRPauseState(),
+            // Generous ceiling: these tests assert on the WIRE, not on
+            // line budgeting, and must never queue.
+            new IBKRMarketDataLines(10_000),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<IBKRClient>.Instance);
     }
 

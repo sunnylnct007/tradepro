@@ -197,7 +197,22 @@ builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRDailyBackfillS
 builder.Services
     .AddOptions<TradePro.Api.Providers.IBKR.IBKROptions>()
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKROptions.SectionName));
+// Dependency verdict + the startup preflight that populates it. /health used to
+// return a hardcoded "ok" that could not fail while the process was alive; on
+// 16 Sep 2026 it said ok all afternoon while IBKR was entirely disabled by an
+// IAM drift. The preflight NEVER blocks startup — /health is the Docker
+// healthcheck, so a hard failure there would restart-loop the container.
+builder.Services.AddSingleton<TradePro.Api.Health.DependencyReport>();
+builder.Services.AddHostedService<TradePro.Api.Health.DependencyPreflight>();
 builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRSessionCache>();
+// Market-data LINE BUDGET for that one session. snapshot SUBSCRIBES rather
+// than reads, and until 16 Sep nothing ever unsubscribed or counted, so the
+// desk's own jobs could exhaust the session's lines between them — IBKR then
+// serves empty fields, which surfaces as "no strikes" and heals by itself.
+// Config-driven ceiling, held well under where we believe IBKR's cap sits;
+// finding the true cap empirically means running into the failure.
+builder.Services.AddSingleton(_ => new TradePro.Api.Providers.IBKR.IBKRMarketDataLines(
+    builder.Configuration.GetValue<int?>("IBKR:MaxMarketDataLines") ?? 80));
 // Egress-IP resolver: auto-detects the backend's public IP for the IBKR
 // sso-sessions `ip` claim (so the secret can omit `ip`); IBKR:SourceIp, if
 // set, overrides. Uses a NAMED HttpClient via IHttpClientFactory (short

@@ -124,6 +124,25 @@ public static class SecretsBundleLoader
         // refused in code and there is no secret key that can enable it.
     };
 
+    /// <summary>
+    /// Outcome of every secret fetch this process attempted, keyed by secret
+    /// name. STATIC because the loader runs while configuration is still being
+    /// built — there is no DI container yet — but the verdict has to survive
+    /// into /health. Read once at startup by the preflight.
+    ///
+    /// Recorded because a failed secret read does NOT stop this process: the
+    /// loader logs and continues with defaults, so the only trace of "IBKR is
+    /// off because IAM says no" was a line in docker logs that nothing read.
+    /// </summary>
+    public static IReadOnlyDictionary<string, (bool Ok, string Detail)> FetchOutcomes
+        => _outcomes;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<
+        string, (bool Ok, string Detail)> _outcomes = new();
+
+    private static void RecordOutcome(string secretName, bool ok, string detail)
+        => _outcomes[secretName] = (ok, detail);
+
     public static void LoadInto(IConfigurationBuilder builder, IConfiguration existing, ILogger? log = null)
     {
         var secretName = existing["Secrets:BundleName"] ?? DefaultSecretName;
@@ -148,6 +167,7 @@ public static class SecretsBundleLoader
             // Common case: operator dropped the legacy tradepro/all
             // secret but still wants per-broker secondaries to work.
             log?.LogWarning(ex, "SM bundle fetch failed (name={name}, region={region}); continuing with env/appsettings values only — will still attempt secondary secrets", secretName, region);
+            RecordOutcome(secretName, false, $"{ex.Message} (region {region})");
         }
         if (bundle is null || bundle.Count == 0)
         {
@@ -176,6 +196,7 @@ public static class SecretsBundleLoader
                 log?.LogInformation("SM bundle loaded {count} key(s) from {name}: {keys}",
                     injected.Count, secretName, string.Join(", ", injected.Keys));
             }
+            RecordOutcome(secretName, true, $"loaded {injected.Count} key(s)");
         }
 
         // Also fold in the standalone IG secret (tradepro/ig) when
@@ -214,11 +235,15 @@ public static class SecretsBundleLoader
                 "Secondary secret {name} fetch failed: {msg} (region {region}). " +
                 "If you expected this secret to load, check IAM permissions for the task role.",
                 secretName, ex.Message, region);
+            RecordOutcome(secretName, false, $"{ex.Message} (region {region})");
             return;
         }
         if (bundle is null || bundle.Count == 0)
         {
             log?.LogInformation("Secondary secret {name} returned empty bundle", secretName);
+            // Readable but EMPTY is still a failure for anything that needs it,
+            // and it is a different cause from a denial — say which.
+            RecordOutcome(secretName, false, "secret readable but returned an empty bundle");
             return;
         }
         var injected = new Dictionary<string, string?>();
@@ -242,6 +267,7 @@ public static class SecretsBundleLoader
             builder.AddInMemoryCollection(injected);
             log?.LogInformation("Secondary secret {name} loaded {count} key(s): {keys}",
                 secretName, injected.Count, string.Join(", ", injected.Keys));
+            RecordOutcome(secretName, true, $"loaded {injected.Count} key(s)");
         }
         else
         {
