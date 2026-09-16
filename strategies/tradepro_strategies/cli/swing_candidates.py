@@ -74,6 +74,13 @@ from ..signals.mean_reversion import (SIGMA, BB_WINDOW, STOP_PCT,  # noqa: E402
 # same payload.
 EVIDENCE_WIN_PCT = 72.8
 
+# A candidate is REJECTED when the win rate it needs to break even is at or
+# above the win rate the strategy actually achieves — i.e. it cannot pay even
+# if the edge holds perfectly. Config-driven so the bar can be tightened
+# without a code change; defaults to the strategy's own measured win rate.
+BREAKEVEN_MAX_WIN_PCT = float(
+    os.environ.get("TRADEPRO_SWING_BREAKEVEN_MAX_WIN_PCT", EVIDENCE_WIN_PCT))
+
 MAX_DAY_MOVE = 0.25
 BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
@@ -249,8 +256,8 @@ def _load(sym: str):
     return df if len(df) >= 220 and "open" in df.columns else None
 
 
-def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
-    """Returns (candidates, quarantined, near_misses).
+def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Returns (candidates, quarantined, near_misses, priced_out).
 
     `near_misses` is what makes a zero-candidate day READABLE — see the
     near-miss block below.
@@ -424,7 +431,49 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
     # Best reward:risk first — the number that decides whether a bracket is worth placing.
     out.sort(key=lambda r: -(r["reward_risk"] or 0))
     near.sort(key=lambda r: r["sigma_from_mean"])
-    return out, quarantined, near
+
+    # ── REJECT WHAT CANNOT PAY ──────────────────────────────────────
+    #
+    # Until now R:R was SORTED on but never FILTERED — the list was ordered,
+    # never judged — so on a one-candidate day whatever turned up became
+    # "today's candidate". Owner, 1 Sep 2026, on an IWM signal at R:R 0.39:
+    # "i am not convinced". He was right, and the log since then says why.
+    #
+    # Measured over the 48 signals logged 22 Aug - 16 Sep:
+    #
+    #                 n   median upside   median 'needs'   clear the bar
+    #     ETFs       24       2.1%             79%          3/24  (12%)
+    #     stocks     24       5.2%             61%         24/24 (100%)
+    #
+    # 21 of 24 ETF signals required a HIGHER win rate than the strategy has
+    # ever achieved. They were not marginal, they were arithmetically unable
+    # to pay, and they were half of every list the owner was shown.
+    #
+    # The mechanism is structural, not a fluke: an ETF is diversified, so a
+    # -2.25 sigma dislocation is small in absolute terms. SPY at 0.9% ATR
+    # offers 1.4% upside against a stop 8% away — R:R 0.18, needing 85%. A
+    # single stock at the same sigma has room to actually pay.
+    #
+    # NOT an ETF blacklist. Filtering by instrument type would be a proxy for
+    # the real property and would wrongly keep a bad stock signal and drop a
+    # good ETF one — 3 of the 24 ETF signals DID clear the bar. The bar is the
+    # economics: a trade must need a LOWER win rate than the strategy's own.
+    #
+    # Compared against EVIDENCE_WIN_PCT (72.8%, the MEAN_REVERSION_HOLD_V3
+    # baseline) rather than the 73.2% of the later seam studies. Both are real
+    # and documented; the lower one is the conservative bar, and a filter erring
+    # loose admits exactly the trades this exists to remove.
+    #
+    # No safety margin is invented on top. The measured gap is clean —
+    # stocks 54-65%, ETFs 74-85% — so a margin would be a number with no
+    # evidence behind it, and this desk has been bitten by inventing those.
+    priced_out = [r for r in out
+                  if r.get("breakeven_win_pct") is not None
+                  and r["breakeven_win_pct"] >= BREAKEVEN_MAX_WIN_PCT]
+    if priced_out:
+        keep = {id(r) for r in priced_out}
+        out = [r for r in out if id(r) not in keep]
+    return out, quarantined, near, priced_out
 
 
 def build_artifact(rows: list[dict], universe: str,
@@ -560,7 +609,7 @@ def main() -> int:
         if extra:
             log.info("watchlist adds %d name(s) outside the universe: %s",
                      len(extra), ", ".join(extra))
-    rows, quarantined, near = scan(syms)
+    rows, quarantined, near, priced_out = scan(syms)
     art = build_artifact(rows, args.universe, quarantined,
                          near=near, evaluated=len(syms))
 
@@ -587,9 +636,17 @@ def main() -> int:
                       f"{(f'{r["breakeven_win_pct"]:.0f}%' if r.get('breakeven_win_pct') else '  -'):>7}"
                       f"{r['sigma_below']:>7.2f}{r['atr_pct']:>6.1f}%")
             print("  'needs' = the win rate this trade requires just to BREAK EVEN,")
-            print("  from its own reward:risk. Compare it against the backtest's 73.2%")
-            print("  (2,523 trades). R:R is SORTED on but never filtered, so on a")
-            print("  one-candidate day nothing has judged whether it is worth taking.")
+            print(f"  from its own reward:risk. Every row above needs LESS than the")
+            print(f"  strategy's own {EVIDENCE_WIN_PCT}% — rows that did not are rejected, not ranked.")
+        # SAY WHAT WAS SUPPRESSED. A filter that hides its own work cannot be
+        # told apart from a broken scan, and "0 candidates" would start meaning
+        # two different things. Name them and give the number that rejected them.
+        if priced_out:
+            print(f"\n{len(priced_out)} signal(s) REJECTED — cannot pay at the "
+                  f"strategy's own {EVIDENCE_WIN_PCT}% win rate:")
+            for r in priced_out:
+                print(f"   {r['symbol']:<7} needs {r['breakeven_win_pct']:.0f}%  "
+                      f"(R:R {r['reward_risk'] or 0:.2f}, upside {r['target_pct']:.1f}%)")
         if quarantined:
             print(f"\n⚠ {len(quarantined)} symbol(s) DROPPED for suspect price history:")
             for q in quarantined:

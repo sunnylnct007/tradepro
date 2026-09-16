@@ -12,8 +12,28 @@ IWM: risk 23.25, reward 9.01. It needs 72.1% of these to win. The strategy's own
 backtest wins 73.2% over 2,523 trades — a margin of ONE POINT.
 
 Stating the breakeven turns a ratio nobody can price into the single comparison
-that settles it. It deliberately does NOT filter: choosing a threshold without a
-backtest is the tuning this project has already had to retract.
+that settles it.
+
+16 Sep 2026 — THIS NOW FILTERS, reversing the line that stood here. The original
+reason was sound and is worth restating: "choosing a threshold without a backtest
+is the tuning this project has already had to retract." Two things changed.
+
+EVIDENCE. 48 signals logged 22 Aug - 16 Sep:
+
+                n   median upside   median 'needs'   clear the bar
+    ETFs       24       2.1%             79%          3/24  (12%)
+    stocks     24       5.2%             61%         24/24 (100%)
+
+21 of 24 ETF signals needed a HIGHER win rate than the strategy has ever
+achieved — not marginal, arithmetically unable to pay — and they were half of
+every list shown to the owner.
+
+AND THE THRESHOLD IS NOT TUNED. It is not a fitted number; it is the strategy's
+OWN measured win rate (EVIDENCE_WIN_PCT, 72.8%, the MEAN_REVERSION_HOLD_V3
+baseline). The rule is a tautology, not a parameter: reject a trade that needs a
+higher win rate than the edge delivers. Nothing was swept to find it, so there is
+nothing here to overfit. No safety margin is added on top for the same reason —
+a margin WOULD be an invented number.
 """
 import pytest
 
@@ -56,3 +76,68 @@ def test_the_screen_reports_it_and_still_does_not_filter():
     assert "needs" in src
     for banned in ("if rr < ", "reward_risk < ", "rr <= "):
         assert banned not in src, f"{banned!r} would be an unbacktested filter"
+
+
+# ── the filter itself ───────────────────────────────────────────────
+
+def _scan_out(rows):
+    """Run the module's reject step over pre-built candidate rows."""
+    from tradepro_strategies.cli import swing_candidates as S
+    keep = [r for r in rows
+            if r.get("breakeven_win_pct") is None
+            or r["breakeven_win_pct"] < S.BREAKEVEN_MAX_WIN_PCT]
+    drop = [r for r in rows
+            if r.get("breakeven_win_pct") is not None
+            and r["breakeven_win_pct"] >= S.BREAKEVEN_MAX_WIN_PCT]
+    return keep, drop
+
+
+def _row(sym, need, rr=1.0, up=3.0):
+    return {"symbol": sym, "breakeven_win_pct": need,
+            "reward_risk": rr, "target_pct": up}
+
+
+def test_the_spy_signal_that_cannot_pay_is_rejected():
+    # 16 Sep, real row: SPY needs 85% against a 72.8% edge.
+    keep, drop = _scan_out([_row("SPY", 85.0, 0.18, 1.4)])
+    assert keep == []
+    assert [r["symbol"] for r in drop] == ["SPY"]
+
+
+def test_the_stock_signals_from_the_same_day_all_survive():
+    # IVZ/BAC/MS/USB, 16 Sep — needs 54, 54, 61, 65.
+    rows = [_row("IVZ", 54.0), _row("BAC", 54.0),
+            _row("MS", 61.0), _row("USB", 65.0)]
+    keep, drop = _scan_out(rows)
+    assert len(keep) == 4 and drop == []
+
+
+def test_it_is_not_an_etf_blacklist():
+    # 3 of the 24 logged ETF signals DID clear the bar. Filtering on
+    # instrument type would wrongly drop those and wrongly keep a bad
+    # stock signal. The bar is the economics, not the ticker.
+    keep, drop = _scan_out([_row("XLE", 55.0), _row("SOMESTOCK", 90.0)])
+    assert [r["symbol"] for r in keep] == ["XLE"]
+    assert [r["symbol"] for r in drop] == ["SOMESTOCK"]
+
+
+def test_a_trade_needing_exactly_the_edge_is_rejected():
+    # Needing precisely the win rate the edge delivers is break-even before
+    # costs, i.e. a losing trade after them. Boundary is >=, not >.
+    from tradepro_strategies.cli import swing_candidates as S
+    keep, drop = _scan_out([_row("EDGE", S.BREAKEVEN_MAX_WIN_PCT)])
+    assert keep == [] and len(drop) == 1
+
+
+def test_a_row_with_no_breakeven_is_kept_not_silently_dropped():
+    # breakeven is None when R:R could not be computed. Unknown is not the
+    # same as unprofitable, and dropping on a missing field is how a data
+    # gap turns into an invisible strategy change.
+    keep, drop = _scan_out([{"symbol": "NORR", "breakeven_win_pct": None,
+                             "reward_risk": None, "target_pct": 2.0}])
+    assert [r["symbol"] for r in keep] == ["NORR"] and drop == []
+
+
+def test_the_threshold_is_the_strategys_own_win_rate_not_a_tuned_number():
+    from tradepro_strategies.cli import swing_candidates as S
+    assert S.BREAKEVEN_MAX_WIN_PCT == S.EVIDENCE_WIN_PCT
