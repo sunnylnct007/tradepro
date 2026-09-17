@@ -143,6 +143,23 @@ LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 # from realised vol is the modelling error that produced three wrong tables on
 # 29 Aug, so they stay out until real data exists.
 #
+# `chain_symbol` IS NOT `index`, AND THE DIFFERENCE IS THE WHOLE POINT.
+# `index` is where SPOT comes from; `chain_symbol` is where the OPTION CHAIN
+# comes from, and for the two markets this desk actually places they are not
+# the same ticker. Measured against Yahoo on 17 Sep 2026:
+#
+#     ^GSPC   0 chain expiries      <- `index` for BOTH SPX and XSP
+#     ^SPX   52 chain expiries
+#     ^XSP   43 chain expiries
+#     ^NSEBANK / ^NSEI  0           <- India, hence chain_symbol=None
+#
+# So a capture lane that reused `index` would have walked away with NOTHING for
+# SPX and XSP and reported success, because "no expiries" is not an error — it
+# is the same silent-absence shape as
+# [[feedback_never_infer_from_an_ibkr_absence]]. India is None EXPLICITLY
+# rather than by omission: there is no NSE chain at any provider, and a missing
+# key would read as an oversight someone should go fix.
+#
 # EVERY `vol_max` BELOW IS COMPUTED, NOT CHOSEN. See `choose_threshold` in
 # index_strangle_sim: of a half-point grid, take the LARGEST threshold that
 # admits ZERO trades inside any declared crisis window (GFC, COVID, the 2022
@@ -196,7 +213,7 @@ LEDGER = os.path.expanduser("~/.tradepro/research/index_strangle_paper.json")
 # that look independent invite eight positions on what is really two risks.
 MARKETS = {
     # ---- S&P 500: one underlying, three contract sizes ----
-    "SPX": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
+    "SPX": {"chain_symbol": "^SPX", "index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 5.0, "lot": 100, "divisor": 1.0,
             "family": "S&P 500", "ccy": "$",
             "product": "cash-settled index option · European · no early assignment",
@@ -209,7 +226,7 @@ MARKETS = {
              "paper_trade": True,  # IND underlying — see broker_sec_type
              "note": "VIX is computed FROM SPX options, so the volatility input is "
                     "the underlying's own, not a proxy"},
-    "XSP": {"index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
+    "XSP": {"chain_symbol": "^XSP", "index": "^GSPC", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 10.0,
             "family": "S&P 500", "ccy": "$",
             "product": "Mini-SPX · exactly 1/10 of SPX · cash-settled, European",
@@ -219,7 +236,7 @@ MARKETS = {
              "paper_trade": True,  # priced off ^GSPC/10; the BROKER symbol is XSP
              "note": "the same trade as SPX at a tenth of the size — this is the "
                     "'smaller index' product; SPX itself is 10x SPY, not smaller"},
-    "SPY": {"index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
+    "SPY": {"chain_symbol": "SPY", "index": "SPY", "vol": "^VIX", "vol_scale": 1.0, "vol_max": 13.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "S&P 500", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
@@ -230,7 +247,7 @@ MARKETS = {
              "note": "measured edge is within noise of SPX (83.3% vs 82.4%), so the "
                     "choice is settlement and size, not return"},
     # ---- Nasdaq 100 ----
-    "NDX": {"index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
+    "NDX": {"chain_symbol": "^NDX", "index": "^NDX", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
             "rate": 0.045, "grid": 25.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "cash-settled index option · European",
@@ -257,7 +274,7 @@ MARKETS = {
              "paper_trade": False,
              "note": "VXN is computed FROM NDX options. Fatter tail than the S&P "
                     "(p5 -0.183 vs -0.101) — the same rule, more risk per unit"},
-    "QQQ": {"index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
+    "QQQ": {"chain_symbol": "QQQ", "index": "QQQ", "vol": "^VXN", "vol_scale": 1.0, "vol_max": 17.5,
             "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
             "family": "Nasdaq 100", "ccy": "$",
             "product": "ETF option · American · CAN be assigned early",
@@ -268,7 +285,7 @@ MARKETS = {
              "note": "fires 2,015 times against SPY's 2,219 because VXN<=18 is a "
                     "reachable gate — this is what fixes the thin US sample"},
     # ---- India ----
-    "BANKNIFTY": {"index": "^NSEBANK", "vol": "^INDIAVIX", "vol_scale": 1.35,
+    "BANKNIFTY": {"chain_symbol": None, "index": "^NSEBANK", "vol": "^INDIAVIX", "vol_scale": 1.35,
                   "vol_max": 12.5, "rate": 0.065, "grid": 100.0, "lot": 150,
                   "divisor": 1.0, "family": "India banks", "ccy": "Rs",
                   "product": "cash-settled index option · European",
@@ -276,7 +293,7 @@ MARKETS = {
              "paper_trade": False,  # no paper trading available for India — email only
              "note": "India VIX measures NIFTY and BANKNIFTY realises ~1.35x "
                           "that, so the input is SCALED — a proxy, not its own index"},
-    "NIFTY": {"index": "^NSEI", "vol": "^INDIAVIX", "vol_scale": 1.0,
+    "NIFTY": {"chain_symbol": None, "index": "^NSEI", "vol": "^INDIAVIX", "vol_scale": 1.0,
               "vol_max": 12.5, "rate": 0.065, "grid": 50.0, "lot": 75,
               "divisor": 1.0, "family": "India broad", "ccy": "Rs",
               "product": "cash-settled index option · European",
@@ -286,7 +303,7 @@ MARKETS = {
                       "needed. Worst day -0.29% vs BANKNIFTY's -1.05% — 3.5x safer "
                       "tail for about two-thirds the return"},
     # ---- Gold: the only genuinely uncorrelated leg here ----
-    "GOLD": {"index": "GLD", "vol": "^GVZ", "vol_scale": 1.0, "vol_max": 11.5,
+    "GOLD": {"chain_symbol": "GLD", "index": "GLD", "vol": "^GVZ", "vol_scale": 1.0, "vol_max": 11.5,
              "rate": 0.045, "grid": 1.0, "lot": 100, "divisor": 1.0,
              "family": "Gold", "ccy": "$",
              "product": "ETF option · American · CAN be assigned early",

@@ -34,7 +34,7 @@ def test_per_market_values_have_exactly_one_definition():
 def test_every_market_row_is_complete():
     """A market missing a key fails at render time, inside a Lambda, at 04:00."""
     required = {"index", "vol", "vol_scale", "vol_max", "rate", "grid",
-                "lot", "family", "ccy", "product", "note"}
+                "lot", "family", "ccy", "product", "note", "chain_symbol"}
     for m, cfg in P.MARKETS.items():
         assert required <= set(cfg), f"{m} missing {required - set(cfg)}"
         assert cfg["vol_scale"] > 0 and cfg["grid"] > 0 and cfg["lot"] > 0, m
@@ -412,3 +412,30 @@ def test_vix_max_is_defined_exactly_once():
     assert len(bindings) == 1, (
         f"VIX_MAX is assigned at module level on lines {bindings} — a second "
         "binding silently wins and the first becomes documentation that lies")
+
+
+def test_chain_symbol_is_never_silently_the_index():
+    """`index` is SPOT; `chain_symbol` is the OPTION CHAIN. They differ for the
+    two markets this desk actually places, and getting it wrong captures
+    nothing while reporting success.
+
+    Measured on Yahoo, 17 Sep 2026: ^GSPC — the `index` for BOTH SPX and XSP —
+    returns ZERO chain expiries, while ^SPX returns 52 and ^XSP 43. India
+    returns zero at any provider, so its chain_symbol is None ON PURPOSE.
+
+    No network here: this pins the CONFIG, so a future edit cannot quietly
+    point a chain lane at a spot ticker.
+    """
+    assert P.MARKETS["SPX"]["chain_symbol"] == "^SPX"
+    assert P.MARKETS["XSP"]["chain_symbol"] == "^XSP"
+    # Both SPX and XSP take spot from the same index — which is exactly why
+    # reusing `index` for chains collapses two markets onto a chainless ticker.
+    assert P.MARKETS["SPX"]["index"] == P.MARKETS["XSP"]["index"] == "^GSPC"
+    for m in ("BANKNIFTY", "NIFTY"):
+        assert P.MARKETS[m]["chain_symbol"] is None, (
+            f"{m} has no chain at any provider — None is the claim, and a "
+            "missing key would read as an oversight")
+    # Every chain_symbol that IS set must be a real ticker, not an empty string
+    for m, cfg in P.MARKETS.items():
+        cs = cfg["chain_symbol"]
+        assert cs is None or (isinstance(cs, str) and cs.strip()), m
