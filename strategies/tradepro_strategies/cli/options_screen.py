@@ -988,6 +988,15 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
     spread = q.spread if (q.bid > 0 and q.ask > 0) else None
     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
     ann_yield = round((premium / strike) * (365.0 / dte_pick) * 100, 1) if strike > 0 else None
+    # THE HEADLINE YIELD ASSUMES A MID FILL — say so, and price the other side.
+    # `premium` is q.mid, but a seller hitting the book is filled at the BID.
+    # Measured 16 Sep on 7,809 of our own captured contract-pairs
+    # (THETA_EARLY_CLOSE_GATES_V1.md): the median put spread is 8.9% of mid and
+    # the mean 28.2%, and crossing it is the single largest cost in this trade —
+    # larger than any parameter on the lane. Advertising only the mid number is
+    # how a screen promises a yield the owner cannot actually be filled at.
+    ann_yield_at_bid = (round((q.bid / strike) * (365.0 / dte_pick) * 100, 1)
+                        if (strike > 0 and q.bid and q.bid > 0) else None)
     if not sane_csp_pick(delta, strike, ref_close or chain.spot):
         return {"status": "no_suitable_strike", "detail": "insane pick rejected (sparse chain)"}
 
@@ -1027,6 +1036,8 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
         "suggested_strike": strike, "suggested_delta": round(delta, 3),
         "suggested_premium": premium, "open_interest": q.open_interest,
         "spread_usd": spread, "annualized_yield_pct": ann_yield,
+        "annualized_yield_at_bid_pct": ann_yield_at_bid,
+        "yield_assumes_mid_fill": True,
         "notional_gbp": notional_gbp,
         "eligible": decision.allowed,
         # blocks = market verdicts. data_blocks = "we could not verify this".
@@ -1165,6 +1176,30 @@ def build_carry_map(stored_payload: dict | None, *, now=None, max_age_h: float |
             continue
         carry[sym] = {**row, "premium_as_of_utc": asof_dt.isoformat(), "_carry_age_h": age_h}
     return carry
+
+
+def _fill_caveat(c: dict) -> str:
+    """State the yield the owner can actually be FILLED at, not just the mid one.
+
+    The headline %/yr is computed from the mid price. A seller hitting the book
+    is filled at the bid, and on 16 Sep the measured median put spread was 8.9%
+    of mid (mean 28.2%) across 7,809 of our own captured contract-pairs. A
+    screen that advertises only the mid number is promising a yield that
+    depends entirely on a fill it never mentions — and fill quality turned out
+    to be the largest single factor in the whole trade
+    (THETA_EARLY_CLOSE_GATES_V1.md).
+
+    Empty when the two numbers round to the same thing: a caveat that fires on
+    every row teaches the reader to skip it.
+    """
+    mid = c.get("annualized_yield_pct")
+    bid = c.get("annualized_yield_at_bid_pct")
+    if mid is None or bid is None:
+        return ""
+    if abs(mid - bid) < 0.5:
+        return ""
+    return (f" · {mid:.1f}%/yr assumes a MID fill; at the bid it is "
+            f"{bid:.1f}%/yr — use a limit order, never a market order")
 
 
 def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open: bool, nav_gbp: float | None = None,
@@ -2259,7 +2294,8 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
                 # pre-registered in f296405 BEFORE the run: G3 full-window CAGR
                 # 7.61% against an 8% bar, G4 worst single name META -71.4%
                 # against a 40% bar. Recommendation was DO NOT FUND.
-                why=(WHEEL_SCREEN_PASS_BUT_FAILED if c.get("eligible")
+                why=((WHEEL_SCREEN_PASS_BUT_FAILED + _fill_caveat(c))
+                     if c.get("eligible")
                      else (c.get("blocks") or ["blocked"])[0]),
                 provenance=((c.get("provenance") or {}).get("inputs") or []),
                 gates=c.get("decision_trace") or [],
