@@ -167,6 +167,7 @@ function ageHours(asOf: string | null): number | null {
 }
 
 import { SymbolDetailModal } from "./SymbolDetailModal";
+import { MoversGrid } from "./MoversGrid";
 
 // The per-view tone palette every other desk component declares locally
 // (MomentumView, OptionsDesk, OptionsPayoff all carry the same three). This
@@ -186,6 +187,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
   // One-stop market movers (universe + owner extras, ~15-min refresh) — the
   // owner's "where is today's action" strip. Click a mover to chart it.
   const [movers, setMovers] = useState<any | null>(null);
+  // Collapsed by default — see the note at the strip.
+  const [moversOpen, setMoversOpen] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -490,29 +493,53 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       )}
 
       {movers && (
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12,
-                      padding: "6px 10px", border: "1px solid var(--border)",
-                      borderRadius: 8, alignItems: "baseline" }}>
-          <span style={{ color: MUTED, fontSize: 12, textTransform: "uppercase",
-                         letterSpacing: ".06em" }}>Movers</span>
-          {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
-            <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
-                  onClick={() => setChartSym(m.symbol)}>
-              {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
-              <b style={{ color: OK }}>{m.chg_pct > 0 ? "+" : ""}{m.chg_pct}%</b>
+        <div>
+          {/* The one-line strip stays as the DEFAULT. It answers "where is
+              today's action" in a glance and costs one row of a cockpit that
+              is meant to fit on one screen; the grid is a click away for when
+              the answer is "show me properly". */}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12,
+                        padding: "6px 10px", border: "1px solid var(--border)",
+                        borderRadius: 8, alignItems: "baseline" }}>
+            <span style={{ color: MUTED, fontSize: 12, textTransform: "uppercase",
+                           letterSpacing: ".06em" }}>Movers</span>
+            {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
+              <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+                    onClick={() => setChartSym(m.symbol)}>
+                {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
+                <b style={{ color: OK }}>{m.chg_pct > 0 ? "+" : ""}{m.chg_pct}%</b>
+              </span>
+            ))}
+            <span style={{ color: MUTED }}>·</span>
+            {(movers.losers ?? []).slice(0, 6).map((m: any) => (
+              <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+                    onClick={() => setChartSym(m.symbol)}>
+                {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
+                <b style={{ color: WARN }}>{m.chg_pct}%</b>
+              </span>
+            ))}
+            <span style={{ color: MUTED, fontSize: 12 }}>
+              {String(movers.as_of_utc ?? "").slice(11, 16)}Z · universe + your list · • = watched
             </span>
-          ))}
-          <span style={{ color: MUTED }}>·</span>
-          {(movers.losers ?? []).slice(0, 6).map((m: any) => (
-            <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
-                  onClick={() => setChartSym(m.symbol)}>
-              {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
-              <b style={{ color: WARN }}>{m.chg_pct}%</b>
-            </span>
-          ))}
-          <span style={{ color: MUTED, fontSize: 12 }}>
-            {String(movers.as_of_utc ?? "").slice(11, 16)}Z · universe + your list · • = watched
-          </span>
+            <button
+              onClick={() => setMoversOpen((v) => !v)}
+              style={{ marginLeft: "auto", padding: "2px 10px", borderRadius: 999,
+                       fontSize: 12, cursor: "pointer", background: "transparent",
+                       border: "1px solid var(--border)", color: MUTED }}>
+              {moversOpen ? "Hide grid ▲" : "Grid ▼"}
+            </button>
+          </div>
+          {moversOpen && (
+            <div style={{ marginTop: 8 }}>
+              <MoversGrid
+                gainers={movers.gainers ?? []}
+                losers={movers.losers ?? []}
+                asOfUtc={movers.as_of_utc}
+                scanned={movers.scanned}
+                onPick={(sym) => setChartSym(sym)}
+              />
+            </div>
+          )}
         </div>
       )}
 
