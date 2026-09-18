@@ -2105,57 +2105,57 @@ def main() -> int:
                  if (r.get("legs") or {}).get(kind)]
         units.sort(key=lambda u: _size_of(*u))
 
-    def _finish(r: dict, kind: str, res: dict | None) -> None:
-        """Record and report ONE placement attempt, however it ended.
+        def _finish(r: dict, kind: str, res: dict | None) -> None:
+            """Record and report ONE placement attempt, however it ended.
 
-        Split out of the loop so the retry pass can defer this: a transient
-        chain error must not be written as a refusal and then have to be
-        cleared by the next attempt. On 8 Sep exactly that left a row
-        reading placed=true WITH a stale PROVISIONAL refusal still on it.
-        """
-        if not res:
-            # Even a None is reported. Silence is the one outcome that is
-            # never acceptable here.
-            print(f"  not placed {r.get('market')}: placement returned nothing")
-        if res:
-            # PER EXPIRY. A single r["paper_order"] silently kept only the
-            # last one placed, so the weekly's link would overwrite the
-            # monthly's and one of the two executions would vanish from the
-            # row even though both were live at the broker.
-            r.setdefault("paper_orders", {})[kind] = res
-            r["paper_order"] = res
-            # Link the ATTEMPT, not just the success. A refusal is evidence
-            # too — three silent failures on 31 Aug are why this exists.
-            link = record_execution(r, res)
-            r.setdefault("execution_links", {})[kind] = link
-            r["execution_link"] = link
-            if res.get("placed"):
-                tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
-                print(f"  PLACED {r['market']} [{kind}]: "
-                      f"{res['request']['putStrike']:,.0f}P + "
-                      f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
-            elif res.get("partial"):
-                print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
-            else:
-                # AN ELSE, NOT ANOTHER CONDITION. This has now been the
-                # silent-failure site twice.
-                #
-                # 31 Aug: it read `elif r.get("status") == "CANDIDATE"`, so
-                # a failed SHADOW placement matched nothing. Three markets
-                # were attempted, all three failed, and the run printed
-                # nothing at all.
-                #
-                # 1 Sep: I "fixed" that to `elif res.get("reason")` — but
-                # the API-rejection path returned no `reason` key, so SPY,
-                # QQQ and GOLD failed silently AGAIN, in the scheduled run,
-                # while the log looked clean.
-                #
-                # Twice is a pattern: any CONDITION here can be missed by a
-                # return shape nobody thought about. An unconditional else
-                # cannot.
-                tag = " [shadow]" if r.get("status") != "CANDIDATE" else ""
-                why = res.get("reason") or f"no reason given — raw: {str(res)[:200]}"
-                print(f"  not placed {r['market']}{tag}: {why}")
+            Split out of the loop so the retry pass can defer this: a transient
+            chain error must not be written as a refusal and then have to be
+            cleared by the next attempt. On 8 Sep exactly that left a row
+            reading placed=true WITH a stale PROVISIONAL refusal still on it.
+            """
+            if not res:
+                # Even a None is reported. Silence is the one outcome that is
+                # never acceptable here.
+                print(f"  not placed {r.get('market')}: placement returned nothing")
+            if res:
+                # PER EXPIRY. A single r["paper_order"] silently kept only the
+                # last one placed, so the weekly's link would overwrite the
+                # monthly's and one of the two executions would vanish from the
+                # row even though both were live at the broker.
+                r.setdefault("paper_orders", {})[kind] = res
+                r["paper_order"] = res
+                # Link the ATTEMPT, not just the success. A refusal is evidence
+                # too — three silent failures on 31 Aug are why this exists.
+                link = record_execution(r, res)
+                r.setdefault("execution_links", {})[kind] = link
+                r["execution_link"] = link
+                if res.get("placed"):
+                    tag = " [SHADOW — the gate said stand aside]" if res.get("shadow") else ""
+                    print(f"  PLACED {r['market']} [{kind}]: "
+                          f"{res['request']['putStrike']:,.0f}P + "
+                          f"{res['request']['callStrike']:,.0f}C exp {res['request']['expiry']}{tag}")
+                elif res.get("partial"):
+                    print(f"  !! PARTIAL {r['market']} — one leg only, this is NAKED")
+                else:
+                    # AN ELSE, NOT ANOTHER CONDITION. This has now been the
+                    # silent-failure site twice.
+                    #
+                    # 31 Aug: it read `elif r.get("status") == "CANDIDATE"`, so
+                    # a failed SHADOW placement matched nothing. Three markets
+                    # were attempted, all three failed, and the run printed
+                    # nothing at all.
+                    #
+                    # 1 Sep: I "fixed" that to `elif res.get("reason")` — but
+                    # the API-rejection path returned no `reason` key, so SPY,
+                    # QQQ and GOLD failed silently AGAIN, in the scheduled run,
+                    # while the log looked clean.
+                    #
+                    # Twice is a pattern: any CONDITION here can be missed by a
+                    # return shape nobody thought about. An unconditional else
+                    # cannot.
+                    tag = " [shadow]" if r.get("status") != "CANDIDATE" else ""
+                    why = res.get("reason") or f"no reason given — raw: {str(res)[:200]}"
+                    print(f"  not placed {r['market']}{tag}: {why}")
 
 
 
