@@ -829,6 +829,30 @@ def _with_relative(rows):
     return rows
 
 
+# Measured in SWING_V3_GATES_V1.md Q3, n=3028. Stated wherever the structure
+# verdict appears, because a caveat the owner might act on must carry the
+# number that says what acting on it costs.
+CONFIRMATION_MEAN_PCT = 0.42      # enter only after a close > prior day's high
+CONTROL_MEAN_PCT = 1.00           # enter at the signal close (the live rule)
+
+
+def _structure_phrase(struct: str) -> str:
+    """Describe the price structure WITHOUT contradicting the row's action.
+
+    Every swing row's action is "buy" — the rule enters at the signal close.
+    So this line may characterise the tape, but it must never tell the owner
+    to wait, because waiting is a rejected variant and the screen would be
+    arguing with itself.
+    """
+    cost = (f"waiting was tested and HALVED return/trade "
+            f"(+{CONFIRMATION_MEAN_PCT:.2f}% vs +{CONTROL_MEAN_PCT:.2f}%)")
+    if struct.startswith("KNIFE"):
+        return f"still making lower lows — {cost}"
+    if struct.startswith("basing"):
+        return "basing — placeable as a bracket"
+    return f"{struct.split(':')[0]} — no reversal yet; {cost}"
+
+
 def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     """Our rows in the shape every strategy emits (Phase 3).
 
@@ -866,12 +890,21 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
             bits = [f"{-abs(c.get('sigma_below') or 0):.1f}σ dip"]
             if c.get("day_chg_pct") is not None:
                 bits.append(f"day {c['day_chg_pct']:+.1f}%")
-            if struct.startswith("KNIFE"):
-                bits.append("KNIFE — wait for a higher low")
-            elif struct.startswith("basing"):
-                bits.append("basing — placeable as a bracket")
-            elif struct:
-                bits.append(struct.split(":")[0] + " — no reversal sign yet")
+            # NEVER INSTRUCT THE OPPOSITE OF THE ACTION. This said "KNIFE —
+            # wait for a higher low" on a row whose ACTION column reads "BUY
+            # today", and the owner caught the contradiction on screen
+            # (18 Sep: "i see buy signal and contradicting why column").
+            #
+            # The row was right and the sentence was wrong. Waiting for a green
+            # bar is not an untested opinion — it is Q3 of SWING_V3_GATES_V1,
+            # pre-registered and FAILED: the win rate rises but mean return per
+            # trade HALVES, +1.00% control vs +0.42% confirmed, because the edge
+            # lives in the close nobody wants to buy. Entry stays at the signal
+            # close, and the structure verdict was kept for discretionary use
+            # ONLY — as description, never as an instruction to override the
+            # rule we measured.
+            if struct:
+                bits.append(_structure_phrase(struct))
             if cushion is not None and cushion < 1:
                 bits.append(f"only {cushion:.1f} ATR over "
                             + ("a FALLING" if (slope or 0) < 0 else "the")

@@ -155,7 +155,83 @@ class MeanReversionSwingStrategy(Strategy):
         # marked every pre-existing broker position as one of ours, which is
         # exactly how the first run emitted exits for another strategy's trades.
         # A position is this strategy's only once IT has filled one.
+        #
+        # But "IT has filled one" must be read from a record that OUTLIVES this
+        # process, and until 18 Sep it was not. _fill_price and _entry_bar are
+        # plain dicts, this daemon re-executes every 900s, and remember()/
+        # recall() write to _state — which, despite the comment above claiming
+        # otherwise, is a bare in-memory dict the engine never snapshots. So
+        # every restart forgot its own fills, every held position fell through
+        # to `ignore-inherited`, and the exit path NEVER RAN: 4,886
+        # ignore-inherited decisions, 134 entries, ZERO holds and ZERO exits.
+        #
+        # The book could only accumulate. Winners never took their target
+        # (COP +11.8%, LRCX +5.6%), losers never hit their stop — ARWR sat 12%
+        # THROUGH a stop it should have honoured at -6.7% and was marked -18.1%.
+        #
+        # The OMS is the record that survives: it knows which orders carried
+        # THIS strategy_id and filled. Seeding from it keeps the original
+        # safety property exactly — we still claim only what we ourselves
+        # filled — while making that claim durable.
+        self._seed_from_oms()
 
+
+    def _seed_from_oms(self) -> None:
+        """Rebuild our fills from the OMS — the only record that outlives us.
+
+        Fails CLOSED by design: if the OMS cannot be read we keep an empty map,
+        every held position stays `ignore-inherited`, and nothing is exited on
+        a guess. That is the safe direction, but it is also the broken one, so
+        the failure is logged loudly rather than passed over.
+        """
+        try:
+            import requests
+
+            from ...cli.push_to_api import load_credentials
+            base, token = load_credentials()
+            if not base:
+                raise RuntimeError("no API base configured")
+            r = requests.get(f"{base.rstrip('/')}/api/oms/orders?limit=500",
+                             headers={"Authorization": f"Bearer {token}"} if token else {},
+                             timeout=20)
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            orders = r.json()
+            if isinstance(orders, dict):
+                orders = orders.get("orders") or orders.get("items") or []
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "could not read our own fills from the OMS (%s) — every held "
+                "position will be treated as inherited and NOT managed: no "
+                "stop, no target, no max-hold will be evaluated this run",
+                str(exc)[:110])
+            return
+
+        # Oldest first, so a later SELL correctly erases an earlier BUY.
+        def _when(o: dict) -> str:
+            return str(o.get("createdAtUtc") or "")
+
+        seeded = 0
+        for o in sorted(orders, key=_when):
+            if o.get("strategyId") != self.strategy_id:
+                continue
+            if str(o.get("state") or "").upper() != "FILLED":
+                continue
+            sym = str(o.get("symbol") or "").split("_")[0].upper()
+            if not sym:
+                continue
+            if str(o.get("side") or "").upper() == "SELL":
+                self._fill_price.pop(sym, None)
+                self._entry_bar.pop(sym, None)
+                continue
+            px = o.get("avgFillPrice")
+            if px is None or float(px) <= 0:
+                continue
+            self._fill_price[sym] = float(px)
+            self._entry_bar[sym] = _when(o)[:10]
+            seeded += 1
+        _log.info("seeded %d open fill(s) from the OMS — these are now "
+                      "managed for stop, target and max-hold", seeded)
     @staticmethod
     def _day(ts) -> str:
         return ts.date().isoformat() if hasattr(ts, "date") else str(ts)[:10]
