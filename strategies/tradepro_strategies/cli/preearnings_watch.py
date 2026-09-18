@@ -1330,24 +1330,77 @@ def market_movers(base, token, watched, state) -> dict | None:
         names = list(dict.fromkeys(list(universe_symbols(strict=False)) + extras))
         from ..yahoo_session import yahoo_session
         import yfinance as yf
-        df = yf.download(names, period="2d", interval="1d", progress=False,
+        # ONE YEAR, not two days. The strip only ever needed the last two
+        # closes, but a mover is not actionable from a % alone: +7% into a
+        # 52-week high is a different trade from +7% off the floor, and the
+        # reader could not tell them apart. Same single batch call, wider
+        # window, so the extra columns cost no additional request.
+        df = yf.download(names, period="1y", interval="1d", progress=False,
                          session=yahoo_session(), group_by="ticker",
                          threads=True)
         rows = []
         for sym in names:
             try:
                 sub = df[sym]["Close"].dropna()
-                if len(sub) >= 2:
-                    chg = float(sub.iloc[-1] / sub.iloc[-2] - 1) * 100
-                    rows.append({"symbol": sym, "last": round(float(sub.iloc[-1]), 2),
-                                 "chg_pct": round(chg, 2),
-                                 "status": ("watch" if sym in watched else "")})
+                if len(sub) < 2:
+                    continue
+                last = float(sub.iloc[-1])
+                chg = (last / float(sub.iloc[-2]) - 1) * 100
+                row = {"symbol": sym, "last": round(last, 2),
+                       "chg_pct": round(chg, 2),
+                       "status": ("watch" if sym in watched else "")}
+
+                # 52-WEEK CONTEXT. Where the move sits in the year's range is
+                # the thing that turns a percentage into a judgement. Computed
+                # from whatever history came back rather than assuming 252
+                # bars — a recent listing has less, and NOT saying so beats
+                # quoting a "52-week" high built from six weeks.
+                win = sub.tail(252)
+                if len(win) >= 60:
+                    hi, lo = float(win.max()), float(win.min())
+                    row["hi_52w"] = round(hi, 2)
+                    row["lo_52w"] = round(lo, 2)
+                    row["off_hi_pct"] = round(100 * (last - hi) / hi, 1) if hi else None
+                    # 0% = sitting on the 52w low, 100% = on the high.
+                    row["range_pos_pct"] = (round(100 * (last - lo) / (hi - lo), 0)
+                                            if hi > lo else None)
+                    row["window_sessions"] = int(len(win))
+                else:
+                    # Absence stated, never implied. A blank column with no
+                    # reason reads as a data fault; this says it is a short
+                    # history instead.
+                    row["window_sessions"] = int(len(win))
+
+                # Volume vs its own 20-day norm — a 5% move on a third of
+                # average volume is a different event from one on triple.
+                try:
+                    vol = df[sym]["Volume"].dropna()
+                    if len(vol) >= 21:
+                        avg20 = float(vol.iloc[-21:-1].mean())
+                        if avg20 > 0:
+                            row["vol_x_20d"] = round(float(vol.iloc[-1]) / avg20, 2)
+                except Exception:  # noqa: BLE001 — volume is a nice-to-have
+                    pass
+
+                rows.append(row)
             except Exception:  # noqa: BLE001 — one bad column must not kill the strip
                 continue
         rows.sort(key=lambda r: -r["chg_pct"])
         state["movers_at"] = now.isoformat()
+        # 25 a side, not 8. The strip showed six and that was right for one
+        # line; the grid can be sorted and scanned, so the tail is worth
+        # carrying. `scanned` is published so an unusually short list reads as
+        # a thin scan rather than a quiet market.
+        # Config-driven, read the same way this function already reads
+        # scout_extra_symbols. Wrapped because a kv miss must not cost the
+        # strip — a movers grid is not worth failing a watch tick over.
+        try:
+            _n = int(_kv_get(base, token, "movers_grid_rows") or 25)
+        except Exception:  # noqa: BLE001
+            _n = 25
         out = {"as_of_utc": now.isoformat(), "source": "yfinance_batch",
-               "gainers": rows[:8], "losers": rows[-8:][::-1]}
+               "scanned": len(rows),
+               "gainers": rows[:_n], "losers": rows[-_n:][::-1]}
         # Persist so THROTTLED ticks carry the strip forward — the 5-min
         # Lambda cadence otherwise overwrites the artifact without movers
         # four ticks out of five, and the strip flickers out of existence.
