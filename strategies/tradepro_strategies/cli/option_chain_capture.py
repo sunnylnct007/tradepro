@@ -224,6 +224,12 @@ def main() -> int:
     ap.add_argument("--rights", default="P", help="P, C or PC (default P — the wheel sells puts)")
     ap.add_argument("--pace", type=float, default=DEFAULT_PACE_S,
                     help=f"seconds between symbols (default {DEFAULT_PACE_S})")
+    ap.add_argument("--strangle-dte", default="",
+                    help="comma list of DTE targets to capture for the index-"
+                         "strangle underlyings, e.g. '7,21'. These are captured "
+                         "FIRST, before the wheel walk, so the run deadline "
+                         "degrades the wheel tail rather than the strangle data. "
+                         "Empty (default) = skip them entirely.")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--force", action="store_true",
                     help="capture even outside the post-close window (writes a "
@@ -283,6 +289,72 @@ def main() -> int:
         pass
     print(f"option-chain capture — {len(syms)} symbols, ~{args.dte} DTE, rights={args.rights}, "
           f"pace {pace:.0f}s  [{date.today()}]", flush=True)
+
+    # ── THE STRANGLE UNDERLYINGS, CAPTURED FIRST ────────────────────────
+    #
+    # WHY THIS EXISTS. FUNDING_GATES_V1 S3 grades credit RECEIVED against
+    # credit MODELLED, and the model prices every expiry off `iv_used` — a
+    # THIRTY-DAY vol index. Applied to a 7-DTE leg in contango that overprices
+    # badly: measured on XSP 15 Sep, the weekly received 245.56 against a
+    # modelled 546 (45%), while the monthly came in at 94.7%. So S3 is
+    # currently gradeable on the monthly leg only, and the doc says so.
+    #
+    # Fixing it needs a real per-expiry ATM IV, which needs the chain captured
+    # at more than one DTE. As of today the desk has NONE for its two main
+    # markets: SPX and XSP returned zero rows from option_quote_daily, because
+    # they were never in this lane's universe at all.
+    #
+    # WHY FIRST, AND NOT FOLDED INTO THE WALK. The wheel walk already runs 109
+    # minutes against a 3h deadline and backs off to the 300s max pace under
+    # Yahoo throttling. Doubling its DTEs would blow the deadline and silently
+    # truncate the tail. Capturing the strangle set up front costs a handful of
+    # fetches at the opening pace and means a deadline overrun degrades the
+    # WHEEL tail — the thing that already has months of history — instead of
+    # the strangle data, which has none.
+    #
+    # chain_symbol, NOT index: ^GSPC (the `index` for BOTH SPX and XSP) has
+    # ZERO chain expiries on Yahoo. See the note in index_strangle_paper.
+    strangle_dtes = [int(x) for x in str(args.strangle_dte).split(",") if x.strip()]
+    if strangle_dtes:
+        from .index_strangle_paper import MARKETS as _SM
+        # dict, not list: SPY/QQQ/GLD appear under more than one market and a
+        # duplicate here is a duplicate Yahoo fetch on a throttled lane.
+        chain_syms = {cfg["chain_symbol"]: m for m, cfg in _SM.items()
+                      if cfg.get("chain_symbol")}
+        print(f"strangle chains FIRST — {len(chain_syms)} symbol(s) "
+              f"{sorted(chain_syms)} at DTE {strangle_dtes}", flush=True)
+        for csym, market in sorted(chain_syms.items()):
+            for want in strangle_dtes:
+                try:
+                    rows, status = capture_symbol(csym, target_dte=want, rights="PC")
+                except Exception as exc:  # noqa: BLE001 — never block the wheel walk
+                    log.warning("strangle chain %s @%dd failed: %s",
+                                csym, want, str(exc)[:120])
+                    continue
+                if status == "rate_limited":
+                    # SAME PROVIDER, SAME BACKOFF. This runs before the wheel
+                    # walk and shares Yahoo's budget with it, so a limit hit
+                    # here must slow the walk down too — not be absorbed
+                    # quietly and then re-earned 89 symbols in a row.
+                    rate_limited += 1
+                    pace = min(pace * 2, MAX_PACE_S)
+                    print(f"  {csym:6s} @{want:>3}d  RATE LIMITED — pace doubled "
+                          f"to {pace:.0f}s", flush=True)
+                    time.sleep(pace)
+                    continue
+                if not rows:
+                    # AN EMPTY CAPTURE IS A FINDING, NOT A NON-EVENT. A chain
+                    # ticker that stops resolving looks exactly like a quiet
+                    # night unless it is said out loud.
+                    print(f"  {csym:6s} @{want:>3}d  NOTHING ({status}) — "
+                          f"{market} has no chain rows today", flush=True)
+                    continue
+                got = _post_rows(rows)
+                total_rows += len(rows); upserted += got
+                exp = rows[0].get("expiry")
+                print(f"  {csym:6s} @{want:>3}d  {len(rows):4d} legs -> {got} "
+                      f"upserted  (expiry {exp})", flush=True)
+                time.sleep(pace)
 
     for i, sym in enumerate(syms):
         elapsed = time.monotonic() - started

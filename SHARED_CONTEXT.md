@@ -1366,3 +1366,59 @@ Checked rather than assumed, and two of my three claims did not survive:
 So the real surface reduction today is four dead files, not a lane retirement.
 Worth recording precisely, because "we cut the probe lanes" would have entered
 the record as a saving that never happened.
+
+
+## 2026-09-17 (RESEARCH): the strangle's own chains are finally being captured
+
+### The gap
+FUNDING_GATES_V1 S3 is gradeable on the MONTHLY leg only, because the model
+prices every expiry off `iv_used` — a 30-day vol index — and on a 7-DTE leg in
+contango that overprices badly (XSP 15 Sep: weekly received 245.56 vs modelled
+546 = 45%; monthly 94.7%). Fixing it needs a real per-expiry ATM IV.
+
+**`option_quote_daily` held ZERO rows for SPX and XSP.** The two markets this
+desk actually places had no captured chain at all — they were never in the
+capture universe. SPY/QQQ were present but only ever near 29-36 DTE, because
+the lane targets ONE DTE (`--dte 35`) and the expiry just rolls across days.
+
+### The trap, measured not assumed
+`MARKETS[m]["index"]` is where SPOT comes from. Against Yahoo on 17 Sep:
+
+    ^GSPC   0 chain expiries     <- the `index` for BOTH SPX and XSP
+    ^SPX   52 chain expiries
+    ^XSP   43 chain expiries
+    ^NSEBANK / ^NSEI  0          <- India, at any provider
+
+A lane reusing `index` captures NOTHING for SPX and XSP and reports success.
+So MARKETS now carries an explicit `chain_symbol` (None for India, on purpose —
+a missing key would read as an oversight), pinned by
+`test_chain_symbol_is_never_silently_the_index`.
+
+### The design, and why the strangle set goes FIRST
+`--strangle-dte 7,21` captures the strangle roots BEFORE the wheel walk. The
+walk already runs **109 min against a 3h deadline** and backs off to the 300s
+max pace under Yahoo throttling — doubling its DTEs would blow the deadline and
+truncate the tail silently. Captured first, a deadline overrun degrades the
+WHEEL tail (months of history) instead of the strangle data (none). The
+strangle block shares the walk's rate-limit backoff rather than absorbing
+limits and re-earning them 89 symbols later. Omitting the flag changes nothing.
+
+### First run — mechanism proven, DATA NOT YET TRUSTWORTHY
+Live run captured all six roots at both DTEs in ~45s, no rate limits:
+^SPX 272 legs @7d + 165 @21d, ^XSP 126 + 47, plus SPY/QQQ/GLD/^NDX.
+
+**But it was run with `--force` OUTSIDE the post-close window, and the IV is
+not usable.** On the ^XSP 21-DTE ATM strike, call mid 16.12 vs put mid 5.48 —
+C − P = 10.64 where put-call parity demands ≈ 0.18 — and the two legs' IVs
+disagree 21.8% vs 7.6%. Each price is self-consistent with its own IV, so these
+are quotes from DIFFERENT times: stale pre-market marks. That is exactly what
+the capture-window guard exists to prevent, and I overrode it.
+
+So: the plumbing is proven, the numbers are not. **The first trustworthy sample
+is tonight's 22:15 in-window run**, which will overwrite today's rows on the
+same primary key. Do NOT compute a term structure off today's rows.
+
+Standing caution for whoever picks this up: Yahoo's per-leg `impliedVolatility`
+on index chains looks unreliable even before the staleness. Prefer the
+straddle-mid construction `preearnings_watch` already uses over the raw IV
+field, and only from in-window captures.
