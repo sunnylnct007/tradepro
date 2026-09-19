@@ -23,6 +23,7 @@ import { useSort } from "../../util/useSort";
 
 export type Mover = {
   symbol: string;
+  name?: string | null;
   last: number | null;
   chg_pct: number | null;
   status?: string;
@@ -54,12 +55,14 @@ const num = (v: number | null | undefined, dp = 2, suffix = "") =>
     : <>{v.toFixed(dp)}{suffix}</>;
 
 export function MoversGrid({
-  gainers, losers, asOfUtc, scanned, onPick,
+  gainers, losers, asOfUtc, scanned, named, namedTotal, onPick,
 }: {
   gainers: Mover[];
   losers: Mover[];
   asOfUtc?: string | null;
   scanned?: number | null;
+  named?: number | null;
+  namedTotal?: number | null;
   onPick?: (symbol: string) => void;
 }) {
   // Which half to show. Both lists in one table would sort into a single
@@ -72,6 +75,7 @@ export function MoversGrid({
     rows,
     {
       symbol: (r) => r.symbol,
+      name: (r) => r.name ?? null,
       last: (r) => r.last,
       chg: (r) => r.chg_pct,
       hi: (r) => r.hi_52w ?? null,
@@ -138,10 +142,22 @@ export function MoversGrid({
                   onClick={() => onPick?.(m.symbol)}
                   style={{ cursor: onPick ? "pointer" : "default",
                            borderBottom: "1px solid var(--border)" }}>
-                <td style={{ ...TD, fontWeight: 600 }}>
-                  {m.symbol}
-                  {m.status === "watch" && (
-                    <span title="on your watch list" style={{ color: MUTED }}>&nbsp;•</span>
+                <td style={TD}>
+                  <div style={{ fontWeight: 600 }}>
+                    {m.symbol}
+                    {m.status === "watch" && (
+                      <span title="on your watch list" style={{ color: MUTED }}>&nbsp;•</span>
+                    )}
+                  </div>
+                  {/* Nobody carries 213 tickers in their head, and a mover you
+                      cannot identify is not a lead. Absent until its turn in
+                      the lookup queue — the ticker alone is still correct. */}
+                  {m.name && (
+                    <div style={{ color: MUTED, fontSize: 11, maxWidth: 190,
+                                  overflow: "hidden", textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap" }} title={m.name}>
+                      {m.name}
+                    </div>
                   )}
                 </td>
                 <td style={TD_R}>{num(m.last)}</td>
@@ -176,6 +192,11 @@ export function MoversGrid({
         <b>52w range</b> = where today sits between the year's low (0%) and
         high (100%).{" "}
         <b>Vol x20d</b> = today's volume against its own 20-day average.{" "}
+        {namedTotal != null && named != null && named < namedTotal && (
+          <>{namedTotal - named} name(s) not looked up yet — company names fill
+          in a few per cycle and are then cached, so the lookup never becomes a
+          burst of requests.{" "}</>
+        )}
         {shortHistory > 0 && (
           <>{shortHistory} name(s) have under 60 sessions of history, so their
           52-week columns are blank rather than computed from a short window.{" "}</>

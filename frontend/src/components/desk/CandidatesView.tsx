@@ -536,6 +536,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                 losers={movers.losers ?? []}
                 asOfUtc={movers.as_of_utc}
                 scanned={movers.scanned}
+                named={movers.named}
+                namedTotal={movers.named_total}
                 onPick={(sym) => setChartSym(sym)}
               />
             </div>

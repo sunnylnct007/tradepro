@@ -17,6 +17,24 @@ import pandas as pd
 import pytest
 
 
+def _market_movers_source() -> str:
+    """The EXACT source of market_movers(), bounded by the parser.
+
+    Not a fixed byte slice. The previous version took src[start:start+6000] and
+    silently stopped covering the end of the function the moment it grew — a
+    guard that shrinks as the code it guards expands. Same failure shape as the
+    source-slice tests that missed the dead retry loop on 17 Sep.
+    """
+    import ast
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "tradepro_strategies" / "cli" / "preearnings_watch.py").read_text()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.FunctionDef) and node.name == "market_movers":
+            return ast.get_source_segment(src, node) or ""
+    raise AssertionError("market_movers() not found")
+
+
 def _mover_row(closes, volumes=None, sym="TEST", watched=()):
     """Reproduce the per-symbol enrichment from market_movers()."""
     sub = pd.Series(closes).dropna()
@@ -95,11 +113,37 @@ def test_a_flat_year_does_not_divide_by_zero():
 
 def test_the_producer_publishes_the_fields_the_grid_reads():
     """Source guard: the grid's columns must exist in market_movers()."""
-    import pathlib
-    src = (pathlib.Path(__file__).resolve().parents[1]
-           / "tradepro_strategies" / "cli" / "preearnings_watch.py").read_text()
-    start = src.index("def market_movers")
-    body = src[start:start + 6000]
+    body = _market_movers_source()
     for field in ("hi_52w", "lo_52w", "off_hi_pct", "range_pos_pct",
                   "vol_x_20d", "window_sessions", "scanned"):
         assert f'"{field}"' in body, f"grid reads {field} but the producer stopped emitting it"
+
+
+# ── company names, cached lazily ────────────────────────────────────
+
+def test_the_name_lookup_is_capped_so_it_never_bursts():
+    """213 names x .info would be 213 requests every 15 minutes."""
+    body = _market_movers_source()
+    # Only MISSING names are fetched...
+    assert "if r[\"symbol\"] not in cache" in body
+    # ...capped in COUNT...
+    assert "missing[:max(0, budget)]" in body
+    # ...and on WALL CLOCK, so a slow vendor cannot stall the watch tick.
+    assert "deadline" in body and "_time.monotonic()" in body
+
+
+def test_names_are_persisted_so_the_cache_fills_once():
+    body = _market_movers_source()
+    assert 'state["symbol_names"] = cache' in body, (
+        "names must persist in state — refetching every cycle is the burst "
+        "this design exists to avoid"
+    )
+
+
+def test_an_unnamed_symbol_is_still_a_valid_row():
+    """A missing name must never drop or blank the mover itself."""
+    r = _mover_row(list(range(100, 200)), sym="ZZZZ")
+    assert "name" not in r          # not looked up yet
+    assert r["symbol"] == "ZZZZ"    # ...and the row is still complete
+    assert r["chg_pct"] is not None
+    assert r["hi_52w"] is not None
