@@ -189,6 +189,9 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
   const [movers, setMovers] = useState<any | null>(null);
   // Collapsed by default — see the note at the strip.
   const [moversOpen, setMoversOpen] = useState(false);
+  const [swingRejects, setSwingRejects] = useState<{
+    pricedOut: any[]; nearMisses: any[]; breakevenBar: number | null;
+  }>({ pricedOut: [], nearMisses: [], breakevenBar: null });
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,6 +275,14 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
     try {
       const r: any = await api.swingCandidates();
       const a: any = r?.artifact ?? {};
+      // The two lists that explain an ABSENCE. Without them a name simply is
+      // not on the screen, and "evaluated and refused" is indistinguishable
+      // from "never looked at".
+      setSwingRejects({
+        pricedOut: a.priced_out ?? [],
+        nearMisses: a.near_misses ?? [],
+        breakevenBar: a.breakeven_max_win_pct ?? null,
+      });
       if (a.candidates_v2?.length) {
         out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
       } else
@@ -560,6 +571,10 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
           orders={[]}
           ordersLoading={false}
           fills={[]}
+          verdictRows={rows}
+          pricedOut={swingRejects.pricedOut}
+          nearMisses={swingRejects.nearMisses}
+          breakevenBar={swingRejects.breakevenBar}
           onClose={() => setChartSym(null)}
         />
       )}

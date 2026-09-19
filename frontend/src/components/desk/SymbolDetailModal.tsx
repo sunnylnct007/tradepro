@@ -14,6 +14,7 @@ import { SymbolDecisionCard } from "./SymbolDecisionCard";
 import { SymbolRangeRiskCard } from "./SymbolRangeRiskCard";
 import { SymbolValidationCard } from "./SymbolValidationCard";
 import { SymbolOrdersCard } from "./SymbolOrdersCard";
+import { SymbolStrategyVerdicts } from "./SymbolStrategyVerdicts";
 import type { OmsOrderRow } from "../../api/client";
 
 type Fill = { side: "BUY" | "SELL"; price: number | null; atUtc: string };
@@ -27,6 +28,10 @@ export function SymbolDetailModal({
   entryPrice,
   entryDate,
   fills,
+  verdictRows,
+  pricedOut,
+  nearMisses,
+  breakevenBar,
   onClose,
 }: {
   symbol: string;
@@ -37,6 +42,11 @@ export function SymbolDetailModal({
   entryPrice?: number | null;
   entryDate?: string | null;
   fills: Fill[];
+  /** Every strategy's candidate rows, already loaded by the caller. */
+  verdictRows?: any[];
+  pricedOut?: any[];
+  nearMisses?: any[];
+  breakevenBar?: number | null;
   onClose: () => void;
 }) {
   // Esc to close.
@@ -124,6 +134,15 @@ export function SymbolDetailModal({
 
           {/* Right: cards, scroll independently. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "auto", minHeight: 0 }}>
+            {verdictRows && (
+              <SymbolStrategyVerdicts
+                symbol={symbol}
+                rows={verdictRows}
+                pricedOut={pricedOut}
+                nearMisses={nearMisses}
+                breakevenBar={breakevenBar}
+              />
+            )}
             <SymbolPositionCard symbol={symbol} positions={positions} />
             <SymbolDecisionCard symbol={symbol} positions={positions} />
             <SymbolRangeRiskCard symbol={symbol} />
