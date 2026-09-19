@@ -41,10 +41,9 @@ class _Bare(m.MeanReversionSwingStrategy):
     (datetime(2026, 9, 19, 14, 0, tzinfo=UTC), False),   # Saturday
     (datetime(2026, 9, 20, 14, 0, tzinfo=UTC), False),   # Sunday
 ])
-def test_orders_are_only_placeable_inside_the_session(monkeypatch, when, expected):
-    monkeypatch.setattr(m, "datetime", _fixed(when))
+def test_orders_are_only_placeable_inside_the_session(when, expected):
     s = _Bare()
-    assert s._placeable_now("ARWR", when) is expected
+    assert s.placeable_now("ARWR", when, now=when) is expected
 
 
 def _fixed(when):
@@ -55,12 +54,11 @@ def _fixed(when):
     return _DT
 
 
-def test_a_deferred_order_is_recorded_not_silently_dropped(monkeypatch):
+def test_a_deferred_order_is_recorded_not_silently_dropped():
     """The decision must remain visible — deferring is not discarding."""
     when = datetime(2026, 9, 19, 4, 0, tzinfo=UTC)
-    monkeypatch.setattr(m, "datetime", _fixed(when))
     s = _Bare()
-    assert s._placeable_now("ARWR", when) is False
+    assert s.placeable_now("ARWR", when, now=when) is False
     assert len(s.decisions) == 1
     d = s.decisions[0]
     assert d["action"] == "defer-market-shut"
@@ -68,18 +66,18 @@ def test_a_deferred_order_is_recorded_not_silently_dropped(monkeypatch):
     assert d["symbol"] == "ARWR"
 
 
-def test_nothing_is_logged_when_the_market_is_open(monkeypatch):
+def test_nothing_is_logged_when_the_market_is_open():
     when = datetime(2026, 9, 18, 15, 0, tzinfo=UTC)
-    monkeypatch.setattr(m, "datetime", _fixed(when))
     s = _Bare()
-    assert s._placeable_now("ARWR", when) is True
+    assert s.placeable_now("ARWR", when, now=when) is True
     assert s.decisions == []
 
 
 def test_the_guard_uses_the_shared_helper_not_its_own_clock_arithmetic():
     """One rule, one object — market hours are defined in market_hours.py."""
     import inspect
-    src = inspect.getsource(m.MeanReversionSwingStrategy._placeable_now)
+    from tradepro_strategies.paper.strategy import Strategy
+    src = inspect.getsource(Strategy.placeable_now)
     assert "is_open" in src
     assert "13" not in src.split('"""')[0].replace("13:30", "")  # no hand-rolled bounds
 
@@ -88,7 +86,8 @@ def test_replay_is_never_gated_by_the_wall_clock():
     """A backtest must not consult the clock — the flag is off by default."""
     s = _Bare()
     s.enforce_placement_window = False
-    assert s._placeable_now("ARWR", datetime(2026, 9, 19, 4, 0, tzinfo=UTC)) is True
+    when = datetime(2026, 9, 19, 4, 0, tzinfo=UTC)
+    assert s.placeable_now("ARWR", when, now=when) is True
     assert s.decisions == []
 
 
@@ -96,7 +95,8 @@ def test_the_live_daemon_turns_the_guard_on():
     """The flag is useless unless something sets it. paper_session must."""
     import pathlib
     src = pathlib.Path("tradepro_strategies/cli/paper_session.py").read_text()
-    assert "enforce_placement_window = True" in src
+    assert src.count("enforce_placement_window = True") >= 2, \
+        "both live daemons (swing and ichimoku) must switch the guard on"
 
 
 def test_the_helper_itself_still_agrees_about_a_known_session():
