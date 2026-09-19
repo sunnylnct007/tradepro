@@ -479,7 +479,8 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
 def build_artifact(rows: list[dict], universe: str,
                    quarantined: list[dict] | None = None,
                    near: list[dict] | None = None,
-                   evaluated: int | None = None) -> dict:
+                   evaluated: int | None = None,
+                   priced_out: list[dict] | None = None) -> dict:
     _as_of = _dt.datetime.now(_dt.UTC).isoformat()
     return {
         "kind": "swing_candidates",
@@ -496,6 +497,19 @@ def build_artifact(rows: list[dict], universe: str,
         # closest ones were and which half of the rule stopped them.
         "evaluated": evaluated,
         "near_misses": (near or [])[:10],
+        # REJECTED ON ECONOMICS, published not just printed. The breakeven
+        # filter removes ~5 signals a day; until now it said so only in the
+        # terminal, so the screen showed a shorter list with no account of
+        # what left it. A filter that hides its own work cannot be told apart
+        # from a scan that found less — the exact fault the filter's own
+        # commit message warned about, left open on the UI side.
+        "priced_out": [
+            {k: r.get(k) for k in
+             ("symbol", "tier", "close", "target", "stop", "target_pct",
+              "reward_risk", "breakeven_win_pct", "sigma_below", "atr_pct")}
+            for r in (priced_out or [])
+        ],
+        "breakeven_max_win_pct": BREAKEVEN_MAX_WIN_PCT,
         "settled_bar_only": True,
         "rule": {
             "entry": f"close < {SIGMA} sigma below the {BB_WINDOW}-day mean, while above the 200-SMA",
@@ -611,7 +625,8 @@ def main() -> int:
                      len(extra), ", ".join(extra))
     rows, quarantined, near, priced_out = scan(syms)
     art = build_artifact(rows, args.universe, quarantined,
-                         near=near, evaluated=len(syms))
+                         near=near, evaluated=len(syms),
+                         priced_out=priced_out)
 
     if args.json:
         print(json.dumps(art, indent=1))
