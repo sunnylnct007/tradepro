@@ -315,6 +315,7 @@ def main() -> int:
     # chain_symbol, NOT index: ^GSPC (the `index` for BOTH SPX and XSP) has
     # ZERO chain expiries on Yahoo. See the note in index_strangle_paper.
     strangle_dtes = [int(x) for x in str(args.strangle_dte).split(",") if x.strip()]
+    strangle_store_failures: list[str] = []
     if strangle_dtes:
         from .index_strangle_paper import MARKETS as _SM
         # dict, not list: SPY/QQQ/GLD appear under more than one market and a
@@ -352,8 +353,21 @@ def main() -> int:
                 got = _post_rows(rows)
                 total_rows += len(rows); upserted += got
                 exp = rows[0].get("expiry")
-                print(f"  {csym:6s} @{want:>3}d  {len(rows):4d} legs -> {got} "
-                      f"upserted  (expiry {exp})", flush=True)
+                if not got:
+                    # A TICK MEANS STORED, NOT FETCHED — same rule the wheel
+                    # walk earned on 16 Sep, which this block bypassed: on
+                    # 19 Sep ^XSP @7d fetched 261 legs, a connection reset ate
+                    # the store, and the run exited 0. The strangle set has NO
+                    # months of history to absorb a lost night, so unlike the
+                    # wheel's 10% tolerance, ANY fetched-but-stored-nothing
+                    # root fails the run.
+                    strangle_store_failures.append(f"{csym}@{want}d")
+                    print(f"  ✗ {csym:6s} @{want:>3}d  {len(rows):4d} legs "
+                          f"fetched, 0 STORED — fetch succeeded, store did not",
+                          flush=True)
+                else:
+                    print(f"  {csym:6s} @{want:>3}d  {len(rows):4d} legs -> {got} "
+                          f"upserted  (expiry {exp})", flush=True)
                 time.sleep(pace)
 
     for i, sym in enumerate(syms):
@@ -455,6 +469,15 @@ def main() -> int:
     # Without this it exits 0, the wrapper logs rc=0, and the only visible
     # symptom is the wheel board blaming the market for our own empty capture.
     if stopped_early:
+        return 1
+    # The strangle roots get NO tolerance: each is fetched once per DTE, the
+    # dataset started 17 Sep, and a silent store-zero here is exactly how two
+    # nights vanished before anything noticed.
+    if strangle_store_failures:
+        print(f"\nFAILED: strangle chain(s) fetched but stored NOTHING: "
+              f"{', '.join(strangle_store_failures)}. The legs existed and were "
+              "thrown away — treat tonight's strangle capture as absent, not thin.",
+              flush=True)
         return 1
     # HALF THE RUN LOST IS A FAILED RUN. On 16 Sep 136 symbols stored nothing
     # (one NaN each, killing the whole payload) and the run still exited 0, so

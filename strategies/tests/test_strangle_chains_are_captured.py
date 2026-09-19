@@ -96,3 +96,47 @@ def test_no_strangle_dte_means_no_extra_fetches():
         C.main()
 
     assert calls == ["AAPL"], calls
+
+
+def test_fetched_but_stored_nothing_fails_the_run(capsys):
+    """19 Sep: ^XSP @7d fetched 261 legs, a connection reset ate the store,
+    and the run exited 0. A tick means STORED, not fetched — and the strangle
+    set gets NO tolerance: any fetched-but-stored-nothing root fails the run,
+    even when the wheel walk itself is perfectly healthy."""
+    def _fake_capture(sym, *, target_dte, rights="PC"):
+        return ([{"symbol": sym, "expiry": "2026-09-24", "strike": 500.0,
+                  "right": "P", "iv": 0.2, "spot": 500.0, "bid": 1.0,
+                  "ask": 1.2, "openInterest": 100}] * 5, "ok")
+
+    # The store dies ONLY for the index roots (^SPX/^XSP/^NDX) — the wheel
+    # symbol and the ETF roots store fine, so no wheel-side guard can be the
+    # thing that fails this run.
+    def _post(rows):
+        return 0 if str(rows[0]["symbol"]).startswith("^") else len(rows)
+
+    with patch.object(C, "capture_symbol", _fake_capture), \
+         patch.object(C, "_post_rows", _post), \
+         patch.object(C, "_in_capture_window", lambda: (True, "x")), \
+         patch("time.sleep", lambda *_: None), \
+         patch("sys.argv", ["x", "--symbols", "AAPL", "--strangle-dte", "7",
+                            "--pace", "0"]):
+        rc = C.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "0 STORED" in out and "^SPX@7d" in out and "^XSP@7d" in out, out
+    assert "strangle chain(s) fetched but stored NOTHING" in out
+
+
+def test_a_stored_strangle_run_still_exits_clean():
+    def _fake_capture(sym, *, target_dte, rights="PC"):
+        return ([{"symbol": sym, "expiry": "2026-09-24", "strike": 500.0,
+                  "right": "P", "iv": 0.2, "spot": 500.0, "bid": 1.0,
+                  "ask": 1.2, "openInterest": 100}] * 5, "ok")
+
+    with patch.object(C, "capture_symbol", _fake_capture), \
+         patch.object(C, "_post_rows", lambda rows: len(rows)), \
+         patch.object(C, "_in_capture_window", lambda: (True, "x")), \
+         patch("time.sleep", lambda *_: None), \
+         patch("sys.argv", ["x", "--symbols", "AAPL", "--strangle-dte", "7",
+                            "--pace", "0"]):
+        assert C.main() == 0
