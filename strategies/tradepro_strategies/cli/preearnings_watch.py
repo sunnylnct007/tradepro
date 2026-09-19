@@ -1319,6 +1319,7 @@ def market_movers(base, token, watched, state) -> dict | None:
     strip feeds the signal loop instead of replacing it. Vendor-labelled.
     """
     import datetime as dt
+    import time as _time
     now = dt.datetime.now(dt.UTC)
     last = state.get("movers_at")
     if last and (now - dt.datetime.fromisoformat(last)).total_seconds() < 840:
@@ -1398,8 +1399,53 @@ def market_movers(base, token, watched, state) -> dict | None:
             _n = int(_kv_get(base, token, "movers_grid_rows") or 25)
         except Exception:  # noqa: BLE001
             _n = 25
+        shown = rows[:_n] + rows[-_n:]
+
+        # COMPANY NAMES, filled a few per cycle and kept forever.
+        #
+        # Owner, 19 Sep 2026, comparing against Koyfin's movers panel — it
+        # prints "NVIDIA Corporation" under NVDA. Nobody carries 213 tickers in
+        # their head, and a mover you cannot identify is not a lead.
+        #
+        # The batch price download does not carry names and .info is ONE CALL
+        # PER SYMBOL, so naming 213 names every cycle would be 213 requests
+        # every 15 minutes to decorate a table. Rate limits on this desk have
+        # been overwhelmingly self-inflicted and this is exactly how.
+        #
+        # So: cache in state, fill only what is MISSING, hard-capped per run
+        # and on wall clock. A company name does not change, so the cache fills
+        # itself over a few cycles and then costs nothing forever. Unknown
+        # names simply stay absent until their turn — the column renders the
+        # ticker alone, which is what it does today.
+        cache = dict(state.get("symbol_names") or {})
+        try:
+            budget = int(_kv_get(base, token, "movers_name_lookups") or 12)
+        except Exception:  # noqa: BLE001
+            budget = 12
+        missing = [r["symbol"] for r in shown if r["symbol"] not in cache]
+        deadline = _time.monotonic() + 20.0
+        for sym in missing[:max(0, budget)]:
+            if _time.monotonic() > deadline:
+                break
+            try:
+                inf = yf.Ticker(sym, session=yahoo_session()).info or {}
+                nm = inf.get("shortName") or inf.get("longName")
+                if nm:
+                    cache[sym] = str(nm)[:60]
+            except Exception:  # noqa: BLE001 — a name is decoration, never a failure
+                continue
+        state["symbol_names"] = cache
+        for r in rows:
+            nm = cache.get(r["symbol"])
+            if nm:
+                r["name"] = nm
+
         out = {"as_of_utc": now.isoformat(), "source": "yfinance_batch",
                "scanned": len(rows),
+               # How much of the universe is named yet, so a blank column reads
+               # as "not looked up yet" and not as a broken join.
+               "named": sum(1 for r in shown if r.get("name")),
+               "named_total": len(shown),
                "gainers": rows[:_n], "losers": rows[-_n:][::-1]}
         # Persist so THROTTLED ticks carry the strip forward — the 5-min
         # Lambda cadence otherwise overwrites the artifact without movers
