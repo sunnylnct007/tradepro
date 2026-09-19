@@ -953,6 +953,17 @@ def _mail_item(a_id, sym, text):
                 "body": text,
                 "act": ("Review and place it yourself if you agree — "
                         "the desk never places orders for you.")}
+    if aid == "PROPOSAL_LAPSED":
+        # sev 1, deliberately not 0. Nothing is wrong and nothing needs doing —
+        # but a BUY you were mailed yesterday is no longer the desk's view, and
+        # discovering that by noticing the screen disagrees is not acceptable.
+        return {"sev": 1, "sym": sym,
+                "head": f"{sym}: the BUY proposal we mailed you has LAPSED",
+                "body": text,
+                "act": ("Do NOT place the earlier proposal — it is no longer "
+                        "the desk's view. No action is needed. If the setup "
+                        "re-qualifies you will get a fresh proposal with new "
+                        "numbers; this one will not come back.")}
     if aid.startswith("OWNER_LEVEL"):
         return {"sev": 1, "sym": sym,
                 "head": f"{sym} hit a level YOU set",
@@ -1577,6 +1588,66 @@ def main() -> int:
         _ob = cfg.get("onboarded")
         sym_actions[sym] = (action,
                             isinstance(_ob, dict) and _ob.get("via") == "onboard_queue")
+
+        # ── A PROPOSAL THAT STOPS BEING TRUE MUST SAY SO ─────────────────
+        #
+        # Owner, 19 Sep 2026: "i see PLTR in swingwatch but mail said to buy
+        # it". Both were correct and that was the problem.
+        #
+        # ORDER_PROPOSAL fires on a RECLAIM BAR — an event at a moment, not a
+        # standing order. PLTR proposed BUY 25 @ ~175.58 LMT on 18 Sep, then
+        # ran to 177.64. The limit never filled, so the engine correctly
+        # stopped proposing rather than chasing, and reverted to WAIT.
+        #
+        # Nothing said the proposal had lapsed. He had an email saying BUY and
+        # a screen saying WAIT, with no link between them and no expiry. An
+        # alert that can quietly stop being true is the failure this desk keeps
+        # paying for: "i will beter not see any signal rather than signls
+        # creating coinfusion" (12 Sep).
+        #
+        # So the lapse is now an EVENT of its own, with the reason and the
+        # arithmetic, on the row and in the mail.
+        prop = state.get("open_proposal")
+        if action == "ORDER_PROPOSAL" and row:
+            # Supersede silently — a fresh proposal replaces the old one and
+            # the new alert already says everything.
+            state["open_proposal"] = {
+                "at": _dt.datetime.now(_dt.UTC).isoformat(),
+                "entry": row.get("entry"), "stop": row.get("level"),
+                "qty": (row.get("extra") or {}).get("proposed_qty"),
+            }
+        elif prop and row:
+            limit = prop.get("entry")
+            stop = prop.get("stop")
+            now_px = row.get("entry")
+            when = str(prop.get("at") or "")[:10]
+            qty = prop.get("qty")
+
+            # NAME THE CAUSE. "No longer valid" tells the reader nothing about
+            # whether they missed a fill or dodged a loser.
+            if limit and now_px and now_px > limit:
+                why_gone = (f"never filled: price {now_px:.2f} is "
+                            f"{100 * (now_px / limit - 1):.1f}% ABOVE the "
+                            f"{limit:.2f} limit. Buying here is chasing, which "
+                            f"is the entry this setup exists to avoid")
+            elif stop and now_px and now_px < stop:
+                why_gone = (f"setup invalidated: price {now_px:.2f} is below "
+                            f"the {stop:.2f} stop the proposal was built on")
+            else:
+                why_gone = "the setup no longer qualifies on today's bars"
+
+            head = (f"PROPOSAL LAPSED ({when}: BUY "
+                    f"{str(qty) + ' ' if qty else ''}@ ~"
+                    f"{limit:.2f} LMT) — {why_gone}."
+                    if limit else
+                    f"PROPOSAL LAPSED ({when}) — {why_gone}.")
+            # Prepend, never replace: what the engine says NOW still matters.
+            row["why"] = f"{head} Now: {row.get('why', '')}"[:320]
+            # Dedupe on the proposal's own timestamp, so one lapse mails once.
+            alerts.append(("PROPOSAL_LAPSED", str(prop.get("at")),
+                           f"{sym}: {head}"))
+            state.pop("open_proposal", None)
+
         if row:
             row["gates"] = gates
             rows.append(row)
@@ -1739,8 +1810,13 @@ def main() -> int:
             lead = items[0]
             subject = ("[TradePro] " + lead["head"]
                        + (f" — plus {len(items)-1} more" if len(items) > 1 else ""))
+            # The band label must describe the BAND, not one alert in it.
+            # Sev 1 read "a level you set was hit", which is true of
+            # OWNER_LEVEL and false of everything else that lands here — a
+            # lapsed proposal is not a level anyone set, and putting that
+            # heading above it would be the desk stating something untrue.
             SEV_LABEL = {0: "ACTION — a proposed order",
-                         1: "HEADS-UP — a level you set was hit",
+                         1: "HEADS-UP — worth knowing, nothing to place",
                          2: "SYSTEM — for information only"}
             # Email-safe colors (inline styles only): green = act,
             # amber = look, gray = ignore-unless-curious.
