@@ -29,7 +29,7 @@ checks that reality is no worse than the model.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 from ..registry import register_strategy
@@ -176,6 +176,44 @@ class MeanReversionSwingStrategy(Strategy):
         self._seed_from_oms()
 
 
+    # ── the placement window ──────────────────────────────────────────────
+    # AN ORDER BORN INTO A CLOSED MARKET IS A DEAD ORDER. Measured 19 Sep
+    # across this strategy's entire OMS history:
+    #
+    #     raised inside 13:30-20:00 UTC : BUY 12/34 filled
+    #     raised outside                : BUY 0/10, SELL 0/36  — NOTHING, ever
+    #
+    # It is not a buy/sell asymmetry; it is the window. An order raised at
+    # 04:00 is swept `stale_pending_auto_clean` or `superseded by newer order`
+    # long before the bell, and the daemon — which re-runs every 15 minutes —
+    # simply raises another one to be swept in turn. ARWR's and SNOW's exits
+    # churned 36 orders overnight this way while the decision behind them was
+    # correct the whole time.
+    #
+    # The decision still happens on the settled close, exactly as the backtest
+    # does. Only the ORDER waits. The next run inside the session re-raises it
+    # against the same settled bar, so nothing is lost but the churn.
+    # Off by default so REPLAY and unit tests are untouched: a backtest must
+    # not consult the wall clock. The live daemon turns it on — and the bus it
+    # uses (HeldReconciliationBus) never sets bar.is_live, so that flag could
+    # not have served as the switch.
+    enforce_placement_window: bool = False
+
+    def _placeable_now(self, sym: str, bar_ts) -> bool:
+        if not self.enforce_placement_window:
+            return True
+        from ..market_hours import is_open
+        now = datetime.now(UTC)
+        if is_open("us_equity", now):
+            return True
+        self.log_decision(
+            symbol=sym, bar_ts=bar_ts, action="defer-market-shut",
+            reason=(f"decision stands, but US equities are shut at "
+                    f"{now:%H:%M} UTC — every order this strategy has ever "
+                    f"raised outside 13:30-20:00 was swept unfilled (0 of 46). "
+                    f"Holding it for the open rather than churning a doomed one."))
+        return False
+
     def _seed_from_oms(self) -> None:
         """Rebuild our fills from the OMS — the only record that outlives us.
 
@@ -296,6 +334,8 @@ class MeanReversionSwingStrategy(Strategy):
                     reason=(f"{why}: close {closes[i]:.2f} vs target "
                             f"{target_price(closes, i):.2f} / stop {stop_price(fill):.2f}, "
                             f"held {bars_held} of {MAX_HOLD} sessions"))
+                if not self._placeable_now(sym, bar.timestamp):
+                    return []
                 self.mark_order_in_flight(sym)
                 return [Order(strategy_id=self.strategy_id, symbol=sym,
                               side=OrderSide.SELL, quantity=held, type=OrderType.MARKET,
@@ -363,11 +403,13 @@ class MeanReversionSwingStrategy(Strategy):
 
         self.log_decision(
             symbol=sym, bar_ts=bar.timestamp, action="entry",
-            reason=(f"2.5σ below the 20-day mean while above the 200-SMA. "
+            reason=(f"{SIGMA}σ below the 20-day mean while above the 200-SMA. "
                     f"close {closes[i]:.2f}, target {target_price(closes, i):.2f} "
                     f"(+{100*(target_price(closes,i)/closes[i]-1):.1f}%), "
                     f"stop {stop_price(closes[i]):.2f} (-{100*STOP_PCT:.0f}%), "
                     f"timeout {MAX_HOLD} sessions"))
+        if not self._placeable_now(sym, bar.timestamp):
+            return []
         self.mark_order_in_flight(sym)
         # RECORD THE REFERENCE PRICE ON THE ORDER.
         #

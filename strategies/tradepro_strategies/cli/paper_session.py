@@ -752,7 +752,11 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
 
     if strategy_name == "mean_reversion_swing":
         from ..paper.strategies.mean_reversion_swing import MeanReversionSwingStrategy
-        return MeanReversionSwingStrategy(
+        # LIVE: hold orders for the session. Every order this strategy ever
+        # raised outside 13:30-20:00 UTC was swept unfilled — 0 of 46 — so an
+        # order built overnight is not an order, it is churn (ARWR and SNOW
+        # cycled 36 of them in one night). Replay leaves this off.
+        _s = MeanReversionSwingStrategy(
             strategy_id=strategy_id,
             params={
                 "symbols": symbols,
@@ -776,6 +780,8 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 excluded_symbols=_parse_excluded(args.exclude_symbols),
             ),
         )
+        _s.enforce_placement_window = True
+        return _s
 
     raise ValueError(f"Unknown strategy {strategy_name!r}")
 
