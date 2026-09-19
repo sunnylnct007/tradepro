@@ -407,6 +407,21 @@ class Engine:
             except Exception:
                 log.exception("strategy %s on_bar raised", strategy.strategy_id)
                 continue
+            # THE PLACEMENT WINDOW — one gate for every strategy, here rather
+            # than repeated at each rule's four or five emit sites. Nothing
+            # raised outside the venue's session has ever filled (0 of 46
+            # across the whole OMS history); those orders are swept
+            # `stale_pending_auto_clean` before the bell while a */15 daemon
+            # raises replacements to be swept in turn. ichimoku_equity's 100%
+            # sell-fill rate is not a better router, it is the strategy that
+            # happened to run only while the market was open.
+            #
+            # The DECISION is already made and logged by on_bar above; only
+            # the ORDER waits. The next run inside the session re-raises it
+            # against the same settled bar, so nothing is lost but the churn.
+            if orders and not strategy.placeable_now(
+                    getattr(msg.bar, "symbol", ""), msg.bar.timestamp):
+                orders = []
             for order in orders:
                 if order.strategy_id != strategy.strategy_id:
                     log.warning(

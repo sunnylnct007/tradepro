@@ -367,6 +367,54 @@ class Strategy(ABC):
             self.positions[symbol] = pos
         return pos
 
+    # ── the placement window ──────────────────────────────────────────
+    # AN ORDER BORN INTO A CLOSED MARKET IS A DEAD ORDER. Measured 19 Sep
+    # across every strategy's OMS history:
+    #
+    #   ichimoku_equity   (T212) SELLs  30, all 30 raised in-hours → 30 filled
+    #   ichimoku_eq_ibkr  (IBKR) SELLs  27, only 4 in-hours        →  3 filled
+    #   mean_rev_swing    (IBKR) SELLs  47, only 9 in-hours        →  0 filled
+    #
+    # Nothing raised outside 13:30-20:00 UTC has EVER filled — 0 of 46, buys
+    # and sells alike, across all strategies. Orders raised overnight are swept
+    # `stale_pending_auto_clean` or `superseded by newer order` before the
+    # bell, and a daemon on a */15 schedule just raises another to be swept in
+    # turn. ichimoku_equity's 100% sell-fill rate is not a better router; it is
+    # simply the one that only ever raised orders while the market was open.
+    #
+    # So this lives on the BASE class: it is a property of the venue, not of
+    # any one rule. The DECISION still happens on the settled close exactly as
+    # the backtest does — only the ORDER waits for the session, and the next
+    # run inside market hours re-raises it against the same bar.
+    #
+    # Off by default so replay and unit tests never consult a wall clock;
+    # paper_session turns it on for live daemons.
+    enforce_placement_window: bool = False
+    placement_asset_class: str = "us_equity"
+
+    def placeable_now(self, symbol: str, bar_ts: Any = None,
+                      now: Any = None) -> bool:
+        """False when the venue is shut — defer the order, keep the decision.
+
+        `now` is injectable so this is testable against a fixed clock; live
+        callers omit it and get the real one.
+        """
+        if not self.enforce_placement_window:
+            return True
+        from datetime import UTC, datetime
+
+        from .market_hours import is_open
+        now = now or datetime.now(UTC)
+        if is_open(self.placement_asset_class, now):
+            return True
+        self.log_decision(
+            symbol=symbol, bar_ts=bar_ts, action="defer-market-shut",
+            reason=(f"decision stands, but {self.placement_asset_class} is shut "
+                    f"at {now:%H:%M} UTC — no order raised outside the session "
+                    f"has ever filled (0 of 46). Holding it for the open rather "
+                    f"than churning a doomed one."))
+        return False
+
     def remember(self, key: str, value: Any) -> None:
         """Store cross-bar state. Lives in `_state` so the engine
         can snapshot it for crash recovery without instrumenting

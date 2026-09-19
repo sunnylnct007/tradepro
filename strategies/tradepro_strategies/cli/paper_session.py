@@ -645,7 +645,10 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
 
     if strategy_name == "ichimoku_equity":
         from ..paper.strategies.ichimoku_equity import IchimokuEquityStrategy
-        return IchimokuEquityStrategy(
+        # LIVE: hold orders for the session — see Strategy.placeable_now. The
+        # T212 route already only ever raised in-hours (30/30 sells filled);
+        # the IBKR route did not (23 of 27 raised overnight, all dead).
+        _ich = IchimokuEquityStrategy(
             strategy_id=strategy_id,
             params={
                 "symbols": symbols,
@@ -691,6 +694,8 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 "entry_settled_bar_only": bool(getattr(args, "entry_settled_bar_only", False)),
             },
         )
+        _ich.enforce_placement_window = True
+        return _ich
 
     if strategy_name == "ichimoku_fx_mr":
         from ..paper.strategies.ichimoku_fx_mr import IchimokuFXMeanReversionStrategy
