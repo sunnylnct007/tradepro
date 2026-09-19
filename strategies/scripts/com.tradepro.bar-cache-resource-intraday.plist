@@ -6,7 +6,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies/scripts/bar-cache-resource-intraday.sh</string>
+    <string>/Users/skumar/tradepro-deploy/strategies/scripts/bar-cache-resource-intraday.sh</string>
   </array>
   <key>RunAtLoad</key><false/>
   <key>StandardOutPath</key><string>/Users/skumar/.tradepro/logs/bar-cache-resource-intraday.out</string>

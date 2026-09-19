@@ -1465,3 +1465,33 @@ beat (Tue 00:45) verifies both DTEs per root landed.
 1. 16:20 beat: swing SELLs (ARWR, SNOW) raised IN-session and filled.
 2. 16:20 beat: strangle placement verdicts present (placed True/False, zero NULL).
 3. Tue 00:45 beat: ^SPX/^XSP/^NDX captured at BOTH DTEs for Monday.
+
+
+## 2026-09-19 (later): THE MAC NOW DEPLOYS FROM MAIN — owner directive
+
+Owner: "can we ensure our code always runs from main or deployed from main."
+AWS already did (push → CI → ECR/Lambda). The Mac did not: ~29 launchd lanes
+ran from the DEVELOPMENT checkout on live-main — whatever state it held. That
+is what killed chain capture on 17-18 Sep (plist flag before the checkout had
+the code).
+
+**New topology, live as of today:**
+* `~/tradepro-deploy` — a clone that only ever equals origin/main. ALL
+  production plists now point here, not at ~/sourcecode/tradepro/tradepro.
+* `com.tradepro.mac-deploy-sync` (every 10 min): fetch; if main moved,
+  hard-reset + uv prewarm; one loud run_log row per deploy (process
+  `mac-deploy`), silent when nothing changed. A dirty deploy clone posts
+  status=error and resets anyway.
+* **MERGING TO ORIGIN/MAIN IS NOW THE ONLY DEPLOY, ON EVERY SURFACE.**
+
+⚠ FOR THE OTHER SESSION: editing code in ~/sourcecode/... no longer changes
+what any lane runs — it deploys ~10 min after your merge reaches origin/main.
+The dev checkout is now a pure workspace. Plist TEMPLATES in strategies/
+scripts/ are repointed; installed ones under ~/Library/LaunchAgents were
+sed-repointed in place (their args preserved — paper-swing-ibkr keeps
+--capital-usd 150000, capture keeps --strangle-dte 7,21).
+
+Also this session: owner DROPPED the change-freeze idea (right call — the
+sentry + main-only deploys address the failure classes precisely); wheel
+label question answered on the thread; swing/watch lane RENAME pending an
+owner naming decision.

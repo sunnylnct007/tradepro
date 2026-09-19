@@ -24,7 +24,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-lane-sentry >> "$HOME/.tradepro/logs/lane-sentry.log" 2>&amp;1</string>
+    <string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-lane-sentry >> "$HOME/.tradepro/logs/lane-sentry.log" 2>&amp;1</string>
   </array>
   <key>StartCalendarInterval</key>
   <array>

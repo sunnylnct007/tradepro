@@ -17,7 +17,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-refresh-universes --push 2&gt;&amp;1</string>
+        <string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run tradepro-refresh-universes --push 2&gt;&amp;1</string>
     </array>
     <key>StandardOutPath</key>
     <string>/tmp/tradepro-refresh-universes.log</string>
