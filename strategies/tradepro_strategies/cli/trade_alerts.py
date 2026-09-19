@@ -1,7 +1,7 @@
-"""tradepro-signal-watch — tell me when to ACT, not where to look.
+"""tradepro-trade-alerts — tell me when to ACT, not where to look.
 
-    uv run tradepro-signal-watch            # check, alert on anything new
-    uv run tradepro-signal-watch --dry-run  # print, send nothing
+    uv run tradepro-trade-alerts            # check, alert on anything new
+    uv run tradepro-trade-alerts --dry-run  # print, send nothing
 
 Owner, 2 Sep 2026: *"i dont need more screens i need trading signals"*.
 
@@ -65,7 +65,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-log = logging.getLogger("tradepro.signal_watch")
+log = logging.getLogger("tradepro.trade_alerts")
 
 # Seconds between order-book retries. A module constant so tests can drive
 # the retry path without actually waiting nine seconds.
@@ -73,6 +73,9 @@ RETRY_BACKOFF_S = 3
 
 # One file, one line per fired event key. Same pattern as the strangle's
 # _fired_today — a watcher with no memory is a watcher that spams.
+# The lane was RENAMED signal-watch -> trade-alerts (owner, 19 Sep 2026);
+# the state file keeps its old name ON PURPOSE — this is the dedupe ledger
+# of every alert ever sent, and a fresh path would re-fire all of them.
 FIRED = Path.home() / ".tradepro" / "signal_watch_fired.json"
 
 # Only strategies whose candidates carry a stop we can check.
@@ -132,7 +135,7 @@ def _last_close(symbol: str) -> tuple[float | None, str | None]:
         start = end - _dt.timedelta(days=20)
         df = _store().get(canonical=symbol, asset_class="us_etf", resolution="1d",
                           start=start, end=end, allow_partial=True, skip_fetch=True,
-                          fetched_by="signal_watch").df
+                          fetched_by="trade_alerts").df
         if df is None or df.empty:
             return None, None
         return float(df["close"].iloc[-1]), str(df.index[-1])[:10]
@@ -293,7 +296,7 @@ def _close_paper(base: str, headers: dict, order: dict, price: float) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="tradepro-signal-watch")
+    ap = argparse.ArgumentParser(prog="tradepro-trade-alerts")
     ap.add_argument("--dry-run", action="store_true", help="print, send nothing, remember nothing")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -349,7 +352,7 @@ def main() -> int:
     # alert, which reported ok whether or not the mail went.
     try:
         from ..run_log import log_run
-        log_run("signal-watch", "email", "ok" if sent else "fail",
+        log_run("trade-alerts", "email", "ok" if sent else "fail",
                 error=None if sent else "send failed",
                 summary=f"{len(events)} event(s)")
     except Exception:  # noqa: BLE001

@@ -135,7 +135,7 @@ def test_nobody_re_derives_the_ichimoku_lines_by_hand():
 
 
 def test_the_watcher_closes_on_each_strategys_own_max_hold():
-    """signal_watch CLOSES paper positions — its horizons must be the rules'.
+    """trade_alerts (né signal_watch) CLOSES paper positions — its horizons must be the rules'.
 
     These were written out as {swing: 20, momentum: 60}. Both matched at the
     time, which is precisely how a copied constant hides: correct until the
@@ -145,7 +145,7 @@ def test_the_watcher_closes_on_each_strategys_own_max_hold():
     and the forward-test record then measures a holding period the strategy
     never had.
     """
-    from tradepro_strategies.cli.signal_watch import _max_hold_sessions
+    from tradepro_strategies.cli.trade_alerts import _max_hold_sessions
     from tradepro_strategies.signals.mean_reversion import MAX_HOLD as SWING
     from tradepro_strategies.cli.momentum_candidates import MAX_HOLD as MOM
 

@@ -24,7 +24,7 @@ import json
 
 import pytest
 
-from tradepro_strategies.cli import signal_watch as SW
+from tradepro_strategies.cli import trade_alerts as SW
 
 
 @pytest.fixture(autouse=True)
