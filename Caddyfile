@@ -40,6 +40,44 @@ tradepro.showsoldprice.com {
 		}
 	}
 
+	# ── OAuth DISCOVERY must 404, not 401 ─────────────────────────────
+	# The MCP endpoint above needs no OAuth: access is the secret path
+	# segment. But a client cannot know that unless we answer the
+	# discovery probes, and these paths were never routed — so they fell
+	# through to `handle {}` below, hit the frontend nginx, and returned
+	# the SPA's Basic Auth 401 in HTML.
+	#
+	# A 401 on these paths is precisely the signal for "this resource is
+	# OAuth-protected". So Claude concluded it had to register a client,
+	# POSTed /register, got another Basic Auth 401, and reported
+	# "Couldn't register with Tradepro's sign-in service" — while the MCP
+	# server itself was answering 200 and serving all 101 tools. The
+	# server never asked for OAuth; the SPA's auth gate answered on its
+	# behalf.
+	#
+	# This is the SAME bug as the one recorded above, one layer along:
+	# /mcp was pointed away from the Basic-Auth'd SPA, its discovery
+	# paths were not. 404 means "no OAuth here", which is the truth, and
+	# the client then proceeds with the path token as-is.
+	#
+	# Scoped to oauth-* deliberately: /.well-known/acme-challenge must
+	# keep working or the TLS certificate stops renewing.
+	handle /.well-known/oauth-authorization-server* {
+		respond 404
+	}
+
+	handle /.well-known/oauth-protected-resource* {
+		respond 404
+	}
+
+	handle /.well-known/openid-configuration* {
+		respond 404
+	}
+
+	handle /register {
+		respond 404
+	}
+
 	handle {
 		encode gzip
 		reverse_proxy frontend:80
