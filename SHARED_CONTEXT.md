@@ -1422,3 +1422,46 @@ Standing caution for whoever picks this up: Yahoo's per-leg `impliedVolatility`
 on index chains looks unreliable even before the staleness. Prefer the
 straddle-mid construction `preearnings_watch` already uses over the raw IV
 field, and only from in-window captures.
+
+
+## 2026-09-19 (RESEARCH lane): lane-sentry shipped — and its first run caught a live outage
+
+### Owner-requested condition review, headline findings (all measured live)
+* Swing on IBKR: 20 days = 11 BUY fills, **0 SELL fills ever**. Root cause was
+  the placement window (orders raised outside RTH have filled 0 of 46 times,
+  ever, across all strategies) — DATA lane's 567ab8c fixed it same day;
+  verified live: daemon now logs `defer-market-shut`, churn stopped at 12:17Z.
+* Strangle: 15 Sep 3 placed/13 recorded errors; 16 Sep 16/16 refused-with-
+  reason (chain resolution); 17-18 Sep placement DEAD CODE (#149 indentation,
+  fixed 96e9df6). **Monday 14:12Z is the first session that can prove both
+  sleeves' fixes.** Funding evidence clock stopped since 16 Sep.
+* Ichimoku/T212 is the only sleeve with proven round-trips (13 buys, 9 sells).
+
+### NEW: `tradepro-lane-sentry` (16:20 + 00:45 local, Mon-Fri sessions)
+Reads the OUTPUT tables through the desk's own API and fails LOUD when a lane
+did not produce what the schedule owes — including the exact 17-18 Sep
+signature: decision rows present but `placed` NULL on every open-session US
+row ("never attempted" vs "tried and refused"). Replay verified: flags 17 and
+18 Sep, passes 16 Sep (all-refusals day). One run_log row per beat
+(process `lane-sentry`), surfaced on the cockpit RunLogCard.
+
+### Its first live run caught a second outage — MINE
+Chain capture was DEAD on 17 and 18 Sep: I updated the Mac plist to pass
+`--strangle-dte 7,21` on Wednesday while the flag existed only on origin/main.
+The Mac lane runs the LOCAL checkout (live-main), which got the code only late
+18 Sep — so argparse died at startup both nights and took the WHOLE capture
+with it, wheel walk included (last good run: 16 Sep). No run_log row said so;
+the only trace was a usage error in a local log file.
+
+**Lesson for both lanes, same class as "Lambda ran stale code": merging to
+origin/main does NOT deploy a Mac lane — the local checkout does. Never point
+a plist at a flag/code the local checkout does not yet have; check
+`git -C <repo> merge-base --is-ancestor <commit> live-main` first.**
+
+Self-heals Monday 22:15 (live-main now has the code). Sentry's Monday-night
+beat (Tue 00:45) verifies both DTEs per root landed.
+
+### Monday verification points (sentry automates all three)
+1. 16:20 beat: swing SELLs (ARWR, SNOW) raised IN-session and filled.
+2. 16:20 beat: strangle placement verdicts present (placed True/False, zero NULL).
+3. Tue 00:45 beat: ^SPX/^XSP/^NDX captured at BOTH DTEs for Monday.
