@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Lane sentry: a dead lane must never read as a quiet day.
+
+  Built after 17-18 Sep 2026, when the strangle placement pass was dead code
+  for two sessions while run_log said ok — and its FIRST live run then caught
+  a second outage the same hour (chain capture killed both nights by a flag
+  the local checkout did not have yet).
+
+  Two beats around the lanes it watches (times are LOCAL London):
+    16:20 Mon-Fri — after the 14:12Z strangle Lambda: decisions + placement
+                    verdicts for TODAY.
+    00:45 Tue-Sat — after the 22:15 chain capture finishes (~00:05): the
+                    previous session's capture, both DTEs per root.
+
+  Read-only against the API; one run_log row per beat, loud on the cockpit.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.lane-sentry</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-lane-sentry >> "$HOME/.tradepro/logs/lane-sentry.log" 2>&amp;1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer><key>Weekday</key><integer>5</integer></dict>
+    <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>5</integer></dict>
+    <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>6</integer></dict>
+  </array>
+  <key>StandardErrorPath</key>
+  <string>/Users/skumar/.tradepro/logs/lane-sentry.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
