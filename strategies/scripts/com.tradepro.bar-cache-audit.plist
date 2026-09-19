@@ -21,7 +21,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-bar-cache-audit >> "$HOME/.tradepro/logs/bar-cache-audit.log" 2>&amp;1</string>
+    <string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-bar-cache-audit >> "$HOME/.tradepro/logs/bar-cache-audit.log" 2>&amp;1</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>

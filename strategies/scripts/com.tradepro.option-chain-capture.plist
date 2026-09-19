@@ -22,7 +22,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-option-chain-capture --rights PC >> "$HOME/.tradepro/logs/option-chain-capture.log" 2>&amp;1</string>
+    <string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; /opt/anaconda3/bin/uv run tradepro-option-chain-capture --rights PC >> "$HOME/.tradepro/logs/option-chain-capture.log" 2>&amp;1</string>
   </array>
   <key>StartCalendarInterval</key>
   <array>

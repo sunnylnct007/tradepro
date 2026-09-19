@@ -7,7 +7,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>export PATH="/opt/homebrew/bin:/opt/anaconda3/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-ibkr-health-probe</string>
+        <string>export PATH="/opt/homebrew/bin:/opt/anaconda3/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run tradepro-ibkr-health-probe</string>
     </array>
     <key>StartInterval</key><integer>900</integer>
     <key>RunAtLoad</key><true/>

@@ -15,7 +15,7 @@
 	<array>
 		<string>/bin/bash</string>
 		<string>-c</string>
-		<string>cd /Users/skumar/sourcecode/tradepro/tradepro/strategies &amp;&amp; uv run tradepro-preearnings-watch &gt;&gt; "$HOME/.tradepro/logs/preearnings-watch-$(date -u +%Y-%m-%d).log" 2&gt;&amp;1</string>
+		<string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run tradepro-preearnings-watch &gt;&gt; "$HOME/.tradepro/logs/preearnings-watch-$(date -u +%Y-%m-%d).log" 2&gt;&amp;1</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>

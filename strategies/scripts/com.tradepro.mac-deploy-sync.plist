@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Mac's deploy pipeline: every 10 minutes, make ~/tradepro-deploy equal
+     origin/main. All production lanes run from that clone; merging to main IS
+     the deploy, on every surface. See mac-deploy-sync.sh for the incident. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.mac-deploy-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/skumar/tradepro-deploy/strategies/scripts/mac-deploy-sync.sh</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>600</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/skumar/.tradepro/logs/mac-deploy-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/skumar/.tradepro/logs/mac-deploy-sync.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

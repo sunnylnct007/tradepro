@@ -19,7 +19,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies/.venv/bin/tradepro-catalysts-finnhub</string>
+    <string>/Users/skumar/tradepro-deploy/strategies/.venv/bin/tradepro-catalysts-finnhub</string>
     <string>--days-back</string><string>7</string>
     <string>--days-ahead</string><string>90</string>
   </array>
@@ -31,7 +31,7 @@
     <key>PATH</key>
     <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
     <key>TRADEPRO_PROJECT_DIR</key>
-    <string>/Users/skumar/sourcecode/tradepro/tradepro/strategies</string>
+    <string>/Users/skumar/tradepro-deploy/strategies</string>
     <!-- REQUIRED: paste your Finnhub API key here after copying to ~/Library/LaunchAgents/ -->
     <key>TRADEPRO_FINNHUB_API_KEY</key>
     <string>REPLACE_WITH_KEY</string>
