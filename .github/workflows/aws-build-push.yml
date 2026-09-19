@@ -31,6 +31,14 @@ on:
       - 'strategies/pyproject.toml'
       - 'strategies/uv.lock'
       - '.github/workflows/aws-build-push.yml'
+      # THE REDEPLOY SHIPS THESE, SO A CHANGE TO THEM MUST TRIGGER IT.
+      # Both files are copied to the instance by aws-redeploy, which only
+      # auto-runs after this workflow — so with them missing from this list a
+      # Caddyfile or compose edit merged to main and then simply sat there.
+      # Found 19 Sep: the MCP OAuth-discovery fix merged green and was never
+      # served, because nothing in the pipeline had any reason to run.
+      - 'Caddyfile'
+      - 'docker-compose.aws.yaml'
   workflow_dispatch:
 
 permissions:
