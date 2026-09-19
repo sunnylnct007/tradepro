@@ -503,6 +503,20 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                         borderRadius: 8, alignItems: "baseline" }}>
             <span style={{ color: MUTED, fontSize: 12, textTransform: "uppercase",
                            letterSpacing: ".06em" }}>Movers</span>
+            {/* NEXT TO THE LABEL, not floated right. It was marginLeft:auto,
+                which on a wide screen parked it a thousand pixels from the
+                word "Movers" with empty space between — the owner could not
+                find it and reported the feature missing. A control nobody
+                sees is a feature nobody has. */}
+            <button
+              onClick={() => setMoversOpen((v) => !v)}
+              title="Full sortable grid: price, 52-week range, volume"
+              style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12,
+                       cursor: "pointer", background: "transparent",
+                       border: `1px solid ${moversOpen ? "var(--accent, #4ea1ff)" : "var(--border)"}`,
+                       color: moversOpen ? "var(--accent, #4ea1ff)" : "var(--fg, inherit)" }}>
+              {moversOpen ? "Hide grid ▲" : "Grid ▼"}
+            </button>
             {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
               <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
                     onClick={() => setChartSym(m.symbol)}>
@@ -521,13 +535,6 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
             <span style={{ color: MUTED, fontSize: 12 }}>
               {String(movers.as_of_utc ?? "").slice(11, 16)}Z · universe + your list · • = watched
             </span>
-            <button
-              onClick={() => setMoversOpen((v) => !v)}
-              style={{ marginLeft: "auto", padding: "2px 10px", borderRadius: 999,
-                       fontSize: 12, cursor: "pointer", background: "transparent",
-                       border: "1px solid var(--border)", color: MUTED }}>
-              {moversOpen ? "Hide grid ▲" : "Grid ▼"}
-            </button>
           </div>
           {moversOpen && (
             <div style={{ marginTop: 8 }}>
