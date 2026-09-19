@@ -1,20 +1,20 @@
-"""tradepro-paper-watch — Mac-side daemon that polls the backend for
+"""tradepro-paper-job-runner — Mac-side daemon that polls the backend for
 pending paper-session trigger requests and runs them as subprocesses.
 
 Two operating modes
 -------------------
   Continuous (default):
-      tradepro-paper-watch
+      tradepro-paper-job-runner
       Polls POST /api/ops/poll-paper every --interval seconds. Blocks
       indefinitely; intended to run as a launchd service.
 
   One-shot (--once):
-      tradepro-paper-watch --once
+      tradepro-paper-job-runner --once
       Poll exactly once, run the session if one was claimed, then exit.
       Designed for launchd WatchPaths triggers.
 
 SQS mode (preferred when TRADEPRO_PAPER_SQS_URL is set):
-      tradepro-paper-watch --sqs-url https://sqs.eu-west-1.amazonaws.com/...
+      tradepro-paper-job-runner --sqs-url https://sqs.eu-west-1.amazonaws.com/...
       OR export TRADEPRO_PAPER_SQS_URL=...
       Long-polls SQS (WaitTimeSeconds=20) instead of REST polling.
       Falls back to REST polling if boto3 is not installed.
@@ -447,7 +447,7 @@ def run_session(args: list[str], dry_run: bool) -> tuple[int, dict]:
     Returns ``(exit_code, snapshot)`` where ``snapshot`` is the last
     ``paper-snapshot`` JSON block printed to stdout (or ``{}`` if none).
     Stdout / stderr are mirrored to the daemon log so existing tooling
-    that watches /tmp/tradepro-paper-watch.log still works.
+    that watches /tmp/tradepro-paper-job-runner.log still works.
     """
     cmd_str = " ".join(args)
     if dry_run:
@@ -920,7 +920,7 @@ def daemon_loop(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="tradepro-paper-watch",
+        prog="tradepro-paper-job-runner",
         description="Daemon that polls the backend and runs paper trading sessions.",
     )
     parser.add_argument(

@@ -73,7 +73,7 @@ SCHEDULED_JOBS = (
     "com.tradepro.swing-candidates",
     "com.tradepro.momentum-candidates",
     "com.tradepro.bar-cache-harvest-daily",
-    "com.tradepro.signal-watch",
+    "com.tradepro.trade-alerts",
     "com.tradepro.paper-swing-ibkr",
     "com.tradepro.today-setups-push",
     # This check watches itself. A dead checker is the worst failure mode in

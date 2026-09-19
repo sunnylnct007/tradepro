@@ -130,9 +130,9 @@ def test_a_job_that_is_not_scheduled_at_all_is_UNKNOWN(monkeypatch):
 
 
 def test_a_job_exiting_zero_is_OK(monkeypatch):
-    monkeypatch.setattr(dc, "SCHEDULED_JOBS", ("com.tradepro.signal-watch",))
+    monkeypatch.setattr(dc, "SCHEDULED_JOBS", ("com.tradepro.trade-alerts",))
     monkeypatch.setattr(dc.subprocess, "run", lambda *a, **k: type(
-        "R", (), {"stdout": "123\t0\tcom.tradepro.signal-watch\n"})())
+        "R", (), {"stdout": "123\t0\tcom.tradepro.trade-alerts\n"})())
     (c,) = dc.check_jobs()
     assert c.status == OK
 

@@ -10,19 +10,19 @@
 		<string>/opt/anaconda3/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
 	<key>Label</key>
-	<string>com.tradepro.signal-watch</string>
+	<string>com.tradepro.trade-alerts</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
 		<string>-c</string>
-		<string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run tradepro-signal-watch &gt;&gt; "$HOME/.tradepro/logs/signal-watch-$(date -u +%Y-%m-%d).log" 2&gt;&amp;1</string>
+		<string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run tradepro-trade-alerts &gt;&gt; "$HOME/.tradepro/logs/trade-alerts-$(date -u +%Y-%m-%d).log" 2&gt;&amp;1</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
 	<key>StandardErrorPath</key>
-	<string>/tmp/tradepro-signal-watch.log</string>
+	<string>/tmp/tradepro-trade-alerts.log</string>
 	<key>StandardOutPath</key>
-	<string>/tmp/tradepro-signal-watch.log</string>
+	<string>/tmp/tradepro-trade-alerts.log</string>
 	<key>StartInterval</key>
 	<integer>900</integer>
 </dict>

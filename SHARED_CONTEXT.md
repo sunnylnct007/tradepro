@@ -1495,3 +1495,17 @@ Also this session: owner DROPPED the change-freeze idea (right call — the
 sentry + main-only deploys address the failure classes precisely); wheel
 label question answered on the thread; swing/watch lane RENAME pending an
 owner naming decision.
+
+
+### Lane RENAMES (owner decision, 19 Sep): say what they are
+* `signal-watch` → **`trade-alerts`** — it alerts when a candidate/position
+  needs ACTION (stop breached, target hit). CLI `tradepro-trade-alerts`,
+  label `com.tradepro.trade-alerts`, module `cli/trade_alerts.py`.
+  State file KEEPS its old name (`~/.tradepro/signal_watch_fired.json`) — it
+  is the dedupe ledger of every alert ever sent; a fresh path re-fires all.
+  `fetched_by` provenance tag renamed forward; old rows keep the old tag.
+* `paper-watch` → **`paper-job-runner`** — it never watched anything; it is
+  the queue worker polling for paper-session trigger requests. CLI
+  `tradepro-paper-job-runner` (module stays `paper_daemon.py`).
+* Unchanged, accurately named: `swing-candidates`, `paper-swing-ibkr`,
+  `preearnings-watch`.
