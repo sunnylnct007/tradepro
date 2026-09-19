@@ -37,6 +37,21 @@ tradepro.showsoldprice.com {
 	handle /mcp* {
 		reverse_proxy mcp:5085 {
 			flush_interval -1
+
+			# THE APP CANNOT SEE THAT IT IS BEHIND TLS. FastMCP runs its
+			# own uvicorn with default settings, so it ignores
+			# X-Forwarded-Proto and builds redirects from the scheme it
+			# thinks it is serving — plain HTTP. A POST to
+			# /mcp/<token>/ (trailing slash) answered:
+			#
+			#   307  location: http://tradepro.showsoldprice.com/mcp/<token>
+			#
+			# curl follows that happily. A connector will not: an
+			# HTTPS→HTTP downgrade is refused outright, and the client
+			# reports the failure as something generic and misleading.
+			# Rewriting the scheme on the way out fixes every redirect
+			# the app emits without touching its uvicorn config.
+			header_down Location "^http://" "https://"
 		}
 	}
 
