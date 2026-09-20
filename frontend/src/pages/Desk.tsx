@@ -219,7 +219,7 @@ export function Desk() {
       {view === "harvest"    && <HarvestView />}
       {view === "research"   && <ResearchView />}
       {view === "candidates" && <CandidatesView onOpenSymbol={onSearchSelectSymbol} />}
-      {view === "swing"      && <SwingView />}
+      {view === "swing"      && <SwingView onOpenSymbol={onSearchSelectSymbol} />}
       {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
       {view === "scanner"    && <ScannerView />}
