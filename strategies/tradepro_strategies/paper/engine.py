@@ -419,9 +419,27 @@ class Engine:
             # The DECISION is already made and logged by on_bar above; only
             # the ORDER waits. The next run inside the session re-raises it
             # against the same settled bar, so nothing is lost but the churn.
-            if orders and not strategy.placeable_now(
-                    getattr(msg.bar, "symbol", ""), msg.bar.timestamp):
-                orders = []
+            # PER ORDER, not per batch. Entries and exits get different
+            # answers now: an entry waits for the regular session, an exit only
+            # needs the exchange open that day, because IBKR works exits in the
+            # extended session and a blocked exit is an open risk nobody chose.
+            #
+            # An order counts as an EXIT when the strategy cannot be short: for
+            # a long-only rule a SELL can only be closing something. When shorts
+            # ARE permitted a SELL may open a position, so it is treated as an
+            # entry and waits for the session — the conservative reading, and
+            # neither live sleeve allows shorts today.
+            if orders:
+                from .strategy import OrderSide
+                _long_only = not getattr(
+                    getattr(strategy, "risk", None), "allow_short", False)
+                _sym = getattr(msg.bar, "symbol", "")
+                orders = [
+                    o for o in orders
+                    if strategy.placeable_now(
+                        _sym, msg.bar.timestamp,
+                        is_exit=(_long_only and o.side == OrderSide.SELL))
+                ]
             for order in orders:
                 if order.strategy_id != strategy.strategy_id:
                     log.warning(

@@ -55,15 +55,33 @@ def _fixed(when):
 
 
 def test_a_deferred_order_is_recorded_not_silently_dropped():
-    """The decision must remain visible — deferring is not discarding."""
-    when = datetime(2026, 9, 19, 4, 0, tzinfo=UTC)
+    """The decision must remain visible — deferring is not discarding.
+
+    Both refusal branches are checked. The original picked 19 Sep 04:00, which
+    is a SATURDAY — so since the 20 Sep split it takes the calendar branch, not
+    the session one. That is the correct answer for that timestamp and the
+    labels must differ: "the exchange is closed today" and "it is outside the
+    regular session but trading" are different facts, and a reader who cannot
+    tell them apart cannot tell why an exit went through and an entry did not.
+    """
+    # WEEKEND — nothing fills, entry or exit.
+    when = datetime(2026, 9, 19, 4, 0, tzinfo=UTC)      # Saturday
     s = _Bare()
     assert s.placeable_now("ARWR", when, now=when) is False
     assert len(s.decisions) == 1
     d = s.decisions[0]
-    assert d["action"] == "defer-market-shut"
-    assert "0 of 46" in d["reason"]          # states the number
+    assert d["action"] == "defer-exchange-closed"
+    assert "weekend or holiday" in d["reason"]
     assert d["symbol"] == "ARWR"
+
+    # TRADING DAY, OUTSIDE THE SESSION — an entry still waits, and the reason
+    # keeps the number that justified the rule.
+    weekday_pre = datetime(2026, 9, 18, 4, 0, tzinfo=UTC)   # Friday, 00:00 ET
+    s2 = _Bare()
+    assert s2.placeable_now("ARWR", weekday_pre, now=weekday_pre) is False
+    d2 = s2.decisions[0]
+    assert d2["action"] == "defer-market-shut"
+    assert "0 of 46" in d2["reason"]         # states the number
 
 
 def test_nothing_is_logged_when_the_market_is_open():
