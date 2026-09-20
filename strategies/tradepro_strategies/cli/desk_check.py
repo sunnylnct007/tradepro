@@ -147,11 +147,19 @@ def check_data(base: str, token: str | None) -> list[Check]:
     out = []
     verdict = str(d.get("verdict") or "")
     usable, total = d.get("usable"), d.get("total")
+    # JUDGE THE COUNT, NOT THE WORDING. This matched the verdict STRING,
+    # requiring it to start with "USABLE". When every dataset came good and the
+    # API switched wording to "ALL DATA CURRENT", a 6/6 result rendered as a
+    # WARNING pointing at per-dataset lines that were all fine. Two definitions
+    # of one fact, disagreeing — the shape this desk keeps tripping over.
+    # usable/total is the fact; the sentence is decoration.
+    if usable is not None and total:
+        status = OK if usable >= total else (WARN if usable >= total - 1 else BROKEN)
+    else:
+        status = UNKNOWN
     out.append(Check(
-        "Data", OK if verdict.startswith("USABLE") and "GAPS" not in verdict
-        else (WARN if usable and total and usable >= total - 1 else BROKEN),
-        f"{verdict} — {usable}/{total} datasets usable",
-        "" if verdict.startswith("USABLE") else "see the per-dataset lines below"))
+        "Data", status, f"{verdict} — {usable}/{total} datasets usable",
+        "" if status == OK else "see the per-dataset lines below"))
     for x in d.get("datasets") or []:
         det = str(x.get("detail") or "")
         key = str(x.get("key"))
