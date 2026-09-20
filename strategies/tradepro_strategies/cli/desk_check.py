@@ -67,15 +67,21 @@ MIN_EXIT_RATE = 0.50
 # launchd jobs that must exit 0. `launchctl list` reports the LAST exit
 # status, which is how the --strangle-dte breakage sat unnoticed: status 2,
 # every run, for two days.
+# DELIBERATELY hand-maintained: this list is the ASSERTION of what should be
+# running, so a job that disappears is caught rather than silently forgiven.
+# Deriving it from launchctl would make removals invisible, which is the one
+# thing it exists to detect. Reviewed 20 Sep, when a lane rename removed
+# preearnings-watch and today-setups-push — the check flagged both as
+# "not scheduled at all" the same evening, which is exactly its job.
 SCHEDULED_JOBS = (
     "com.tradepro.option-chain-capture",
-    "com.tradepro.preearnings-watch",
     "com.tradepro.swing-candidates",
     "com.tradepro.momentum-candidates",
     "com.tradepro.bar-cache-harvest-daily",
     "com.tradepro.trade-alerts",
     "com.tradepro.paper-swing-ibkr",
-    "com.tradepro.today-setups-push",
+    "com.tradepro.screener-daily",
+    "com.tradepro.mac-deploy-sync",
     # This check watches itself. A dead checker is the worst failure mode in
     # this file, because it is indistinguishable from a healthy desk unless
     # something says otherwise. Between this line and --always-mail in the
