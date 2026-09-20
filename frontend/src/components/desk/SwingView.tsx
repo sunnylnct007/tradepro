@@ -73,6 +73,16 @@ export function SwingView({ onOpenSymbol }: { onOpenSymbol?: (sym: string) => vo
         </button>
         <span style={{ fontSize: 14, color: "var(--text-muted)" }}>
           signal bar {a.signal_bar} · rebuilt {ago}m ago · {a.count} candidate{a.count === 1 ? "" : "s"}
+          {(a as any).stale_dropped?.length > 0 && (
+            /* Refusals are shown, not hidden — owner, 20 Sep: "better to not
+               show anything rather than show something with issues". A shorter
+               board must say WHY it is shorter, or it reads as a quiet day. */
+            <span style={{ color: TONE.warn, marginLeft: 8 }}>
+              · {(a as any).stale_dropped.length} name{(a as any).stale_dropped.length === 1 ? "" : "s"} REFUSED for stale bars (
+              {(a as any).stale_dropped.slice(0, 6).map((d: any) => `${d.symbol} ${d.last_bar}`).join(", ")}
+              {(a as any).stale_dropped.length > 6 ? ", …" : ""}) — no signal is computed on an old close
+            </span>
+          )}
         </span>
       </div>
 

@@ -256,8 +256,8 @@ def _load(sym: str):
     return df if len(df) >= 220 and "open" in df.columns else None
 
 
-def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
-    """Returns (candidates, quarantined, near_misses, priced_out).
+def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
+    """Returns (candidates, quarantined, near_misses, priced_out, stale_dropped).
 
     `near_misses` is what makes a zero-candidate day READABLE — see the
     near-miss block below.
@@ -265,6 +265,7 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
     out: list[dict] = []
     quarantined: list[dict] = []
     near: list[dict] = []
+    stale_dropped: list[dict] = []
     for sym in symbols:
         df = _load(sym)
         if df is None:
@@ -288,6 +289,27 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
         # never saw and cannot vouch for. The same trap the Ichimoku config
         # guards with entry_settled_bar_only=True.
         i = _pick_signal_index(dates, _last_completed_session())
+        # ── FRESHNESS IS A GATE, NOT AN ASSUMPTION (20 Sep 2026) ─────────
+        # _pick_signal_index steps over a PARTIAL bar, but when a symbol's
+        # history simply ENDS early, i lands on an old close and the signal
+        # computes on it anyway. The day the universe widened 244 → 956, one
+        # board mixed three vintages as comparable rows: CVS/GM/VZ on
+        # Friday's close, eight names on Thursday's, and PYPL on 31 AUGUST at
+        # -2.78σ — all labelled "BUY today", while the footer said "none were
+        # dropped" (the suspect-series guard checks QUALITY; nothing checked
+        # AGE). A signal on a stale close is not a smaller edge, it is a
+        # different, unpriced trade. Owner, same day: "better to not show
+        # anything rather than show something with issues." So: refused,
+        # loudly — explicit quarantine, never accidental fail-open.
+        _settled = _last_completed_session()
+        if i >= 0 and dates[i] != _settled:
+            stale_dropped.append({
+                "symbol": sym, "last_bar": dates[i], "settled": _settled,
+                "reason": (f"last stored daily bar is {dates[i]} but "
+                           f"{_settled} has settled — REFUSING to compute a "
+                           "signal on an old close"),
+            })
+            continue
         # NOTE: this length guard used to sit INSIDE the step-back branch, so
         # it only ran on the days the screen stepped back a bar — a symbol with
         # too little history could reach the indicator maths unguarded.
@@ -473,14 +495,15 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
     if priced_out:
         keep = {id(r) for r in priced_out}
         out = [r for r in out if id(r) not in keep]
-    return out, quarantined, near, priced_out
+    return out, quarantined, near, priced_out, stale_dropped
 
 
 def build_artifact(rows: list[dict], universe: str,
                    quarantined: list[dict] | None = None,
                    near: list[dict] | None = None,
                    evaluated: int | None = None,
-                   priced_out: list[dict] | None = None) -> dict:
+                   priced_out: list[dict] | None = None,
+                   stale_dropped: list[dict] | None = None) -> dict:
     _as_of = _dt.datetime.now(_dt.UTC).isoformat()
     return {
         "kind": "swing_candidates",
@@ -489,7 +512,17 @@ def build_artifact(rows: list[dict], universe: str,
         # Restored 23 Aug: an earlier rewrite of the evidence block dropped
         # this, so the screen rendered an undefined signal bar and a dated
         # archive had nothing to key on.
-        "signal_bar": rows[0]["bar"] if rows else _last_completed_session(),
+        #
+        # THE SESSION, NOT THE FIRST ROW'S BAR (20 Sep). rows[0]["bar"] let a
+        # stale row rename the whole board's session: the artifact said
+        # 2026-09-17 while three of its rows sat on Friday's close. With the
+        # freshness gate every emitted row's bar EQUALS the settled session,
+        # and the label states the session directly.
+        "signal_bar": _last_completed_session(),
+        # NAMES REFUSED FOR AGE — published, not just printed, same contract
+        # as priced_out below: a gate that hides its own work cannot be told
+        # apart from a scan that found less.
+        "stale_dropped": stale_dropped or [],
         # WHY THERE IS NO TRADE. A zero-candidate day must be readable as a
         # measurement, not as silence — "none today" alone cannot be told apart
         # from a crashed scan or an empty universe. `evaluated` proves the scan
@@ -623,10 +656,18 @@ def main() -> int:
         if extra:
             log.info("watchlist adds %d name(s) outside the universe: %s",
                      len(extra), ", ".join(extra))
-    rows, quarantined, near, priced_out = scan(syms)
+    rows, quarantined, near, priced_out, stale_dropped = scan(syms)
+    if stale_dropped:
+        # LOUD, with the numbers. Silence here is how three vintages shared
+        # one board on 20 Sep.
+        print(f"\n⚠ {len(stale_dropped)} name(s) DROPPED FOR STALE BARS — the "
+              "store has no settled-session close for them:")
+        for d in stale_dropped[:15]:
+            print(f"    ✗ {d['symbol']:6s} last bar {d['last_bar']} "
+                  f"(settled: {d['settled']})")
     art = build_artifact(rows, args.universe, quarantined,
                          near=near, evaluated=len(syms),
-                         priced_out=priced_out)
+                         priced_out=priced_out, stale_dropped=stale_dropped)
 
     if args.json:
         print(json.dumps(art, indent=1))

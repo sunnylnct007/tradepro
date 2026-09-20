@@ -702,6 +702,9 @@ export const api = {
         // which half of the rule stopped them. A zero-candidate day has to be
         // readable as a measurement, not as an assertion that all is well.
         evaluated?: number | null;
+        stale_dropped?: Array<{
+          symbol: string; last_bar: string; settled: string; reason: string;
+        }>;
         near_misses?: Array<{
           symbol: string; bar: string; close: number;
           sigma_from_mean: number; sigma_needed: number;
