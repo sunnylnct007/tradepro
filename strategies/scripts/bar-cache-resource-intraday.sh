@@ -49,9 +49,28 @@ if [[ ! -x "$PY" ]]; then
     exit 1
 fi
 
-# First of the current month → today. Anything older is outside IBKR's
-# intraday window and cannot be re-sourced.
-FROM_DATE=$(date -u +%Y-%m-01)
+# THE WINDOW IS TRAILING, NOT MONTH-TO-DATE (20 Sep 2026).
+#
+# Month-to-date grew linearly with the calendar and crossed the fixed 90-min
+# budget around day 17-20 of EVERY month: the 1m step was killed nightly from
+# 19-28 Aug and again from 17 Sep — late-month 1m data rotted by design, and
+# the desk read "Intraday bars (1m): broken". A night's real delta is one day;
+# a 7-day trailing window covers it plus a week of outage backlog in ~25 min,
+# bounded forever. Saturdays widen to 28 days (IBKR serves ~30) — the full
+# sweep that keeps the no-yfinance-fossil guarantee, run when the session has
+# no market to serve and a long run can hurt nothing. Trailing windows also
+# cross month boundaries, which the old month-start scope never re-sourced.
+if [[ "$(date -u +%u)" == "6" || "${TRADEPRO_RESOURCE_FULL_SWEEP:-0}" == "1" ]]; then
+    FROM_DATE=$(date -u -v-28d +%Y-%m-%d)
+    # 4x the work needs 4x the budget — but only where the caller has not
+    # already chosen one. No market is open; a long Saturday run hurts nothing.
+    : "${TRADEPRO_RESOURCE_MAX_SECONDS:=21600}"
+    : "${TRADEPRO_RESOURCE_MAX_WALL_SECONDS:=28800}"
+    export TRADEPRO_RESOURCE_MAX_SECONDS TRADEPRO_RESOURCE_MAX_WALL_SECONDS
+    log "FULL SWEEP window (Saturday/forced): 28 trailing days, budgets ${TRADEPRO_RESOURCE_MAX_SECONDS}s awake / ${TRADEPRO_RESOURCE_MAX_WALL_SECONDS}s wall"
+else
+    FROM_DATE=$(date -u -v-7d +%Y-%m-%d)
+fi
 TO_DATE=$(date -u +%Y-%m-%d)
 
 # US-listed symbols only. Foreign listings (0700.HK, 6758.T, AIR.PA …) fail
@@ -79,13 +98,36 @@ fi
 # 22:30 re-source was still running FOURTEEN HOURS later at 12:30 the next day,
 # holding the single IBKR OAuth session straight through the following market
 # open. A background job with no deadline is not patient, it is stuck.
+# THREE LIMITS, because one was defeated by sleep (measured, not guessed).
+# `waited` ticks only while the Mac is AWAKE — a 22:00 run that slept overnight
+# resumed on wake with its budget barely touched and held the single IBKR OAuth
+# session until 11:18 (26 Aug) and even 20:08 (28 Aug): straight through the
+# trading day, the exact thing this guard exists to prevent.
+#   1. awake budget  — bounds actual work (unchanged)
+#   2. wall deadline — a sleep gap cannot extend a run past ~4h of real time
+#   3. RTH cutoff    — belt-and-braces: a weekday run still alive at 13:15Z is
+#      killed BEFORE the US open needs the session, whatever the clocks say
 run_bounded() {
     local budget="${TRADEPRO_RESOURCE_MAX_SECONDS:-5400}"
+    local wall_budget="${TRADEPRO_RESOURCE_MAX_WALL_SECONDS:-14400}"
+    local start_epoch; start_epoch=$(date -u +%s)
     "$@" >>"$LOG_FILE" 2>&1 &
     local pid=$! waited=0
     while kill -0 "$pid" 2>/dev/null; do
+        local reason=""
         if [[ "$waited" -ge "$budget" ]]; then
-            log "DEADLINE: exceeded ${budget}s — terminating pid $pid so it cannot hold the IBKR session into the next session"
+            reason="awake budget ${budget}s exceeded"
+        elif [[ $(( $(date -u +%s) - start_epoch )) -ge "$wall_budget" ]]; then
+            reason="wall clock ${wall_budget}s exceeded (the Mac likely slept mid-run)"
+        else
+            local dow hm
+            dow=$(date -u +%u); hm=$(date -u +%H%M)
+            if [[ "$dow" -le 5 && $((10#$hm)) -ge 1315 && $((10#$hm)) -le 2005 ]]; then
+                reason="US session is OPEN (weekday ${hm}Z)"
+            fi
+        fi
+        if [[ -n "$reason" ]]; then
+            log "DEADLINE: $reason — terminating pid $pid so it cannot hold the IBKR session into the next session"
             kill -TERM "$pid" 2>/dev/null; sleep 10
             kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
             return 124
