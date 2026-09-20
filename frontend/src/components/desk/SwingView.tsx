@@ -27,7 +27,7 @@ import { api } from "../../api/client";
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30", dim: "var(--text-muted)" };
 type Resp = Awaited<ReturnType<typeof api.swingCandidates>>;
 
-export function SwingView() {
+export function SwingView({ onOpenSymbol }: { onOpenSymbol?: (sym: string) => void } = {}) {
   const [d, setD] = useState<Resp | null>(null);
   // THE LIVE RECORD, shown next to the backtest's claim. Owner, 11 Sep:
   // "i want trustworthy signals" — a backtest is a claim, the forward test
@@ -227,7 +227,17 @@ export function SwingView() {
                   <tbody>
                     {a.near_misses.slice(0, 8).map((n) => (
                       <tr key={n.symbol} style={{ borderTop: "1px solid #141b2b" }}>
-                        <td style={{ padding: "5px 8px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>{n.symbol}</td>
+                        <td style={{ padding: "5px 8px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                          <span
+                            role={onOpenSymbol ? "link" : undefined}
+                            onClick={onOpenSymbol ? () => onOpenSymbol(n.symbol) : undefined}
+                            title={onOpenSymbol ? `Open the ${n.symbol} workup` : undefined}
+                            style={onOpenSymbol ? { cursor: "pointer", textDecoration: "underline",
+                                                    textDecorationStyle: "dotted", textUnderlineOffset: 3 } : undefined}
+                          >
+                            {n.symbol}
+                          </span>
+                        </td>
                         <td style={{ padding: "5px 8px", fontFamily: "var(--font-mono)",
                                      color: n.above_trend ? TONE.warn : TONE.dim }}>
                           {n.sigma_from_mean.toFixed(2)}
@@ -277,7 +287,19 @@ export function SwingView() {
               {a.candidates.map((c) => (
                 <tr key={c.symbol} style={{ borderTop: "1px solid #141b2b" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
-                    {c.symbol}
+                    {/* The symbol OPENS THE WORKUP — same destination as ⌘K
+                        search. Owner, 20 Sep: "why i cant click on symbols".
+                        A candidates row that names a ticker but goes nowhere
+                        makes the reader re-type it into search. */}
+                    <span
+                      role={onOpenSymbol ? "link" : undefined}
+                      onClick={onOpenSymbol ? () => onOpenSymbol(c.symbol) : undefined}
+                      title={onOpenSymbol ? `Open the ${c.symbol} workup — chart, our strategies' view, options context` : undefined}
+                      style={onOpenSymbol ? { cursor: "pointer", textDecoration: "underline",
+                                              textDecorationStyle: "dotted", textUnderlineOffset: 3 } : undefined}
+                    >
+                      {c.symbol}
+                    </span>
                     {(c as any).instrument_note && (
                       <div style={{ fontWeight: 400, fontSize: 10, color: TONE.warn }}>
                         {(c as any).instrument_note}
