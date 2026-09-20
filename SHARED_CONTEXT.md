@@ -1534,3 +1534,28 @@ NOT "IBKR got slow". Two compounding faults in bar-cache-resource-intraday:
 
 Verification: Monday 22:00 run should complete in ~25 min; the desk's 1m row
 goes current Tuesday morning. First Saturday sweep 26 Sep 11:00.
+
+
+## 2026-09-20 evening (RESEARCH): Sunday triage — owner saw red, here is what each was
+
+* **ibkr-health FAIL/DEGRADED rows**: Saturday-night gateway maintenance
+  ("no bridge" 23:05 Sat) — routine, self-healed. The `fill read UNPRIMED`
+  flaps (18-20 Sep only) correlate with an IDLE book (zero orders since
+  16 Sep) + weekend; the canary retries less than the production reconcile
+  path (4x/600ms). Tested live 20 Sep ~16:30Z: diagnose-fills answers
+  **snapshot:true, primed**. NOT dismissed: if UNPRIMED shows during Monday
+  RTH with real orders on, treat as P0 fill-blindness immediately.
+* **bar-cache-harvest FAIL "1 symbol missing" x3**: WBS — DELISTED (Yahoo says
+  so; our own 1d bars stop at 2026-08). It was never in the committed
+  universe; it leaked in via its leftover store directory (harvest = universe
+  ∪ store). Directory MOVED to bar_cache_quarantine/WBS_delisted_2026-09-20
+  (reversible; S3 mirror keeps everything). Harvest set 968 → 967, fail gone.
+* **968-symbol 5m runs**: deliberate — DATA lane widened the traded universe
+  244 → 956 (717bfcc) today. Not a lane blowout; 944/968 came back GOLD.
+* **1m + options screen rows stay red until Mon/Tue by design** — fixes are
+  in, first proving runs are Mon 16:00 (screen) and Mon 22:00 (1m, trailing
+  window). Do not re-diagnose them from the Sunday board.
+* Owner Q&A recorded: closed-market option data is AVAILABLE but not
+  TRUSTWORTHY for math (OI publishes late; closed-market marks violate
+  parity — measured C-P=10.64 vs ~0.18 on ^XSP). Capture stays in the
+  post-close window; boards may display last capture with an age label.
