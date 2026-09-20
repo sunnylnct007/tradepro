@@ -1509,3 +1509,28 @@ owner naming decision.
   `tradepro-paper-job-runner` (module stays `paper_daemon.py`).
 * Unchanged, accurately named: `swing-candidates`, `paper-swing-ibkr`,
   `preearnings-watch`.
+
+
+## 2026-09-20 (RESEARCH): the 1m "broken" row — root causes found, both fixed
+
+The desk's "Intraday bars (1m): broken 75h" was real, and the diagnosis is
+NOT "IBKR got slow". Two compounding faults in bar-cache-resource-intraday:
+
+1. **A monthly sawtooth by design.** The lane force-refreshed the whole
+   MONTH-TO-DATE every night, so the workload grew linearly with the calendar
+   until it crossed the fixed 90-min budget around day 17-20 of EVERY month.
+   The kills cluster exactly there: nightly 19-28 Aug, again from 17 Sep.
+   Day 16 took 58 min; day 21 took 81; day 18+ always died. Fix: weeknights
+   re-source a TRAILING 7 days (~25 min, bounded forever); Saturdays run the
+   28-day full sweep (wider budgets, no market to serve) which also covers
+   the month-boundary days the old month-start scope never re-sourced.
+
+2. **Sleep defeated the deadline.** `run_bounded` counted awake-time only, so
+   a 22:00 run that slept overnight resumed on wake with its budget barely
+   touched — and held the single IBKR OAuth session until 11:18 (26 Aug) and
+   20:08 (28 Aug), straight through the trading day the guard exists to
+   protect. Now three limits: awake budget, wall-clock (4h default), and an
+   explicit weekday 13:15-20:05Z RTH cutoff. All three behaviour-tested.
+
+Verification: Monday 22:00 run should complete in ~25 min; the desk's 1m row
+goes current Tuesday morning. First Saturday sweep 26 Sep 11:00.
