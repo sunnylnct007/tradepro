@@ -52,4 +52,4 @@ def test_the_caller_actually_passes_it_through():
         "build_artifact accepts priced_out but main() never passes it — the "
         "field would publish as an empty list forever"
     )
-    assert "rows, quarantined, near, priced_out = scan(" in main
+    assert "rows, quarantined, near, priced_out, stale_dropped = scan(" in main

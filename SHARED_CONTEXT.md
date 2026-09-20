@@ -1559,3 +1559,32 @@ goes current Tuesday morning. First Saturday sweep 26 Sep 11:00.
   TRUSTWORTHY for math (OI publishes late; closed-market marks violate
   parity — measured C-P=10.64 vs ~0.18 on ^XSP). Capture stays in the
   post-close window; boards may display last capture with an age label.
+
+
+## 2026-09-20 night (RESEARCH): the swing board mixed THREE bar vintages — gated
+
+Owner double-checked the swing signals and was right to. The 20 Sep board's 12
+"BUY today" rows sat on three different closes presented as comparable:
+CVS/GM/VZ on Friday 18 Sep, eight names on Thursday 17 Sep, and **PYPL on
+31 AUGUST at -2.78σ**. Cause: the 244→956 widening seeded new names with
+history ending at assorted dates; Friday's daily harvest ran on the OLD 244
+before the widening; and the screen trusts each symbol's own last bar —
+`_pick_signal_index` steps over PARTIAL bars but nothing checked AGE. The
+footer even said "none were dropped" (suspect-SERIES guard ≠ freshness guard).
+
+**Owner ruling, verbatim, now a standing rule: "core of our application shd be
+justifiable and valid signal. better to not show anything rather than show
+something with issues."**
+
+Fix: freshness is a GATE. A row whose bar ≠ the settled session is REFUSED,
+published in the artifact as `stale_dropped` (symbol, last_bar, settled,
+reason) — same publish-your-own-work contract as `priced_out` — and the desk
+header names the refused symbols. `signal_bar` is now THE session, never
+rows[0]'s bar (a stale first row used to relabel the whole board). Monday's
+956-wide daily harvest tops the new names up; they re-qualify only when
+current.
+
+Residual for DATA lane: PYPL (and possibly other widened names) have a
+1-17 Sep daily-bar hole — check Monday's harvest window reaches back far
+enough to fill seeded gaps, or the 20-day sigma window will straddle a hole
+for names that pass the freshness gate on Tuesday.
