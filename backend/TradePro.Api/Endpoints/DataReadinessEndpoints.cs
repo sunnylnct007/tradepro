@@ -381,9 +381,21 @@ public static class DataReadinessEndpoints
                 weekdayOnly: true);
             await AddLaneAsync("bars_5m", "Intraday bars (5m)",
                 "intraday strategies + microstructure", "bar-cache-harvest", "5m", 3);
-            await AddLaneAsync("bars_1m", "Intraday bars (1m)",
-                "intraday strategies", "bar-cache-harvest", "1m", 30,
-                weekdayOnly: true);
+            // bars_1m RETIRED 20 Sep 2026 — owner's call, recorded here rather
+            // than deleted quietly. The dataset had NO producer and NO consumer:
+            // no 1-minute harvest job is loaded in launchd, and the only lane
+            // that ever read these bars, intraday_flat, is not among the running
+            // paper daemons (paper-equity and paper-swing-ibkr are). So this
+            // lane graded a feed nobody fills against a deadline nobody meets,
+            // and reported a permanent BROKEN into the nightly desk check.
+            //
+            // A check that cries wolf every night is worse than no check: it
+            // teaches the reader to skip the mail, which is exactly how the
+            // real faults this fortnight went unseen for days. Removed rather
+            // than silenced — if intraday trading is ever revived, the harvest
+            // job and this lane come back together, in one commit.
+            //
+            // await AddLaneAsync("bars_1m", ... "1m", 30, weekdayOnly: true);
             // weekdayOnly, like the bar lanes. Without it a Friday-evening run
             // reads as "has not run for 44h" by Sunday afternoon, of which only
             // ~4h is weekday time — the same weekend false alarm already fixed
