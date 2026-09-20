@@ -31,6 +31,7 @@ import { useSearchParams } from "react-router-dom";
 import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { ResearchView } from "../components/desk/ResearchView";
 import { CandidatesView } from "../components/desk/CandidatesView";
+import { DeskHealthBanner } from "../components/desk/DeskHealthBanner";
 import { SwingView } from "../components/desk/SwingView";
 import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
@@ -206,6 +207,11 @@ export function Desk() {
           </div>
         </>
       )}
+
+      {/* ON EVERY VIEW, above everything. A broken execution lane is not a
+          candidates-screen problem; it invalidates whatever board you are
+          looking at. Silent when healthy — see the component. */}
+      <DeskHealthBanner />
 
       {view === "quote" && (
         <QuoteView initialSymbol={selectedSymbol} />

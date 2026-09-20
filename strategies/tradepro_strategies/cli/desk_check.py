@@ -91,6 +91,11 @@ SCHEDULED_JOBS = (
 )
 
 
+# Worst first in the published payload, so the banner can take checks[0] as the
+# headline without re-deriving severity in TypeScript.
+_SEVERITY_ORDER = {BROKEN: 0, UNKNOWN: 1, WARN: 2, OK: 3}
+
+
 @dataclass
 class Check:
     """One verdict. `detail` must carry the NUMBER that justifies it.
@@ -394,6 +399,9 @@ def main() -> int:
                     help="mail even when everything passes")
     ap.add_argument("--no-mail", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="exit code only")
+    ap.add_argument("--push", action="store_true",
+                    help="publish the verdict to the desk so it shows on the "
+                         "cockpit banner (what the 21:45 job does)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 
@@ -404,6 +412,46 @@ def main() -> int:
     text = render_text(checks, verdict)
     if not args.quiet:
         print(text)
+
+    # PUBLISH BEFORE MAILING. Owner, 20 Sep 2026: "we shd be highlighting that
+    # on our dashboard if we are not able to action certian things so we can fix
+    # it. observability and diagnostic is key."
+    #
+    # This check already knew the desk was broken — the first hand-run reported
+    # the swing sleeve had opened 12 positions and closed NONE, 47 exit attempts
+    # and zero reaching the broker — and said so only to a terminal. A verdict
+    # nobody can see is not observability.
+    #
+    # Pushed FIRST because mail is the flakier leg (SMTP creds, a Lambda without
+    # them, a full mailbox). The screen should not go stale because the mailer
+    # had a bad night.
+    if args.push:
+        try:
+            from .push_to_api import push
+            if not base or not token:
+                raise RuntimeError("no API credentials on this runtime")
+            push("desk-check", {
+                "label": "latest",
+                "uploaded_by": "tradepro-desk-check",
+                "artifact": {
+                    "as_of_utc": dt.datetime.now(dt.UTC).isoformat(),
+                    "verdict": verdict,
+                    "n_broken": sum(1 for c in checks if c.status == BROKEN),
+                    "n_warn": sum(1 for c in checks if c.status == WARN),
+                    "n_ok": sum(1 for c in checks if c.status == OK),
+                    # The whole list, worst first, so the banner can show the
+                    # headline and the drill-down needs no second call.
+                    "checks": [
+                        {"lane": c.lane, "status": c.status,
+                         "detail": c.detail, "fix": c.fix}
+                        for c in sorted(checks, key=lambda x: _SEVERITY_ORDER.get(x.status, 9))
+                    ],
+                },
+            }, base, token)
+        except Exception as exc:  # noqa: BLE001
+            # Same rule as the mailer below: failing to PUBLISH a failure is
+            # itself a failure worth shouting about.
+            print(f"WARNING: desk check could not be published: {str(exc)[:140]}")
 
     bad = [c for c in checks if c.bad or c.status == WARN]
     if not args.no_mail and (bad or args.always_mail):
