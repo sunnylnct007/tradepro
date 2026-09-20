@@ -1072,8 +1072,15 @@ def _row(sym, cfg, action, entry, stop, qty, sessions_to, why,
     lane is named by what the symbol is actually IN: an earnings cycle
     (confirmed print inside 25 sessions) or plain swing watching."""
     from ..candidates import Candidate, emit
+    # NOT "SwingWatch". That name borrowed the Swing sleeve's, and the two have
+    # nothing to do with each other: Swing is the gated mean-reversion rule
+    # with a pre-registered backtest, this is a hand-onboarded watchlist with
+    # armed levels and tier="unproven". Sitting side by side on one board, the
+    # shared word read as a relationship — owner, 20 Sep: "we havent fixed the
+    # naming of swing and sing watch yet". A lane is named for what the symbol
+    # is actually IN: an earnings cycle, or simply on the watchlist.
     lane = ("Pre-Earn" if sessions_to is not None and sessions_to <= 25
-            else "SwingWatch")
+            else "Watchlist")
     return emit([Candidate(
         symbol=sym, strategy=lane, tier="unproven", action=action,
         as_of=_dt.datetime.now(_dt.UTC).isoformat(),
