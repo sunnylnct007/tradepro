@@ -393,8 +393,16 @@ class Strategy(ABC):
     placement_asset_class: str = "us_equity"
 
     def placeable_now(self, symbol: str, bar_ts: Any = None,
-                      now: Any = None) -> bool:
-        """False when the venue is shut — defer the order, keep the decision.
+                      now: Any = None, *, is_exit: bool = False) -> bool:
+        """False when the order cannot possibly work — defer it, keep the decision.
+
+        TWO DIFFERENT QUESTIONS, and conflating them was the bug. An ENTRY wants
+        the REGULAR SESSION (0 of 46 outside it ever filled, and a thin pre/post
+        book is bad execution anyway). An EXIT only needs the exchange to be
+        OPEN THAT DAY — IBKR works exits in the extended session and refusing
+        them strands a position someone wanted out of.
+
+        What nothing can do is fill on a Saturday.
 
         `now` is injectable so this is testable against a fixed clock; live
         callers omit it and get the real one.
@@ -403,16 +411,37 @@ class Strategy(ABC):
             return True
         from datetime import UTC, datetime
 
-        from .market_hours import is_open
+        from .market_hours import is_open, is_trading_day
         now = now or datetime.now(UTC)
+
+        # THE CALENDAR GATE APPLIES TO BOTH. A shut exchange fills nothing.
+        if not is_trading_day(self.placement_asset_class, now):
+            self.log_decision(
+                symbol=symbol, bar_ts=bar_ts, action="defer-exchange-closed",
+                reason=(f"decision stands, but {self.placement_asset_class} has "
+                        f"no session at all on {now:%a %d %b} — weekend or "
+                        f"holiday. Nothing fills, and a */15 daemon raises a "
+                        f"replacement every tick to be swept in turn (34 such "
+                        f"orders on Sat 19 Sep 2026)."))
+            return False
+
+        # ON A TRADING DAY AN EXIT MAY WORK THE EXTENDED SESSION.
+        # Owner, 20 Sep 2026: "som of the orders execute outsode us hours as
+        # well so tey ca close." Blocking an exit is not the safe direction —
+        # an entry deferred is a missed opportunity, an exit deferred is an
+        # open risk nobody chose to keep.
+        if is_exit:
+            return True
+
         if is_open(self.placement_asset_class, now):
             return True
         self.log_decision(
             symbol=symbol, bar_ts=bar_ts, action="defer-market-shut",
-            reason=(f"decision stands, but {self.placement_asset_class} is shut "
-                    f"at {now:%H:%M} UTC — no order raised outside the session "
-                    f"has ever filled (0 of 46). Holding it for the open rather "
-                    f"than churning a doomed one."))
+            reason=(f"ENTRY held: {self.placement_asset_class} is outside its "
+                    f"regular session at {now:%H:%M} UTC — no entry raised "
+                    f"outside it has ever filled (0 of 46). The exchange trades "
+                    f"today, so an EXIT would pass; an entry waits for the open "
+                    f"rather than churning a doomed one."))
         return False
 
     def remember(self, key: str, value: Any) -> None:

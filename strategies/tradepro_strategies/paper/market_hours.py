@@ -50,6 +50,54 @@ def is_us_equity_open(ts: datetime) -> bool:
     return time(9, 30) <= et.time() < time(16, 0)
 
 
+def is_us_equity_trading_day(ts: datetime) -> bool:
+    """Is the NYSE calendar OPEN AT ALL on this date — ignoring the clock.
+
+    Distinct from is_us_equity_open on purpose. That one answers "is the
+    REGULAR SESSION running", which is the right question for an ENTRY and the
+    wrong one for an EXIT: IBKR will work an exit in the pre/post session, and
+    blocking those would strand a position you wanted out of.
+
+    Owner, 20 Sep 2026: "som of the orders execute outsode us hours as well so
+    tey ca close."
+
+    What nothing can do is fill on a SATURDAY. On 19 Sep the swing sleeve raised
+    34 exit orders between 00:05Z and 12:17Z on a closed weekend — 28 superseded
+    by the next 15-minute rerun, 6 swept stale. A calendar check kills all of
+    those and costs no legitimate out-of-hours close, because there is no
+    out-of-hours on a day the exchange never opened.
+    """
+    et = _as_utc(ts).astimezone(_ET)
+    if et.weekday() >= 5:
+        return False
+    return et.date() not in _NYSE_HOLIDAYS
+
+
+def is_uk_equity_trading_day(ts: datetime) -> bool:
+    """LSE equivalent. Weekday only — the LSE holiday set is not modelled here,
+    and claiming otherwise would be worse than the weekday check it really is."""
+    return _as_utc(ts).astimezone(_LONDON).weekday() < 5
+
+
+def is_trading_day(asset_class: str, ts: datetime) -> bool:
+    """Calendar-only gate, mirroring is_open's dispatch.
+
+    Anything we do not model returns True — the same fail-open rule is_open
+    uses. A gate that blocks a class it does not understand would silently stop
+    a strategy nobody knew was gated.
+    """
+    ac = (asset_class or "").lower()
+    if ac in ("us_equity", "us_etf"):
+        return is_us_equity_trading_day(ts)
+    if ac == "uk_equity":
+        return is_uk_equity_trading_day(ts)
+    if ac == "fx_spot":
+        return is_fx_open(ts)          # 24/5 — its session IS its calendar
+    if ac == "crypto":
+        return True
+    return True
+
+
 def is_uk_equity_open(ts: datetime) -> bool:
     """LSE regular session: 08:00–16:30 London, Mon–Fri."""
     ldn = _as_utc(ts).astimezone(_LONDON)
