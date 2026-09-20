@@ -25,8 +25,24 @@ SRC = HANDLER.read_text()
 
 
 def _entry(job: str) -> str:
-    i = SRC.index(f'"{job}"')
-    return SRC[i:i + 600]
+    """The job's OWN registry entry, bounded by the parser.
+
+    Was SRC[i:i+600]. That window is not the entry — it is 600 characters of
+    whatever follows, and on 20 Sep it began spilling into the next job's
+    arguments when eight were added below. It still passed, purely because the
+    new block opened with a long comment that pushed the next "--push" past
+    600. A guard that holds by accident is worse than one that fails, so this
+    now reads the actual dict value. Third time a fixed-width slice has been
+    the wrong tool in this repo.
+    """
+    import ast
+    tree = ast.parse(SRC)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for k, v in zip(node.keys, node.values):
+                if isinstance(k, ast.Constant) and k.value == job:
+                    return ast.get_source_segment(SRC, v) or ""
+    raise AssertionError(f"job {job!r} is not in the JOBS registry")
 
 
 def test_both_paper_sleeves_are_registered():
@@ -60,3 +76,62 @@ def test_the_existing_strangle_jobs_are_untouched():
     e = SRC[i:i + 300]
     for flag in ('"--email"', '"--place"', '"--place-shadow"', '"--quote"'):
         assert flag in e, f"index_strangle_paper lost {flag}"
+
+
+# ── the evening block, moved off the laptop 20 Sep 2026 ──────────────
+
+EVENING = ("earnings_harvest", "live_portfolio", "fill_replay",
+           "today_setups_large50", "today_setups_highbeta",
+           "signal_audit_equity", "signal_audit_equity_ibkr",
+           "option_chain_capture")
+
+
+def test_every_evening_job_is_registered():
+    for job in EVENING:
+        assert f'"{job}"' in SRC, f"{job} was not registered"
+
+
+def test_each_evening_job_points_at_a_real_module():
+    """A registry entry naming a module that does not import is a job that
+    fails at 21:35 with nobody watching."""
+    import importlib
+    from lambda_handler import JOBS
+    for job in EVENING:
+        module, _ = JOBS[job]
+        importlib.import_module(module)
+
+
+def test_the_looping_scripts_became_one_job_per_iteration():
+    """today-setups and signal-audit each looped over two values on the Mac.
+
+    Registered as separate jobs, not a loop inside one: a loop that dies on
+    item 1 silently takes item 2 with it, and one EventBridge rule cannot show
+    that half of it failed.
+    """
+    from lambda_handler import JOBS
+    assert "large_50" in JOBS["today_setups_large50"][1]
+    assert "high_beta" in JOBS["today_setups_highbeta"][1]
+    assert "ichimoku_equity" in JOBS["signal_audit_equity"][1]
+    assert "ichimoku_equity_ibkr" in JOBS["signal_audit_equity_ibkr"][1]
+
+
+def test_the_evening_jobs_keep_the_flags_the_mac_used():
+    """These replace a working Mac agent. Different flags would be a silent
+    behaviour change dressed as a migration."""
+    from lambda_handler import JOBS
+    for job in ("live_portfolio", "fill_replay",
+                "today_setups_large50", "today_setups_highbeta",
+                "signal_audit_equity", "signal_audit_equity_ibkr"):
+        assert "--push" in JOBS[job][1], f"{job} lost --push; it would compute and discard"
+    assert JOBS["option_chain_capture"][1] == ["--rights", "PC", "--strangle-dte", "7,21"]
+
+
+def test_the_paper_sleeves_did_NOT_get_armed_by_this_change():
+    """The evening batch moves; the order-placing sleeves do not. They stay in
+    manual with no --push until a resting broker stop exists — a Lambda killed
+    at 900s can place one leg and die, which a sleeping Mac cannot."""
+    for job in ("paper_swing_dryrun", "paper_equity_dryrun"):
+        e = _entry(job)
+        assert '"manual"' in e
+        assert '"--push"' not in e
+        assert '"auto"' not in e

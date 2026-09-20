@@ -141,6 +141,49 @@ JOBS: dict[str, tuple[str, list[str]]] = {
         "tradepro_strategies.cli.paper_session",
         ["--strategy-id", "ichimoku_equity", "--from-config",
          "--placement-mode", "manual"]),
+
+    # ── The 21:15-22:15 evening block, off the laptop ───────────────────
+    #
+    # Owner, 20 Sep 2026: "mac sleeping can be sorted by moving stuff to
+    # lambda ... we need to prioritize other module moving to lambda".
+    #
+    # WHY THIS BLOCK FIRST, and not the paper sleeves. The ordering is by what
+    # a TIMEOUT COSTS, not by importance:
+    #
+    #   these jobs      produce data or push an artifact. Lambda's 900s kill
+    #                   means "no output this cycle" — EXACTLY what a sleeping
+    #                   Mac already does. Moving them is strictly better even
+    #                   if one occasionally runs long.
+    #   paper sleeves   PLACE ORDERS, and measured 579s/658s with a fat tail.
+    #                   A kill mid-run can place one leg and die. Those stay on
+    #                   the Mac until a resting broker stop exists.
+    #
+    # And this is the block most exposed to the laptop: fixed times between
+    # 21:15 and 22:15, which is precisely when it is asleep. On 19-20 Sep the
+    # probe missed ~half its runs to maintenance sleep.
+    #
+    # One job per iteration rather than a loop inside one job. The shell
+    # scripts looped over strategies/universes; as separate jobs each gets its
+    # own EventBridge rule, its own failure, and its own line in the run log —
+    # a loop that dies on item 1 silently takes item 2 with it.
+    "earnings_harvest": ("tradepro_strategies.cli.earnings_harvest", []),
+    "live_portfolio": ("tradepro_strategies.cli.live_portfolio",
+                       ["--strategy", "ichimoku_equity", "--push"]),
+    "fill_replay": ("tradepro_strategies.cli.fill_replay",
+                    ["--strategy", "ichimoku_equity_ibkr", "--push"]),
+    "today_setups_large50": ("tradepro_strategies.cli.today_setups",
+                             ["--universe", "large_50", "--push"]),
+    "today_setups_highbeta": ("tradepro_strategies.cli.today_setups",
+                              ["--universe", "high_beta", "--push"]),
+    "signal_audit_equity": ("tradepro_strategies.cli.signal_audit",
+                            ["--strategy", "ichimoku_equity", "--push"]),
+    "signal_audit_equity_ibkr": ("tradepro_strategies.cli.signal_audit",
+                                 ["--strategy", "ichimoku_equity_ibkr", "--push"]),
+    # --rights PC --strangle-dte 7,21 verbatim from the Mac agent. This is the
+    # capture the roll loop and straddle conversion are waiting on, so its
+    # reliability is worth more than most of this list.
+    "option_chain_capture": ("tradepro_strategies.cli.option_chain_capture",
+                             ["--rights", "PC", "--strangle-dte", "7,21"]),
 }
 
 
