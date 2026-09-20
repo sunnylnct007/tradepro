@@ -177,3 +177,36 @@ def test_every_failing_line_carries_a_number():
               Check("Job", BROKEN, "last run exited 2")]
     for c in checks:
         assert re.search(r"\d", c.detail), f"no number in: {c.detail}"
+
+
+# ── the data verdict must follow the COUNT, not the wording ───────────────
+@pytest.mark.parametrize("verdict,usable,total,expected", [
+    # The regression: every dataset good, new wording, reported as a WARNING.
+    ("ALL DATA CURRENT", 6, 6, OK),
+    ("USABLE", 7, 7, OK),
+    ("USABLE WITH GAPS", 6, 7, WARN),
+    ("DEGRADED — CHECK BEFORE TRADING", 5, 7, BROKEN),
+    # An unparseable report is not a pass.
+    ("", None, None, UNKNOWN),
+])
+def test_the_data_verdict_follows_the_count_not_the_sentence(
+        monkeypatch, verdict, usable, total, expected):
+    monkeypatch.setattr(dc, "_get", lambda *a, **k: {
+        "verdict": verdict, "usable": usable, "total": total, "datasets": []})
+    (c,) = dc.check_data("http://x", None)
+    assert c.status == expected, f"{verdict!r} {usable}/{total} → {c.status}"
+
+
+def test_a_perfect_report_carries_no_call_to_action():
+    """'see the per-dataset lines below' on a 6/6 result sends the reader
+    hunting for a problem that does not exist."""
+    import types
+    fake = {"verdict": "ALL DATA CURRENT", "usable": 6, "total": 6, "datasets": []}
+    orig = dc._get
+    dc._get = lambda *a, **k: fake
+    try:
+        (c,) = dc.check_data("http://x", None)
+    finally:
+        dc._get = orig
+    assert c.status == OK
+    assert c.fix == ""
