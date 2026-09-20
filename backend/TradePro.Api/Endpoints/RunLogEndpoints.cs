@@ -16,6 +16,16 @@ public static class RunLogEndpoints
     // the process is STALE/dead (the absence the cockpit flags loud). Daily jobs get ~30h
     // (a day + slack + the overnight box stop); the 15-min paper daemons get a few hours.
     // Add a process here the moment it starts writing run_log heartbeats.
+    //
+    // THE HOURS ARE WEEKDAY HOURS, NOT WALL HOURS (20 Sep 2026). Every process
+    // here is a Mon-Fri lane, so a flat wall-clock limit fired every single
+    // Sunday morning: Friday 21:00 + 30h = Sunday 03:00, and the owner opened
+    // the desk to "Dead / stale processes: live-portfolio, signal-audit,
+    // today-setups" — three lanes that had each exited 0 on Friday evening and
+    // were simply not owed again until Monday. A false alarm that cries every
+    // weekend is how a real Monday death gets ignored. The dataset rows above
+    // this banner already counted weekday time ("44h of them weekday time");
+    // this check now uses the same clock.
     private static readonly (string Process, double MaxAgeHours)[] _expected = new[]
     {
         ("bar-cache-harvest", 30.0),
@@ -24,6 +34,29 @@ public static class RunLogEndpoints
         ("today-setups", 30.0),
         // TODO: add the paper-* session daemons once they write run_log heartbeats.
     };
+
+    /// <summary>
+    /// Hours elapsed between two instants counting ONLY weekday time — Saturdays
+    /// and Sundays (UTC) contribute nothing. A Mon-Fri lane that last ran Friday
+    /// evening therefore ages ~3h by Sunday morning, not ~34h, and still trips
+    /// its 30h limit by late Tuesday if Monday's run never happens.
+    /// </summary>
+    public static double WeekdayHoursBetween(DateTime fromUtc, DateTime toUtc)
+    {
+        if (toUtc <= fromUtc) return 0;
+        double hours = 0;
+        var cursor = fromUtc;
+        while (cursor < toUtc)
+        {
+            // step to the next midnight (or the end), one day-slice at a time
+            var nextMidnight = cursor.Date.AddDays(1);
+            var sliceEnd = nextMidnight < toUtc ? nextMidnight : toUtc;
+            if (cursor.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday))
+                hours += (sliceEnd - cursor).TotalHours;
+            cursor = sliceEnd;
+        }
+        return hours;
+    }
 
     public static IEndpointRouteBuilder MapRunLogUserEndpoints(this IEndpointRouteBuilder app)
     {
@@ -69,12 +102,15 @@ public static class RunLogEndpoints
                 lastRuns.TryGetValue(e.Process, out var last);
                 var has = last != default;
                 var ageH = has ? (DateTime.UtcNow - last).TotalHours : (double?)null;
-                var stale = !has || (ageH ?? double.MaxValue) > e.MaxAgeHours;
+                // Staleness runs on the WEEKDAY clock — see the note on _expected.
+                var weekdayAgeH = has ? WeekdayHoursBetween(last, DateTime.UtcNow) : (double?)null;
+                var stale = !has || (weekdayAgeH ?? double.MaxValue) > e.MaxAgeHours;
                 return new
                 {
                     process = e.Process,
                     lastRunUtc = has ? last : (DateTime?)null,
                     ageHours = ageH,
+                    weekdayAgeHours = weekdayAgeH,
                     maxAgeHours = e.MaxAgeHours,
                     stale,
                 };
