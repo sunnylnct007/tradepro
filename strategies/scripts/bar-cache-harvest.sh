@@ -117,6 +117,43 @@ print(','.join(harvest_symbols('$CACHE_DIR')))
 " 2>>"${LOG:-/dev/null}")
     if [[ -n "$SYMS" ]]; then
         N=$(printf '%s' "$SYMS" | tr ',' '\n' | grep -c .)
+        # A LANE MAY NOT HARVEST MORE THAN IT CONSUMES.
+        #
+        # 21 Sep 2026: widening the traded universe 244 -> 956 took this lane
+        # with it, because harvest_symbols() is universe-UNION-store. The 5m
+        # sweep went 244 -> 968 symbols overnight and then ran NINE HOURS
+        # without reaching its completion line, on a 30-minute timer. Same
+        # failure recorded above from 25 Aug ("955 symbols could not finish
+        # inside the lane's 60-minute deadline").
+        #
+        # The DAILY lane is unaffected and stays unbounded: it genuinely needs
+        # every name and it finishes. Only ONE consumer reads 5m bars —
+        # preearnings_watch, for the names on the watch list — so this scopes
+        # to exactly that, and stays correct as names are onboarded.
+        #
+        # A head-N cap was written first and thrown away: harvest_symbols()
+        # returns sorted order, so "the first 250" is the symbols beginning
+        # with A, not the twelve that anything reads. A bound that keeps the
+        # wrong names is worse than no bound, because the lane then looks
+        # healthy while starving its only consumer.
+        if [[ "${TRADEPRO_HARVEST_SCOPE:-}" == "watch" ]]; then
+            WSYMS=$(cd "$PROJECT_DIR" && "${UV:-uv}" run python -c "
+from tradepro_strategies.cli.preearnings_watch import _kv_get
+from tradepro_strategies.cli.push_to_api import load_credentials
+b, t = load_credentials()
+print(','.join(_kv_get(b.rstrip('/'), t, 'preearnings_symbols') or []))
+" 2>>"${LOG:-/dev/null}")
+            WN=$(printf '%s' "$WSYMS" | tr ',' '\n' | grep -c .)
+            if (( WN > 0 )); then
+                log "SCOPE=watch: harvesting the $WN name(s) that consume this resolution, not the $N in the universe"
+                SYMS="$WSYMS"; N=$WN
+            else
+                # Fail LOUD. Falling through to 968 symbols would re-create the
+                # nine-hour run this scope exists to prevent.
+                log "FATAL: TRADEPRO_HARVEST_SCOPE=watch but the watch list is empty — refusing to fall back to the full universe"
+                exit 1
+            fi
+        fi
         SYMBOL_ARGS=(--symbols "$SYMS")
         log "no --symbols given → harvest_symbols() returned $N symbols for $ASSET"
     else
