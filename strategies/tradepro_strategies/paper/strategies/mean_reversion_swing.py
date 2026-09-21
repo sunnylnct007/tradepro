@@ -277,7 +277,42 @@ class MeanReversionSwingStrategy(Strategy):
             self._fill_price[sym] = float(px)
             self._entry_bar[sym] = _when(o)[:10]
             seeded += 1
-        _log.info("seeded %d open fill(s) from the OMS — these are now "
+        # NOW DROP ANYTHING THE BROKER DOES NOT ACTUALLY HOLD.
+        #
+        # The OMS gives entry PRICES. It does not give holdings, and on 21 Sep
+        # it claimed sixteen positions while IBKR held ten. The exit guard
+        # stopped those phantoms being SOLD — but they still filled the
+        # position map, and the risk service counts that map:
+        #
+        #     "max_open_positions 15 < projected open positions 16"
+        #
+        # So six positions that do not exist blocked every new entry. CVS, GM
+        # and VZ all fired and none was placed, and the sleeve looked merely
+        # quiet rather than jammed.
+        #
+        # Seeding is where ownership is decided, so this is where the broker
+        # has to win. If the broker cannot be read we keep the OMS view and
+        # say so: an unverified map is worse than an empty one only if it is
+        # silent.
+        _bpos = self._broker_positions()
+        if _bpos is None:
+            _log.warning("broker unreadable at seed time — position map is the "
+                         "OMS's view and may over-count; new entries can be "
+                         "blocked by positions that no longer exist")
+        else:
+            _phantom = [k for k in list(self._fill_price)
+                        if _bpos.get(k.upper(), 0.0) <= 0]
+            for k in _phantom:
+                self._fill_price.pop(k, None)
+                self._entry_bar.pop(k, None)
+            if _phantom:
+                _log.warning("dropped %d position(s) the OMS claims and the "
+                             "BROKER does not hold: %s — these were counted "
+                             "against the open-position cap",
+                             len(_phantom), ", ".join(sorted(_phantom)))
+            seeded = len(self._fill_price)
+
+        _log.info("seeded %d open fill(s) confirmed against the broker — these are now "
                       "managed for stop, target and max-hold", seeded)
     @staticmethod
     def _day(ts) -> str:
