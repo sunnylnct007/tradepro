@@ -428,8 +428,33 @@ def run_checks(base: str, token: str | None) -> list[Check]:
 
 
 def verdict_of(checks: list[Check]) -> str:
-    if any(c.status == BROKEN for c in checks):
-        return "BROKEN — do not trade from these boards until fixed"
+    """Say what is broken, not that everything is.
+
+    The first version escalated ANY broken line to
+    "do not trade from these boards". On 21 Sep that fired because one
+    intraday data feed was stale — while all four boards were fresh and every
+    execution lane and job was fine. The owner read a verdict that told him to
+    stop trading and a body that said nothing was wrong with the trading.
+
+    An instruction that overstates its cause gets ignored, and then the night
+    it means it, it is ignored too. So the verdict names the part that is
+    broken: the boards are what he trades FROM, and they have their own
+    answer, separate from feeds and plumbing.
+    """
+    broken = [c for c in checks if c.status == BROKEN]
+    boards_broken = [c for c in broken if c.lane.startswith("Board")]
+    trading_broken = [c for c in broken
+                      if c.lane.startswith(("Execution", "Broker vs OMS"))]
+    if boards_broken:
+        return ("BROKEN — do not trade from these boards until fixed "
+                f"({len(boards_broken)} board(s) stale or wrong)")
+    if trading_broken:
+        return ("EXECUTION BROKEN — the boards are readable but orders are not "
+                "reaching the broker as intended")
+    if broken:
+        what = ", ".join(sorted({c.lane.split("·")[0].strip() for c in broken}))
+        return (f"BOARDS USABLE — but {len(broken)} supporting lane(s) are "
+                f"broken ({what}); the screens are fine, the plumbing is not")
     if any(c.status == UNKNOWN for c in checks):
         return "UNVERIFIED — something could not be checked, treat as suspect"
     if any(c.status == WARN for c in checks):
