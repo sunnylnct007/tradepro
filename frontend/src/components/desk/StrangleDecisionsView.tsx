@@ -614,9 +614,34 @@ export function StrangleDecisionsView() {
                         <span style={{ fontSize: 9, marginLeft: 5, color: "var(--text-muted)" }}>SHORT</span>
                       )}
                     </td>
-                    <td style={{ padding: "6px", color: t ? "inherit" : "var(--text-muted)" }}
+                    {/* A DASH MUST EXPLAIN ITSELF. The position, quantity and
+                        P&L on this row come from the BROKER, which knows them.
+                        The placement time comes from OUR log, matched by OCC
+                        strike and right — and the server deliberately refuses
+                        to guess when the match is not unambiguous, because
+                        "two markets can print the same strike, and a confident
+                        wrong timestamp is worse than none".
+
+                        The reason was already computed and carried as
+                        whyNoTime, then hidden in a title attribute. Owner,
+                        21 Sep, reading real broker values beside a blank
+                        column: "why we have no placed time populated on some
+                        rows but we see values". A bare dash reads as missing
+                        data; the same dash with its reason reads as the system
+                        telling you something specific. */}
+                    <td style={{ padding: "6px", color: t?.placedAtUtc ? "inherit" : "var(--text-muted)" }}
                         title={t?.whyNoTime ?? ""}>
-                      {hhmmss(t?.placedAtUtc)}
+                      {t?.placedAtUtc ? hhmmss(t.placedAtUtc) : (
+                        <span>
+                          —
+                          {t?.whyNoTime && (
+                            <span style={{ display: "block", fontSize: 10, lineHeight: 1.35,
+                                           color: "var(--text-muted)", maxWidth: 260 }}>
+                              {t.whyNoTime}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: "6px", textAlign: "right",
                                  color: t?.heldMinutes == null ? "var(--text-muted)" : "inherit" }}>
