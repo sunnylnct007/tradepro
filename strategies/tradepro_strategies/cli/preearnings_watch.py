@@ -716,14 +716,38 @@ def evaluate(sym, cfg, base, token, state):
                            f"{level:.0f} — {label}. Review, no forecast."))
 
     # SNDK special filter (addendum §12): do not chase a large expansion day.
+    # SAY WHICH PRICE TRIPPED IT. The gate is an OR over two DIFFERENT
+    # prices — the last settled daily close and the latest 15m bar — and the
+    # message used to quote the daily one whichever fired.
+    #
+    # Owner, 21 Sep 2026, on the NVDA mail: "the email i see is misleading".
+    # It read "NVDA closed 222.27 on 2026-09-18 — above 228.13", which is
+    # false on its face: 222.27 is 5.86 BELOW 228.13. The intraday bar had
+    # crossed; the settled close quoted as proof had not. The CONCLUSION was
+    # right (NVDA is extended) and the EVIDENCE contradicted it, which is
+    # worse than being wrong — it teaches the reader to distrust the number.
     ext = ema + band.get("extended_from_ema_atr", 1.5) * atr
-    if px >= ext or (bars and bars[-1]["c"] >= ext):
+    _mult = band.get("extended_from_ema_atr", 1.5)
+    _intraday = bars[-1]["c"] if bars else None
+    _daily_hit = px >= ext
+    _intra_hit = _intraday is not None and _intraday >= ext
+    if _daily_hit or _intra_hit:
+        # Prefer the SETTLED close when it is the one that tripped; fall back
+        # to the intraday bar, and label it as intraday so nobody reads a
+        # live 15m print as a close.
+        if _daily_hit:
+            _what = f"closed {px:.2f} on {d.dates[i]}"
+            _tail = "Prices may have moved since that close."
+        else:
+            _what = f"is trading {_intraday:.2f} intraday (last 15m bar)"
+            _tail = (f"Its last SETTLED close was {px:.2f} on {d.dates[i]}, "
+                     f"below the line — this is an intraday extension.")
         alerts.append(("EXTENDED_DO_NOT_CHASE", d.dates[i],
-                       f"{sym} closed {px:.2f} on {d.dates[i]} — above "
-                       f"{ext:.2f}, which is {band.get('extended_from_ema_atr', 1.5)}x "
+                       f"{sym} {_what} — at or above "
+                       f"{ext:.2f}, which is {_mult}x "
                        f"its daily range above the 20-day average "
                        f"({ema:.2f}). That is an extension, not an entry. "
-                       f"Prices may have moved since that close."))
+                       f"{_tail}"))
     if bw:
         bo = next((b for b in bars if b["c"] >= bw), None)
         if bo:
