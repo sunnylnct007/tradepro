@@ -153,12 +153,53 @@ public sealed class RiskGate
             // 20:00 UTC EDT close). The trader's rule: "if market is closed,
             // don't send the order." Wall-clock now, converted to NY so it's
             // DST-correct (close is 20:00 UTC in summer, 21:00 UTC in winter).
-            if (IsUsEquitySymbol(order.Symbol) && !UsEquityMarketOpenUtc(DateTime.UtcNow))
+            // AN EXIT IS NOT AN ENTRY, and conflating them cost 47 exits.
+            //
+            // Owner, 20 Sep 2026: "som of the orders execute outsode us hours
+            // as well so tey ca close." IBKR works exits in the extended
+            // session; refusing them strands a position someone wanted out of.
+            //
+            // The damage, measured 21 Sep: mean_reversion_swing_ibkr had
+            // 12 positions open and had closed NONE — 47 exit attempts, zero
+            // reaching the broker, every one BLOCKED here as "market_closed"
+            // and then cancelled "superseded by newer order" when the */15
+            // daemon raised a replacement to be blocked in turn.
+            //
+            // The strategy-side guard was fixed on 20 Sep (Strategy.placeable_now
+            // grew is_exit). THIS gate is a second, independent copy of the same
+            // rule — the duplicate-definition shape that is this codebase's most
+            // common bug. One site was fixed and the other kept refusing.
+            //
+            // The asymmetry is deliberate and is the same one Gate 3c already
+            // states ("exits/sells reduce exposure and must never be blocked"):
+            // an entry deferred is a missed opportunity; an EXIT deferred is an
+            // open risk nobody chose to keep.
+            //
+            //   NON-TRADING DAY (weekend/holiday)  -> refuse BOTH. Nothing fills.
+            //   TRADING DAY, outside the session   -> allow the EXIT, hold the entry.
+            //
+            // SELL counts as an exit because every sleeve routed here is
+            // long-only. If a shorting strategy is ever added, a SELL could
+            // OPEN a position and this must consult the book instead.
+            if (IsUsEquitySymbol(order.Symbol))
             {
-                failures.Add(new RiskFailure(
-                    "market_closed",
-                    $"US equity market is closed — refusing {order.Symbol} "
-                    + "(would queue unfilled until next open)"));
+                var isExit = order.Side.Equals("SELL", StringComparison.OrdinalIgnoreCase);
+                if (!UsEquityTradingDayUtc(DateTime.UtcNow))
+                {
+                    failures.Add(new RiskFailure(
+                        "market_closed",
+                        $"US equity has no session at all today (weekend/holiday) — "
+                        + $"refusing {order.Symbol} {order.Side}. Nothing fills, and a "
+                        + "*/15 daemon would raise a replacement every tick."));
+                }
+                else if (!isExit && !UsEquityMarketOpenUtc(DateTime.UtcNow))
+                {
+                    failures.Add(new RiskFailure(
+                        "market_closed",
+                        $"US equity is outside its regular session — holding the ENTRY "
+                        + $"{order.Symbol} (would queue unfilled until next open). An "
+                        + "EXIT would be allowed through: the exchange trades today."));
+                }
             }
 
             // Gate 3c: broker capability — Trading 212's public API is
@@ -355,6 +396,31 @@ public sealed class RiskGate
     // which is a minor, safe degradation. If the tz database is missing
     // (shouldn't happen on the EC2 image), fall back to the EDT window so
     // we still gate the common (summer) case rather than failing open.
+    /// <summary>
+    /// Does the NYSE have a session on this DATE at all — clock ignored.
+    ///
+    /// Distinct from UsEquityMarketOpenUtc, which answers "is the regular
+    /// session running". That is the right question for an entry and the wrong
+    /// one for an exit, which IBKR will work pre/post-market. What nothing can
+    /// do is fill on a Saturday.
+    ///
+    /// Holidays are NOT modelled here and that is stated rather than implied:
+    /// this is a weekday check. A holiday slips through as "trading day", so an
+    /// exit may be raised and sit unfilled — the same outcome as before this
+    /// change, and strictly better than refusing every real out-of-hours exit
+    /// for the ten days a year a holiday falls on a weekday.
+    /// </summary>
+    private static bool UsEquityTradingDayUtc(DateTime nowUtc)
+    {
+        DateTime ny;
+        if (_nyTz is not null)
+            ny = TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), _nyTz);
+        else
+            ny = nowUtc.AddHours(-4);
+        return ny.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday);
+    }
+
     private static bool UsEquityMarketOpenUtc(DateTime nowUtc)
     {
         DateTime ny;
