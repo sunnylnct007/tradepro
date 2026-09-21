@@ -210,6 +210,24 @@ class MeanReversionSwingStrategy(Strategy):
                     continue
                 out[sym] = out.get(sym, 0.0) + float(
                     row.get("position") or row.get("quantity") or 0)
+            # AN EMPTY LIST IS NOT AN EMPTY ACCOUNT. A 200 carrying zero rows
+            # is indistinguishable from a read that failed upstream, and this
+            # endpoint DOES return empty transiently — observed 21 Sep, one
+            # call returning nothing between two that returned nineteen rows.
+            #
+            # Treating that as "you own nothing" would drop every position
+            # from management in one tick: the seed would forget them and the
+            # exit guard would call each one already-flat. The book would go
+            # unmanaged and the log would look calm.
+            #
+            # So empty is reported as UNKNOWN, exactly like a thrown error.
+            # This desk's rule, learned the expensive way: never infer from an
+            # absence — an empty IBKR response carries no information.
+            if not out:
+                _log.warning("BROKER returned ZERO positions — treating as "
+                             "unreadable, not as an empty account; local state "
+                             "is kept and nothing is flattened on this reading")
+                return None
             return out
         except Exception as exc:  # noqa: BLE001
             _log.warning("could not read BROKER positions (%s) — exits will be "
