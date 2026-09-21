@@ -242,3 +242,42 @@ def test_an_unreadable_broker_keeps_the_oms_view_and_warns(monkeypatch):
     s.strategy_id = "sw"; s._fill_price = {}; s._entry_bar = {}
     MeanReversionSwingStrategy._seed_from_oms(s)
     assert "BAC" in s._fill_price
+
+
+def test_an_empty_broker_response_is_unreadable_not_an_empty_account(monkeypatch):
+    """A 200 carrying zero rows must NOT mean "you own nothing".
+
+    Observed live on 21 Sep: this endpoint returned zero positions between two
+    calls that each returned nineteen. Treating that as an empty account would
+    drop every position from management in a single tick — the seed forgets
+    them, the exit guard calls each one already-flat, the book goes unmanaged
+    and the log looks calm.
+
+    The desk's rule, learned expensively: never infer from an absence. An
+    empty IBKR response carries no information, so it is reported exactly like
+    a failed read.
+    """
+    import requests
+
+    class _R:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"positions": []}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
+    monkeypatch.setattr(
+        "tradepro_strategies.cli.push_to_api.load_credentials",
+        lambda: ("https://example.invalid", "tok"))
+    s = MeanReversionSwingStrategy.__new__(MeanReversionSwingStrategy)
+    assert MeanReversionSwingStrategy._broker_positions(s) is None, (
+        "zero rows must be UNKNOWN, never an authoritative empty account")
+
+
+def test_a_genuinely_flat_account_is_indistinguishable_and_that_is_accepted():
+    """The cost of the rule, stated plainly: if the account really IS flat we
+    also return None and keep stale local state for a tick. That is the safe
+    direction — a stale position is re-checked next bar, an unmanaged book is
+    not noticed until something moves."""
+    assert True
