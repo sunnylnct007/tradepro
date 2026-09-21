@@ -499,9 +499,33 @@ public static class StrangleDecisionLogEndpoints
                        realised_pnl::float8   AS realised_pnl,
                        credit_actual::float8  AS credit_actual
                   FROM strangle_execution
-                 WHERE placed IS TRUE
-                   AND realised_pnl IS NOT NULL
-                   AND session >= (CURRENT_DATE - (@days || ' days')::interval)
+                 -- A REALISED P&L IS ITSELF PROOF THE TRADE EXISTED.
+                 -- `placed IS TRUE` was an additional filter here and it
+                 -- silently dropped real round-trips: on 21 Sep the screen
+                 -- read -1,981.72 over 18 closed pairs while the table held
+                 -- 21 closed pairs totalling -2,105.68. XSP closed that day
+                 -- for -424.43 and never appeared.
+                 --
+                 -- The cause is upstream and bigger: this trade is recorded in
+                 -- BOTH strangle_execution and strangle_decision_log, written
+                 -- by different paths, and they disagree about which of a
+                 -- market's two session rows (weekly / monthly) carries the
+                 -- close. SPX's close landed on the row marked placed=false
+                 -- while the placed row stayed open; XSP's landed correctly.
+                 -- One trade, two tables, two answers.
+                 --
+                 -- That needs one table, which is a migration. This does the
+                 -- part that is safe now: stop a P&L total from under-reporting
+                 -- because of a flag that disagrees with the money. If a row
+                 -- has a realised figure, a position was opened and closed,
+                 -- whatever the placed column says.
+                 --
+                 -- Filtering on the CLOSE date, not `session`: a trade opened
+                 -- on the 18th and closed on the 21st belongs in the 21st's
+                 -- window, and keying on session hid three of them.
+                 WHERE realised_pnl IS NOT NULL
+                   AND COALESCE(closed_at_utc::date, session)
+                       >= (CURRENT_DATE - (@days || ' days')::interval)
                  -- NEWEST FIRST. This sorted by MARKET, which was tolerable
                  -- while the table showed no date and unreadable the moment it
                  -- did: five SPX rows from four different sessions in a block,
