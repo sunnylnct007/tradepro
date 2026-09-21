@@ -18,9 +18,10 @@ Same fault, three surfaces on one day:
 """
 import pathlib
 
-from tradepro_strategies.cli.swing_candidates import (
-    BREAKEVEN_MAX_WIN_PCT, _live_prices,
-)
+from tradepro_strategies.cli.swing_candidates import BREAKEVEN_MAX_WIN_PCT
+# Shared with the Setups lane since 21 Sep — it was private to swing for one
+# day, and the Setups lane needed the identical thing. One definition.
+from tradepro_strategies.live_quote import live_prices
 
 SRC = (pathlib.Path(__file__).resolve().parents[1]
        / "tradepro_strategies" / "cli" / "swing_candidates.py").read_text()
@@ -75,18 +76,23 @@ def test_a_missing_quote_is_STATED_not_silently_ignored():
 
 def test_only_the_candidates_are_requoted_never_the_universe():
     """A handful of names, not the 958 scanned — one batch call."""
-    assert '_live_prices([r["symbol"] for r in out])' in SRC
+    assert 'live_prices([r["symbol"] for r in out])' in SRC
 
 
 def test_the_quote_helper_survives_a_dead_vendor():
-    """Failure returns {} and leaves settled economics standing."""
-    i = SRC.index("def _live_prices")
-    seg = SRC[i:i + 1400]
-    assert "except Exception" in seg and "return {}" in seg
+    """Failure returns {} and leaves settled economics standing.
+
+    The helper moved to tradepro_strategies.live_quote on 21 Sep so the Setups
+    lane could share it rather than copy it.
+    """
+    import pathlib
+    q = (pathlib.Path(__file__).resolve().parents[1]
+         / "tradepro_strategies" / "live_quote.py").read_text()
+    assert "except Exception" in q and "return {}" in q
 
 
 def test_the_helper_actually_returns_prices():
-    px = _live_prices(["GM"])
+    px = live_prices(["GM"])
     assert isinstance(px, dict)
     if px:                                  # vendor reachable in this env
         assert px["GM"] > 0

@@ -56,6 +56,8 @@ from ..universe import universe_symbols, poison_check, volume_ratio
 
 log = logging.getLogger("tradepro.swing_candidates")
 
+from ..live_quote import live_prices  # noqa: E402 — one definition, shared with Setups
+
 # THE RULE'S CONSTANTS ARE IMPORTED, NOT RETYPED.
 #
 # These were four local literals, and MAX_HOLD was still 10 after the shared
@@ -469,7 +471,7 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
     #
     # ONLY THE CANDIDATES ARE RE-QUOTED — a handful of names, not the 958 that
     # were scanned. The cost is one batch call.
-    _live = _live_prices([r["symbol"] for r in out]) if out else {}
+    _live = live_prices([r["symbol"] for r in out]) if out else {}
     for r in out:
         now_px = _live.get(r["symbol"])
         r["live_price"] = now_px
@@ -555,46 +557,6 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
         keep = {id(r) for r in priced_out}
         out = [r for r in out if id(r) not in keep]
     return out, quarantined, near, priced_out, stale_dropped
-
-
-def _live_prices(symbols: list[str]) -> dict[str, float]:
-    """Current price for a HANDFUL of names — the candidates, never the universe.
-
-    Used to re-quote the economics at a price you could actually pay. Failure
-    is not fatal and must not be silent: an empty dict leaves every row's
-    settled economics standing, and the caller stamps `live_requote:
-    unavailable` so a missing re-quote is visible rather than mistaken for
-    "nothing moved".
-
-    Yahoo, labelled — IBKR is the golden source for bars, but this is a
-    decoration on an already-computed signal, not an input to it, and routing
-    it through the one shared IBKR market-data session to price three names
-    would contend with the desk for no gain.
-    """
-    if not symbols:
-        return {}
-    try:
-        import yfinance as yf
-
-        from ..yahoo_session import yahoo_session
-        df = yf.download(list(dict.fromkeys(symbols)), period="1d",
-                         interval="1m", progress=False,
-                         session=yahoo_session(), group_by="ticker",
-                         threads=True)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("live re-quote unavailable (%s) — candidates keep their "
-                    "signal-close economics, and say so", str(exc)[:90])
-        return {}
-    out: dict[str, float] = {}
-    for sym in dict.fromkeys(symbols):
-        try:
-            col = df[sym]["Close"] if len(symbols) > 1 else df["Close"]
-            col = col.dropna()
-            if len(col):
-                out[sym] = round(float(col.iloc[-1]), 2)
-        except Exception:  # noqa: BLE001 — one bad column must not lose the rest
-            continue
-    return out
 
 
 def build_artifact(rows: list[dict], universe: str,

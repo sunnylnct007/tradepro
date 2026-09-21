@@ -27,6 +27,7 @@ import logging
 import os
 
 from ..formatting import ordinal_suffix
+from ..live_quote import live_prices
 
 log = logging.getLogger("tradepro.today_setups")
 
@@ -424,6 +425,51 @@ def main() -> int:
     # candidate"). This lane's stars join the common candidates_v2 shape so
     # the cockpit panel and the Candidates board can never disagree again —
     # third producer folded into the architecture, none left outside it.
+    # ── A BROKEN LEVEL IS NOT A SETUP ────────────────────────────────
+    #
+    # Owner, 21 Sep 2026, on XOM. The board showed action "consider", entry
+    # 163.54, kijun 162.48, with the reason "at the kijun ... support hold, not
+    # a knife; stop below kijun". Price was 159.95 — THROUGH the kijun by 1.6%.
+    # The entry premise was that the level holds; it had not. Taken as shown,
+    # with the stated stop below the kijun, you were already out.
+    #
+    # The ladder itself is right: `dist_atr < 0` already classifies a name
+    # below its kijun as "weak, support breaking". XOM was "consider" because
+    # on the SETTLED close it genuinely was at the kijun. Nothing re-checked
+    # afterwards, so a setup whose premise had expired kept presenting itself
+    # as live.
+    #
+    # Third surface of one fault in a day — GM's stale economics (#199) and
+    # NVDA's stale close quoted as proof (#196) are the same shape: a row
+    # computed on settled data shown as if it were current.
+    #
+    # Only the STARRED rows are re-quoted — a handful, one batch call, never
+    # the scanned universe.
+    _starred = [r for r in artifact["setups"] if r.get("classification") == "consider"]
+    if _starred:
+        _live = live_prices([r["symbol"] for r in _starred])
+        for r in _starred:
+            now = _live.get(r["symbol"])
+            kj = r.get("kijun")
+            if now is None:
+                # Absence stated, never implied.
+                r["live_requote"] = "unavailable — level not re-checked since the close"
+                continue
+            r["live_price"] = now
+            if kj and now < float(kj):
+                # The premise is gone. Demote to the class the ladder would
+                # have given it, and SAY why rather than silently restating.
+                r["classification"] = "weak"
+                r["level_broken"] = True
+                r["why"] = (f"LEVEL BROKEN: price {now:.2f} is "
+                            f"{100 * (now / float(kj) - 1):+.1f}% through the "
+                            f"{float(kj):.2f} kijun this setup was built on — the "
+                            f"support did not hold. Was: {(r.get('why') or '')}")[:300]
+            elif r.get("close") and abs(100 * (now / float(r["close"]) - 1)) >= 0.5:
+                r["why"] = (f"[moved {100 * (now / float(r['close']) - 1):+.1f}% since the "
+                            f"close: {float(r['close']):.2f} -> {now:.2f}] "
+                            f"{(r.get('why') or '')}")[:300]
+
     try:
         from ..candidates import Candidate, emit
         artifact["candidates_v2"] = emit([
