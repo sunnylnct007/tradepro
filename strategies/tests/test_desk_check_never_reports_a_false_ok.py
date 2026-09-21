@@ -157,12 +157,47 @@ def test_a_check_that_crashes_becomes_UNKNOWN_rather_than_vanishing(monkeypatch)
     ([OK, OK], "USABLE —"),
     ([OK, WARN], "USABLE WITH CAVEATS"),
     ([OK, UNKNOWN], "UNVERIFIED"),
-    ([OK, WARN, UNKNOWN, BROKEN], "BROKEN"),
-    ([UNKNOWN, BROKEN], "BROKEN"),
 ])
 def test_the_worst_status_decides_the_verdict(statuses, expected_prefix):
     checks = [Check("l", s, "d") for s in statuses]
     assert verdict_of(checks).startswith(expected_prefix)
+
+
+# ── the verdict must name what is broken, not condemn everything ─────────
+def test_a_stale_feed_does_not_tell_the_owner_to_stop_trading():
+    """21 Sep: one intraday feed was stale and the mail read 'do not trade
+    from these boards' — while all four boards were fresh and every execution
+    lane and job was fine. An instruction that overstates its cause gets
+    ignored, and then the night it means it, it is ignored too."""
+    v = verdict_of([Check("Data · bars_5m", BROKEN, "stale"),
+                    Check("Board · Swing", OK, "0h old")])
+    assert v.startswith("BOARDS USABLE")
+    assert "do not trade" not in v
+    assert "plumbing" in v
+
+
+def test_a_stale_BOARD_does_tell_the_owner_to_stop():
+    v = verdict_of([Check("Board · Wheel (put selling)", BROKEN, "72h old")])
+    assert v.startswith("BROKEN — do not trade")
+
+
+def test_broken_execution_is_called_out_as_execution():
+    """The boards can be perfect while orders never reach the broker — that is
+    a different failure and deserves a different sentence."""
+    v = verdict_of([Check("Execution · swing", BROKEN, "nothing reached"),
+                    Check("Board · Swing", OK, "0h")])
+    assert v.startswith("EXECUTION BROKEN")
+
+
+def test_a_broker_oms_divergence_counts_as_execution_broken():
+    v = verdict_of([Check("Broker vs OMS · swing", BROKEN, "732 shares apart")])
+    assert v.startswith("EXECUTION BROKEN")
+
+
+def test_a_broken_board_outranks_a_broken_feed():
+    v = verdict_of([Check("Data · bars_5m", BROKEN, "stale"),
+                    Check("Board · Wheel", BROKEN, "72h old")])
+    assert v.startswith("BROKEN — do not trade")
 
 
 def test_unknown_counts_as_bad_so_it_cannot_be_ignored():
