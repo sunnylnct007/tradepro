@@ -120,7 +120,7 @@ def _wire(monkeypatch, orders, positions):
 def _filled(sym, side, qty, when="2026-09-01T14:00:00Z"):
     return {"strategyId": "sw", "symbol": f"{sym}_US_EQ", "side": side,
             "state": "FILLED", "filledQty": qty, "createdAtUtc": when,
-            "broker": "IBKR_PAPER"}
+            "broker": "IBKR_PAPER", "avgFillPrice": 100.0}
 
 
 def test_the_21_sep_divergence_is_reported_BROKEN(monkeypatch):
@@ -179,3 +179,66 @@ def test_a_non_ibkr_lane_is_not_compared_against_ibkr(monkeypatch):
     _wire(monkeypatch, [t212], [])
     checks = dc.check_broker_agrees("http://x", None)
     assert all(c.status != BROKEN for c in checks), [c.detail for c in checks]
+
+
+# ── phantom positions must not consume the open-position cap ──────────────
+def test_positions_the_broker_does_not_hold_are_dropped_at_seed_time(monkeypatch):
+    """21 Sep, after the short was flattened: the OMS still claimed sixteen
+    positions while IBKR held ten. The exit guard stopped the phantoms being
+    SOLD, but they still filled the position map — and the risk service counts
+    that map:
+
+        "max_open_positions 15 < projected open positions 16"
+
+    So six positions that did not exist blocked every new entry. CVS, GM and
+    VZ all fired and none was placed, and the sleeve looked quiet rather than
+    jammed. Seeding is where ownership is decided, so the broker wins there.
+    """
+    import requests
+
+    class _R:
+        status_code = 200
+
+        def __init__(self, payload): self._p = payload
+        def json(self): return self._p
+
+    oms = [_filled("BAC", "BUY", 84), _filled("GONE", "BUY", 10)]
+    positions = [{"symbol": "BAC_US_EQ", "position": 84}]
+
+    def _get(url, **kw):
+        return _R(positions if "positions" in url else oms)
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(
+        "tradepro_strategies.cli.push_to_api.load_credentials",
+        lambda: ("https://example.invalid", "tok"))
+
+    s = MeanReversionSwingStrategy.__new__(MeanReversionSwingStrategy)
+    s.strategy_id = "sw"; s._fill_price = {}; s._entry_bar = {}
+    MeanReversionSwingStrategy._seed_from_oms(s)
+    assert "BAC" in s._fill_price
+    assert "GONE" not in s._fill_price, "a position the broker does not hold must not occupy a slot"
+
+
+def test_an_unreadable_broker_keeps_the_oms_view_and_warns(monkeypatch):
+    """Failing closed here would flatten the map and let the sleeve re-enter
+    names it already holds. Keep the OMS view, and say it is unverified."""
+    import requests
+
+    class _R:
+        status_code = 200
+        def json(self): return [_filled("BAC", "BUY", 84)]
+
+    def _get(url, **kw):
+        if "positions" in url:
+            raise ConnectionError("ibkr down")
+        return _R()
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(
+        "tradepro_strategies.cli.push_to_api.load_credentials",
+        lambda: ("https://example.invalid", "tok"))
+    s = MeanReversionSwingStrategy.__new__(MeanReversionSwingStrategy)
+    s.strategy_id = "sw"; s._fill_price = {}; s._entry_bar = {}
+    MeanReversionSwingStrategy._seed_from_oms(s)
+    assert "BAC" in s._fill_price

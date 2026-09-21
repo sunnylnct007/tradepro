@@ -50,7 +50,21 @@ def seed(monkeypatch):
             def json():
                 return orders
 
-        monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
+        def _get(url, *a, **k):
+            if "positions" in str(url):
+                # broker agrees with whatever the OMS rows imply, so these
+                # tests keep exercising OMS PARSING, not the broker filter
+                held, out = {}, []
+                for o in orders:
+                    sym = str(o.get("symbol", "")).split("_")[0]
+                    q = 1.0 if str(o.get("side")).upper() == "BUY" else -1.0
+                    held[sym] = held.get(sym, 0.0) + q
+                for sym, q in held.items():
+                    if q > 0:
+                        out.append({"symbol": sym, "position": 100})
+                return type("P", (), {"status_code": 200, "json": staticmethod(lambda o=out: o)})()
+            return _R()
+        monkeypatch.setattr(requests, "get", _get)
         monkeypatch.setattr(
             "tradepro_strategies.cli.push_to_api.load_credentials",
             lambda: ("https://example.invalid", "tok"))
