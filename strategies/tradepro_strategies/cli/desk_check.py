@@ -297,6 +297,84 @@ def check_jobs() -> list[Check]:
     return out
 
 
+def check_broker_agrees(base: str, token: str | None) -> list[Check]:
+    """Does the BROKER agree with the OMS about what we hold?
+
+    21 Sep 2026: it did not, by 732 shares, and nothing said a word. The OMS
+    had the swing sleeve LONG 61 ARWR and 13 SNOW; IBKR had it SHORT 671 and
+    143. Eleven exit lots had filled at the broker and the OMS recorded two.
+    The strategy kept re-selling a position it no longer owned.
+
+    Every board, scorecard and verdict downstream of that was describing the
+    OMS rather than the account — including a week of "the exit path has never
+    run", which was false. This check exists so that divergence can never
+    again be invisible.
+
+    The OMS is an intent log. The broker is the golden source. Where they
+    disagree, the broker is right and the desk is broken.
+    """
+    try:
+        orders = _get(base, token, "/api/oms/orders?limit=500", timeout=45)
+        if isinstance(orders, dict):
+            orders = orders.get("orders") or orders.get("items") or []
+        raw = _get(base, token, "/api/integrations/ibkr/positions", timeout=45)
+        rows = raw if isinstance(raw, list) else (raw.get("positions") or [])
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Broker vs OMS", UNKNOWN,
+                      f"could not compare ({str(exc)[:60]})",
+                      "an unverified book is an unsafe one")]
+
+    broker: dict[str, float] = {}
+    for r in rows:
+        sym = str(r.get("symbol") or r.get("ticker") or "").split("_")[0].upper()
+        if sym:
+            broker[sym] = broker.get(sym, 0.0) + float(
+                r.get("position") or r.get("quantity") or 0)
+
+    out = []
+    for sid in LIVE_STRATEGIES:
+        # ONLY IBKR LANES. ichimoku_equity routes to T212 and ichimoku_fx_mr to
+        # IG; comparing their books against an IBKR position list reported ten
+        # and seven "divergences" on the first run — a check that cries wolf on
+        # two of four lanes would be ignored by the third week, which is the
+        # failure this whole file exists to avoid.
+        _brokers = {str(x.get("broker") or "") for x in orders
+                    if x.get("strategyId") == sid}
+        if not any(bk.startswith("IBKR") for bk in _brokers):
+            continue
+        net: dict[str, float] = {}
+        for o in sorted((x for x in orders if x.get("strategyId") == sid
+                         and str(x.get("state")) == "FILLED"),
+                        key=lambda x: str(x.get("createdAtUtc"))):
+            sym = str(o.get("symbol") or "").split("_")[0].upper()
+            q = float(o.get("filledQty") or 0)
+            net[sym] = net.get(sym, 0.0) + (q if str(o.get("side", "")).upper() == "BUY" else -q)
+        owned = {k: v for k, v in net.items() if abs(v) > 0.5}
+        if not owned:
+            continue
+        # Only names the OMS claims: positions belonging to OTHER strategies
+        # legitimately appear at the broker and are not this lane's business.
+        bad = {k: (broker.get(k, 0.0), v) for k, v in owned.items()
+               if abs(broker.get(k, 0.0) - v) > 0.5}
+        if bad:
+            worst = max(bad.items(), key=lambda kv: abs(kv[1][0] - kv[1][1]))
+            k, (bq, oq) = worst
+            total = sum(abs(b - o) for b, o in bad.values())
+            out.append(Check(
+                f"Broker vs OMS · {sid}", BROKEN,
+                f"{len(bad)} symbol(s) disagree, {total:.0f} shares total — "
+                f"worst {k}: broker {bq:+.0f} vs OMS {oq:+.0f}",
+                "the BROKER is right. The sleeve is acting on a position that "
+                "may not exist — do not trust its board until this is flat"))
+        else:
+            out.append(Check(f"Broker vs OMS · {sid}", OK,
+                             f"all {len(owned)} position(s) agree with IBKR"))
+    if not out:
+        out.append(Check("Broker vs OMS", UNKNOWN,
+                         "no strategy claims a position — nothing to reconcile"))
+    return out
+
+
 def check_round_trips(base: str, token: str | None) -> list[Check]:
     """A forward test with no completed round trip cannot judge anything.
 
@@ -336,6 +414,7 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_boards(base, token),
                lambda: check_execution(base, token),
                check_jobs,
+               lambda: check_broker_agrees(base, token),
                lambda: check_round_trips(base, token)):
         try:
             checks.extend(fn())

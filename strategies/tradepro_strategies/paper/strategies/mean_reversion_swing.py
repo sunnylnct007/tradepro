@@ -176,8 +176,55 @@ class MeanReversionSwingStrategy(Strategy):
         self._seed_from_oms()
 
 
+    def _broker_positions(self) -> dict[str, float] | None:
+        """What the BROKER says we hold. None means we could not ask.
+
+        THE OMS IS AN INTENT LOG, NOT A RECORD OF WHAT HAPPENED. On 21 Sep the
+        OMS had this sleeve LONG 61 ARWR and 13 SNOW while IBKR had it SHORT
+        671 and 143 — eleven sell lots had filled at the broker and the OMS
+        knew about two of them. The strategy, reading the OMS, believed it
+        still held the stock and kept re-selling it. Nothing downstream could
+        be right while that was true: the board, the scorecard and a week of
+        "the exit path has never run" were all describing the OMS, not the
+        account.
+
+        Owner, repeatedly and finally with some exasperation: the broker is
+        the golden source. This is that rule in code rather than in a habit.
+        """
+        try:
+            import requests
+
+            from ...cli.push_to_api import load_credentials
+            base, token = load_credentials()
+            r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
+                             headers={"Authorization": f"Bearer {token}"} if token else {},
+                             timeout=20)
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            rows = r.json()
+            rows = rows if isinstance(rows, list) else (rows.get("positions") or [])
+            out: dict[str, float] = {}
+            for row in rows:
+                sym = str(row.get("symbol") or row.get("ticker") or "").split("_")[0].upper()
+                if not sym:
+                    continue
+                out[sym] = out.get(sym, 0.0) + float(
+                    row.get("position") or row.get("quantity") or 0)
+            return out
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("could not read BROKER positions (%s) — exits will be "
+                         "held this run rather than sized off the OMS",
+                         str(exc)[:110])
+            return None
+
     def _seed_from_oms(self) -> None:
-        """Rebuild our fills from the OMS — the only record that outlives us.
+        """Entry PRICES from the OMS; what we actually HOLD comes from the broker.
+
+        The OMS is a fine record of what we asked for and at what price. It is
+        not a record of what we own — see _broker_positions above. So this
+        still reads the OMS for the fill price a stop and target are measured
+        from, and `on_bar` confirms the position against the broker before
+        acting on it.
 
         Fails CLOSED by design: if the OMS cannot be read we keep an empty map,
         every held position stays `ignore-inherited`, and nothing is exited on
@@ -281,6 +328,39 @@ class MeanReversionSwingStrategy(Strategy):
 
         # ── exits first: a held position is never re-entered ──────────────
         if held > 0:
+            # CONFIRM AGAINST THE BROKER BEFORE SELLING ANYTHING.
+            #
+            # 21 Sep: this sleeve sold ARWR eleven times. Each exit filled at
+            # IBKR, the OMS recorded almost none of them, and the strategy —
+            # reading its own state — believed it still held 61 shares and
+            # sold them again, and again, until the account was SHORT 671
+            # against a 61-share position. The stop and target logic was
+            # correct throughout; it was applied to a position that no longer
+            # existed.
+            #
+            # The rule this desk already had and this file did not apply:
+            # verify against positions BEFORE placing. The broker knows what
+            # we own; nothing else does.
+            _bpos = self._broker_positions()
+            if _bpos is not None:
+                _have = _bpos.get(sym.upper(), 0.0)
+                if _have <= 0:
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp, action="already-flat",
+                        reason=(f"local state says {held} held, but the BROKER says "
+                                f"{_have:+.0f} — the position is gone and this exit "
+                                f"would open a SHORT. Not selling. Local state is "
+                                f"stale, not the broker."))
+                    self._fill_price.pop(sym, None)
+                    self._entry_bar.pop(sym, None)
+                    return []
+                if _have < held:
+                    # Partly closed elsewhere: sell what is actually there.
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp, action="resize-to-broker",
+                        reason=(f"local state says {held}, broker says {_have:.0f} — "
+                                f"sizing the exit to the broker"))
+                    held = int(_have)
             fill = self._fill_price.get(sym) or float(
                 getattr(self.position_for(sym), "avg_entry_price", 0) or 0)
             if fill <= 0:
