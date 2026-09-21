@@ -1588,3 +1588,53 @@ Residual for DATA lane: PYPL (and possibly other widened names) have a
 1-17 Sep daily-bar hole — check Monday's harvest window reaches back far
 enough to fill seeded gaps, or the 20-day sigma window will straddle a hole
 for names that pass the freshness gate on Tuesday.
+
+---
+
+## 21 Sep 2026 — EXITS UNBLOCKED, THEN RAN AWAY: swing is SHORT, daemon STOPPED
+
+**`com.tradepro.paper-swing-ibkr` IS UNLOADED.** I stopped it at ~13:35Z. If you
+find nothing running, that is why — not a crash. Re-loading it before the
+position guard exists will resume the loop below.
+
+**The book is SHORT on a long-only strategy:**
+
+```
+ARWR   -671 @ 66.41    notional 44,561   unrealised  +384.41
+SNOW   -143 @ 332.26   notional 47,513   unrealised   -84.46
+                               ─────────
+                                92,073 USD short   (paper, DUP656969)
+```
+
+The other 13 positions are long and untouched.
+
+**Cause, and it is mine.** `mean_reversion_swing_ibkr` had 0 of 47 exits reach
+the broker — every SELL was BLOCKED by a `market_closed` gate in the C# RiskGate
+(a SECOND copy of the rule; the strategy-side one was fixed 20 Sep and did
+nothing on its own). PR #192 made that gate exempt exits on a trading day. It
+worked — first exit fills the strategy has ever had:
+
+```
+IBKR order book:  ARWR  12 × SELL 61  all Filled  = 732 sold vs 61 held
+                  SNOW  12 × SELL 13  all Filled  = 156 sold vs 13 held
+```
+
+**Nothing checks whether the position is already closed before re-raising the
+exit.** The daemon has no position memory across its 15-minute restarts, so it
+re-issues the same exit every cycle. While the gate blocked them this was
+invisible; unblocking exposed the loop. The 47-attempts-for-12-positions ratio
+was the warning and I read it as "exits are broken" rather than "exits repeat".
+
+**NOT DONE — deliberately left for whoever owns this:**
+1. **Flatten**: BUY 671 ARWR + 143 SNOW. I placed nothing; order placement is
+   not something I will do unilaterally.
+2. **The real guard**: the exit path must verify the BROKER position before
+   raising a SELL. The strategy must be unable to sell stock it no longer
+   holds, whatever any gate says. `allow_short=False` did not save us — that
+   limit is evaluated against OMS state, and the OMS only knew about −61 of
+   the −671. Broker is golden source; see project_broker_is_golden_source.
+3. Do not re-enable the daemon until (2) exists.
+
+Unrelated and still standing from today: the desk-check verdict now renders on
+every desk view (PR #190) — it is what surfaced the 0/47 in the first place. Its
+banner will read BROKEN until the 21:45 job recomputes.
