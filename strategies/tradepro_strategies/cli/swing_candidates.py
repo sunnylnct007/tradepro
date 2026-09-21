@@ -450,6 +450,51 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
             "max_hold_sessions": MAX_HOLD,
             "structure": _structure_note(l, c, i),
         })
+    # ── PRICE IT AT TODAY'S PRICE, NOT FRIDAY'S ──────────────────────
+    #
+    # The SIGNAL is computed on the settled close and that is correct — it is
+    # what the backtest measured. The ECONOMICS were quoted at that same stale
+    # price, and that is not: you cannot buy Friday's close on Monday.
+    #
+    # Owner, 21 Sep 2026, on GM. The board said "needs 64%" from a 82.20 close
+    # and a 85.91 target. GM had since rallied to 84.71, so the room to target
+    # was 1.1%, not 4.5%, and the real requirement was 88% — above the 72.8%
+    # this strategy achieves. A trade the board still recommended had become
+    # one that cannot pay, and nothing said so.
+    #
+    # Same shape as the NVDA extension mail quoting a settled close as proof of
+    # an intraday cross, and the Setups lane still saying "consider" on a kijun
+    # that had broken. One fault, three surfaces: a row computed on settled data
+    # presented as if it were current.
+    #
+    # ONLY THE CANDIDATES ARE RE-QUOTED — a handful of names, not the 958 that
+    # were scanned. The cost is one batch call.
+    _live = _live_prices([r["symbol"] for r in out]) if out else {}
+    for r in out:
+        now_px = _live.get(r["symbol"])
+        r["live_price"] = now_px
+        if not now_px or not r.get("target") or not r.get("stop"):
+            # Absence stated, never implied: a missing quote leaves the settled
+            # economics standing and SAYS the re-quote did not happen.
+            r["live_requote"] = "unavailable — economics are as at the signal close"
+            continue
+        risk = now_px - float(r["stop"])
+        reward = float(r["target"]) - now_px
+        if risk <= 0:
+            # Price is already at or through the stop the setup was built on.
+            r["live_breakeven_win_pct"] = None
+            r["live_note"] = (f"price {now_px:.2f} is at or below the {float(r['stop']):.2f} "
+                              f"stop this setup was built on — the premise is gone")
+            continue
+        rr = reward / risk
+        r["live_target_pct"] = round(100 * (float(r["target"]) / now_px - 1), 2)
+        r["live_reward_risk"] = round(rr, 2)
+        r["live_breakeven_win_pct"] = (round(100.0 / (1.0 + rr), 1) if rr > 0 else None)
+        moved = 100 * (now_px / float(r["close"]) - 1) if r.get("close") else 0.0
+        if abs(moved) >= 0.5:
+            r["live_note"] = (f"moved {moved:+.1f}% since the {r.get('bar')} close "
+                              f"({float(r['close']):.2f} -> {now_px:.2f})")
+
     # Best reward:risk first — the number that decides whether a bracket is worth placing.
     out.sort(key=lambda r: -(r["reward_risk"] or 0))
     near.sort(key=lambda r: r["sigma_from_mean"])
@@ -489,13 +534,67 @@ def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[d
     # No safety margin is invented on top. The measured gap is clean —
     # stocks 54-65%, ETFs 74-85% — so a margin would be a number with no
     # evidence behind it, and this desk has been bitten by inventing those.
+    # JUDGE THE PRICE YOU WOULD ACTUALLY PAY. Where a live quote exists it
+    # decides; the settled number is the fallback. GM passed on Friday's close
+    # and fails on Monday's — Monday's is the one that matters.
+    def _decisive_breakeven(r: dict) -> float | None:
+        if r.get("live_breakeven_win_pct") is not None:
+            return r["live_breakeven_win_pct"]
+        if "live_note" in r and r.get("live_breakeven_win_pct") is None \
+                and r.get("live_price"):
+            # Stop already breached — cannot pay at any win rate.
+            return 100.0
+        return r.get("breakeven_win_pct")
+
+    for _r in out:
+        _r["decisive_breakeven_win_pct"] = _decisive_breakeven(_r)
     priced_out = [r for r in out
-                  if r.get("breakeven_win_pct") is not None
-                  and r["breakeven_win_pct"] >= BREAKEVEN_MAX_WIN_PCT]
+                  if r.get("decisive_breakeven_win_pct") is not None
+                  and r["decisive_breakeven_win_pct"] >= BREAKEVEN_MAX_WIN_PCT]
     if priced_out:
         keep = {id(r) for r in priced_out}
         out = [r for r in out if id(r) not in keep]
     return out, quarantined, near, priced_out, stale_dropped
+
+
+def _live_prices(symbols: list[str]) -> dict[str, float]:
+    """Current price for a HANDFUL of names — the candidates, never the universe.
+
+    Used to re-quote the economics at a price you could actually pay. Failure
+    is not fatal and must not be silent: an empty dict leaves every row's
+    settled economics standing, and the caller stamps `live_requote:
+    unavailable` so a missing re-quote is visible rather than mistaken for
+    "nothing moved".
+
+    Yahoo, labelled — IBKR is the golden source for bars, but this is a
+    decoration on an already-computed signal, not an input to it, and routing
+    it through the one shared IBKR market-data session to price three names
+    would contend with the desk for no gain.
+    """
+    if not symbols:
+        return {}
+    try:
+        import yfinance as yf
+
+        from ..yahoo_session import yahoo_session
+        df = yf.download(list(dict.fromkeys(symbols)), period="1d",
+                         interval="1m", progress=False,
+                         session=yahoo_session(), group_by="ticker",
+                         threads=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("live re-quote unavailable (%s) — candidates keep their "
+                    "signal-close economics, and say so", str(exc)[:90])
+        return {}
+    out: dict[str, float] = {}
+    for sym in dict.fromkeys(symbols):
+        try:
+            col = df[sym]["Close"] if len(symbols) > 1 else df["Close"]
+            col = col.dropna()
+            if len(col):
+                out[sym] = round(float(col.iloc[-1]), 2)
+        except Exception:  # noqa: BLE001 — one bad column must not lose the rest
+            continue
+    return out
 
 
 def build_artifact(rows: list[dict], universe: str,
@@ -539,7 +638,11 @@ def build_artifact(rows: list[dict], universe: str,
         "priced_out": [
             {k: r.get(k) for k in
              ("symbol", "tier", "close", "target", "stop", "target_pct",
-              "reward_risk", "breakeven_win_pct", "sigma_below", "atr_pct")}
+              "reward_risk", "breakeven_win_pct", "sigma_below", "atr_pct",
+              # WHY it was rejected TODAY rather than at the signal close.
+              "live_price", "live_target_pct", "live_reward_risk",
+              "live_breakeven_win_pct", "decisive_breakeven_win_pct",
+              "live_note", "live_requote")}
             for r in (priced_out or [])
         ],
         "breakeven_max_win_pct": BREAKEVEN_MAX_WIN_PCT,
