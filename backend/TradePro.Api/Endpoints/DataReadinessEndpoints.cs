@@ -321,7 +321,24 @@ public static class DataReadinessEndpoints
                 string? since = null;
                 if (!ranRecently)
                 {
-                    detail = $"has not run for {ageH:F0}h"
+                    // SAY WHAT IS TRUE. When partials were skipped, the lane
+                    // HAS run — repeatedly — and only its last full-lane
+                    // harvest is old. "has not run for 24h" while it ran ten
+                    // minutes ago is the kind of false statement that teaches
+                    // an operator to stop reading the banner.
+                    //
+                    // Seen 22 Sep 2026: the 5m lane was legitimately rescoped
+                    // from 969 symbols to the 12 that consume 5m data. Every
+                    // correct new-size run sat under the 75th-percentile floor
+                    // and was skipped, so the lane reported "has not run for
+                    // 24h" while running every 30 minutes. The PERCENTILE IS
+                    // RIGHT and self-heals as the window fills with new-size
+                    // runs; only this sentence was wrong.
+                    detail = (partialSkipped > 0
+                              ? $"last FULL-LANE harvest was {ageH:F0}h ago "
+                                + $"({partialSkipped} smaller run(s) since — "
+                                + "the lane IS running)"
+                              : $"has not run for {ageH:F0}h")
                            + (weekdayOnly && effectiveAgeH < ageH - 1
                                 ? $" ({effectiveAgeH:F0}h of them weekday time)" : "")
                            + $" (expected within {maxAgeH:F0}h) — "
@@ -349,8 +366,15 @@ public static class DataReadinessEndpoints
                 }
                 if (partialSkipped > 0)
                 {
-                    detail += $"; ignored {partialSkipped} partial fetch(es) newer than "
-                            + "this harvest (single-symbol cache misses are not lane coverage)";
+                    // Do NOT call these "single-symbol cache misses". That was
+                    // true of the ad-hoc fetches this guard was built for, and
+                    // is false of a lane that has been deliberately rescoped —
+                    // naming the cause wrongly sends the reader hunting a bug
+                    // that is not there.
+                    detail += $"; {partialSkipped} newer run(s) covered fewer symbols "
+                            + $"than this lane's typical {laneSize} and were not graded "
+                            + "(an ad-hoc fetch, or a lane that has been rescoped — "
+                            + "if the latter, this clears itself as the window fills)";
                 }
                 Add(key, label, purpose, usable, newest, detail, since,
                     new { gold, silver, bronzeFallback = bronze, missing,
