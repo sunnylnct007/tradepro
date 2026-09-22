@@ -196,9 +196,28 @@ class MeanReversionSwingStrategy(Strategy):
 
             from ...cli.push_to_api import load_credentials
             base, token = load_credentials()
+            # ?fresh=true IS THE WHOLE GUARD. Without it this reads IBKR's
+            # OWN CACHE, and IBKRClient.GetPositionsAsync says so in terms:
+            #
+            #   "IBKR SERVES THIS FROM A CACHE ... a stale read there means
+            #    refusing a real close, or worse, BELIEVING A POSITION EXISTS
+            #    THAT DOES NOT. Pass forceFresh after anything that MUTATES
+            #    the book."
+            #
+            # This guard runs immediately after selling, which is exactly
+            # "after something that mutates the book". On 22 Sep it sold 18
+            # LRCX, re-read the cache, was told it still held 18, and sold
+            # again — twelve times, to SHORT 252. ASML went short 42 the same
+            # way. Identical to the ARWR/SNOW runaway of 21 Sep that this
+            # guard was written to stop: the logic was right and the source
+            # was stale, so it never once fired.
+            #
+            # One query parameter is the difference between a guard and a
+            # decoration.
             r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
+                             params={"fresh": "true"},
                              headers={"Authorization": f"Bearer {token}"} if token else {},
-                             timeout=20)
+                             timeout=30)
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
             rows = r.json()
