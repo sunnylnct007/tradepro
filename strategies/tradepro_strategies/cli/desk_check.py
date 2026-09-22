@@ -90,6 +90,11 @@ SCHEDULED_JOBS = (
     "com.tradepro.desk-check",
 )
 
+# Named so check_jobs can tell its OWN exit code apart from a job's. Exit 1
+# from this process means "ran, found problems" — the contract with cron —
+# and must never be read as the checker being broken.
+SELF_JOB = "com.tradepro.desk-check"
+
 
 # Worst first in the published payload, so the banner can take checks[0] as the
 # headline without re-deriving severity in TypeScript.
@@ -288,6 +293,25 @@ def check_jobs() -> list[Check]:
         if code is None:
             out.append(Check(f"Job · {short}", UNKNOWN,
                              "not loaded in launchd — it is not scheduled at all"))
+        elif job == SELF_JOB and code == "1":
+            # EXIT 1 IS THIS CHECK WORKING, NOT THIS CHECK FAILING.
+            #
+            # desk_check returns 1 whenever any lane is bad — that is its
+            # contract with cron. Reading its own exit code as a job failure
+            # made it flag ITSELF the moment anything else broke, which then
+            # kept the verdict bad, which kept the exit code at 1. A
+            # self-sustaining alarm that says nothing about the desk.
+            #
+            # Seen 22 Sep 2026: "[BROKEN] Job · desk-check: last run exited 1"
+            # appeared alongside a real bars_5m fault and added a second
+            # BROKEN lane that did not exist.
+            #
+            # The watch itself STAYS — a dead checker is the worst failure in
+            # this file. Not-loaded still fails above, and any code other than
+            # 0 or 1 (a crash, a kill) still fails here.
+            out.append(Check(f"Job · {short}", OK,
+                             "last run exited 1 — it ran and reported problems, "
+                             "which is this check working"))
         elif code not in ("0", "-"):
             out.append(Check(f"Job · {short}", BROKEN,
                              f"last run exited {code}",
