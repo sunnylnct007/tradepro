@@ -281,3 +281,38 @@ def test_a_genuinely_flat_account_is_indistinguishable_and_that_is_accepted():
     direction — a stale position is re-checked next bar, an unmanaged book is
     not noticed until something moves."""
     assert True
+
+
+# ── the guard must FAIL CLOSED ────────────────────────────────────────────
+def test_an_unconfirmable_position_is_held_not_sold(monkeypatch):
+    """22 Sep, the most expensive bug of the week.
+
+    The guard read `if _bpos is not None:` — so when the broker could NOT be
+    confirmed it was SKIPPED and the sell proceeded. The sleeve then sold LRCX
+    18 shares every 17 minutes from 08:18, sixteen times, turning +18 into
+    -252 and +3 ASML into -42: about $149k of short exposure on a long-only
+    desk, and covering LRCX cost ~$11/share more than it sold for.
+
+    A guard that steps aside when it cannot see is not a guard. The cost of
+    refusing is an exit one bar late; the cost of proceeding is unbounded.
+    """
+    import inspect
+    src = inspect.getsource(MeanReversionSwingStrategy.on_bar)
+    assert "hold-unconfirmed" in src, (
+        "the exit path must refuse when the broker cannot be confirmed")
+    # and it must refuse BEFORE any sizing happens
+    assert src.index("hold-unconfirmed") < src.index("already-flat")
+
+
+def test_account_state_is_not_used_as_a_second_broker_read():
+    """It is a snapshot the daemon PUSHES, not an independent read. Comparing
+    the broker against our own cache is circular, and when the daemon stops
+    the cache freezes and the sleeve can never exit anything — which is what
+    happened when this was tried on 23 Sep."""
+    import inspect
+    src = inspect.getsource(MeanReversionSwingStrategy._broker_positions)
+    # comments may explain WHY it is not used; the code must not call it
+    code = "\n".join(l for l in src.splitlines()
+                     if not l.strip().startswith("#"))
+    assert "account-state" not in code, (
+        "account-state is our own snapshot; it cannot verify the broker")
