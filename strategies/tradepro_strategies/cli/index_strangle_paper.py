@@ -388,6 +388,73 @@ PLACE_EXPIRY_KINDS = ("weekly", "monthly")
 PLACE_EXPIRY_KIND = PLACE_EXPIRY_KINDS[-1]
 
 
+# HOW MANY UNITS THE DESK MAY PLACE AT ONCE — deliberately one.
+#
+# Owner, 23 Sep 2026: "can we also disabke placing too many index option when
+# we are able to place only coupl;e successfully" / "firts we get one workig
+# then we can. get rest working".
+#
+# THE RECORD THAT SETTLED WHICH ONE. 21 sessions of the decision log, placed vs
+# refused per unit:
+#
+#     XSP monthly   11 placed   2 failed   85%   1 chain, 1 provisional
+#     XSP weekly     4 placed   2 failed   67%   2 chain
+#     SPX weekly     3 placed   3 failed   50%   3 chain
+#     SPX monthly    6 placed   7 failed   46%   3 chain, 3 BROKER REJECTIONS,
+#                                                1 provisional
+#
+# So the desk was attempting four units and landing about two. SPX monthly is
+# the worst of them and its margin rejections are not a transient: MARGIN_PCT
+# estimates SPX at 121% of the $151k paper account, and three "we are unable
+# to" rejections from IBKR say the estimate was not pessimistic enough. No
+# retry budget fixes that.
+#
+# WHY A SET AND NOT A COUNT. A cap of "stop after 2 successes" would place
+# whichever units happened to resolve first — the book would be chosen by
+# IBKR's chain latency rather than by us, and it would differ every session,
+# which is precisely the noise that makes a result unreadable. An explicit set
+# is reproducible: the same unit every day until it is reliable, then widen.
+#
+# WHY THE OTHERS ARE STILL EVALUATED. Every unit keeps its decision row with a
+# stated refusal, so the moment XSP monthly is boring we can read what the rest
+# WOULD have done. A unit removed here is not a unit stopped being measured.
+#
+# WIDENING IS ONE LINE. Add the next unit — XSP weekly by the table above, then
+# SPX weekly — when the one before it has a clean run. The env override exists
+# so that can be tried on the Lambda without a deploy.
+PLACE_UNITS: tuple[tuple[str, str], ...] = (
+    ("XSP", "monthly"),
+)
+
+
+def _place_units() -> tuple[tuple[str, str], ...] | None:
+    """The (market, expiry) units this desk may place. None means every unit.
+
+    Override with TRADEPRO_STRANGLE_PLACE_UNITS — "XSP:monthly,XSP:weekly", or
+    "all" to lift the restriction entirely. An unparseable value is IGNORED
+    rather than silently widening or narrowing the desk: a typo in an env var
+    must never be the reason a unit did or did not trade.
+    """
+    raw = (os.environ.get("TRADEPRO_STRANGLE_PLACE_UNITS") or "").strip()
+    if not raw:
+        return PLACE_UNITS
+    if raw.lower() in ("all", "*"):
+        return None
+    out: list[tuple[str, str]] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        market, _, k = part.partition(":")
+        market, k = market.strip().upper(), k.strip().lower()
+        if not market or k not in PLACE_EXPIRY_KINDS:
+            print(f"  !! ignoring TRADEPRO_STRANGLE_PLACE_UNITS={raw!r} — "
+                  f"{part!r} is not MARKET:{'|'.join(PLACE_EXPIRY_KINDS)}")
+            return PLACE_UNITS
+        out.append((market, k))
+    return tuple(out) if out else PLACE_UNITS
+
+
 def economics(row: dict, ev_entry: dict | None,
               kind: str = "weekly") -> dict | None:
     """Money, per ONE contract of `kind`, at today's levels.
@@ -897,6 +964,19 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False,
     if cfg.get("placement_parked"):
         return {"placed": False, "expiry_kind": kind or PLACE_EXPIRY_KIND,
                 "reason": f"PARKED — {cfg['placement_parked']}"}
+    # ONE UNIT AT A TIME. See PLACE_UNITS. Checked here rather than by filtering
+    # the caller's unit list, because a unit that is never ATTEMPTED records no
+    # decision row, and the end-of-day check reads a missing row as "no
+    # placement attempt recorded at all" — a fault, every session. A refusal
+    # with a stated reason is the honest shape and the check grades it expected.
+    _units = _place_units()
+    _this = (str(row.get("market") or "").upper(), kind or PLACE_EXPIRY_KIND)
+    if _units is not None and _this not in _units:
+        _on = ", ".join(f"{m} {k}" for m, k in _units) or "nothing"
+        return {"placed": False, "expiry_kind": kind or PLACE_EXPIRY_KIND,
+                "reason": (f"not in the placement set — the desk is placing "
+                           f"{_on} only, one unit at a time until it is "
+                           f"reliable (evaluated and recorded, not traded)")}
     is_shadow = row.get("status") != "CANDIDATE"
     if is_shadow and not shadow:
         return {"placed": False, "reason": "not a candidate",

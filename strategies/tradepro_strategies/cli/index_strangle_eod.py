@@ -40,6 +40,7 @@ _EXPECTED_REFUSALS = (
     "session is closed",
     "provisional",              # pre-open strikes, correctly refused
     "stand aside",              # the volatility gate declining is the gate WORKING
+    "not in the placement set",  # deliberately stood down — see PLACE_UNITS
 )
 
 
