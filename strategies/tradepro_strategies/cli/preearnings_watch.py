@@ -1788,8 +1788,25 @@ def main() -> int:
         if not srows and gstate.get("scout_last_run") == _dt.date.today().isoformat():
             # throttled tick: re-attach today's rows, same pattern as movers_last
             srows = gstate.get("scout_last_rows") or []
-        if srows:
+        # SCOUT IS OFF BY DEFAULT. Owner, 23 Sep: "too many symbols with no
+        # moment of truth". On the night that was said, Scout was 25 of the 34
+        # rows on the board and in the mail — and a Scout row is research-only
+        # by construction: no entry, no stop, no size, tier "unproven". It is
+        # the single largest source of screen noise and nothing on it can be
+        # traded.
+        #
+        # The lane is not deleted, because the sweep is cheap and its output is
+        # occasionally the start of a real idea (GE's federal-award surge was a
+        # Scout row). It simply stops being PUBLISHED unless asked for:
+        # settings-kv `preearnings_scout_publish` = true brings it back, and
+        # the decision log still records every sweep either way.
+        _publish_scout = bool(_kv_get(base, token, "preearnings_scout_publish"))
+        if srows and _publish_scout:
             rows += srows
+        elif srows:
+            log.info("scout found %d name(s) — NOT published (set "
+                     "preearnings_scout_publish=true to show them): %s",
+                     len(srows), ", ".join(r["symbol"] for r in srows))
             log.info("scout: %d new-name candidate(s): %s", len(srows),
                      ", ".join(r["symbol"] for r in srows))
         if not args.dry_run and gstate:
