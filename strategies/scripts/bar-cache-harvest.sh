@@ -136,6 +136,58 @@ print(','.join(harvest_symbols('$CACHE_DIR')))
         # with A, not the twelve that anything reads. A bound that keeps the
         # wrong names is worse than no bound, because the lane then looks
         # healthy while starving its only consumer.
+        # SCOPE=candidates — intraday bars ONLY for names the desk is
+        # actually considering today.
+        #
+        # Owner, 23 Sep: "5m harvest we do need but we can do for limited
+        # symbols we are having as candidate". That is a better scope than the
+        # top-250-by-ATR one written first, for two reasons: it is a fraction
+        # of the size, and it self-maintains — a name enters intraday coverage
+        # the day it becomes tradeable and leaves when it stops.
+        #
+        # The set is the union of: today's Swing and Momentum candidates, the
+        # watch list, and anything currently HELD (a position needs intraday
+        # context more than a candidate does). Typically tens of names, against
+        # the 968 that hung this lane for nine hours on 22 Sep.
+        if [[ "${TRADEPRO_HARVEST_SCOPE:-}" == "candidates" ]]; then
+            CSYMS=$(cd "$PROJECT_DIR" && "${UV:-uv}" run python -c "
+import requests
+from tradepro_strategies.cli.push_to_api import load_credentials
+b, t = load_credentials(); b = b.rstrip('/')
+H = {'Authorization': f'Bearer {t}'}
+out = set()
+for lane in ('swing', 'momentum', 'preearnings'):
+    try:
+        d = requests.get(f'{b}/api/today-setups/{lane}/latest', headers=H, timeout=20).json()
+        for r in ((d.get('artifact') or {}).get('candidates_v2') or []):
+            sym = str(r.get('symbol') or '').upper()
+            if sym:
+                out.add(sym)
+    except Exception:
+        pass
+try:
+    p = requests.get(f'{b}/api/integrations/ibkr/positions', headers=H, timeout=20).json()
+    for r in (p.get('positions') or []):
+        if not r.get('isOption'):
+            sym = str(r.get('ticker') or '').upper()
+            if sym:
+                out.add(sym)
+except Exception:
+    pass
+print(','.join(sorted(out)))
+" 2>>"${LOG:-/dev/null}")
+            CN=$(printf '%s' "$CSYMS" | tr ',' '\n' | grep -c .)
+            if (( CN > 0 )); then
+                log "SCOPE=candidates: harvesting the $CN name(s) the desk is considering or holding, not the $N in the universe"
+                SYMS="$CSYMS"; N=$CN
+            else
+                # Fail LOUD. Falling through to the full universe is what hung
+                # this lane for nine hours.
+                log "FATAL: TRADEPRO_HARVEST_SCOPE=candidates but no candidates or positions came back — refusing to fall back to the full universe"
+                exit 1
+            fi
+        fi
+
         if [[ "${TRADEPRO_HARVEST_SCOPE:-}" == "watch" ]]; then
             WSYMS=$(cd "$PROJECT_DIR" && "${UV:-uv}" run python -c "
 from tradepro_strategies.cli.preearnings_watch import _kv_get
