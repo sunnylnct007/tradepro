@@ -78,12 +78,58 @@ def test_placed_without_a_fill_price_is_flagged():
     assert any("credit_actual is NULL" in p for p in r["problems"])
 
 
-def test_a_refusal_WITH_a_reason_is_not_a_problem():
-    # The gate refusing, or a market that cannot be funded, is the system
+def test_an_EXPECTED_refusal_is_not_a_problem():
+    # The gate standing aside, or a market we deliberately park, is the desk
     # working. Flagging it would bury the real faults.
-    r = audit([_row("SPY", placed=False, place_error="could not resolve"),
-               _row("QQQ", placed=False, place_error="margin")], MK)
-    assert r["ok"] is True, r["problems"]
+    r = audit([_row("SPY", placed=False, place_error="PARKED — deliberately off"),
+               _row("QQQ", placed=False,
+                    place_error="stand aside — vol gate above ceiling")], MK)
+    assert r["ok"] is True, r["problems"] + r["operational"]
+    assert r["placeable"] == 0   # neither was ever going to trade
+
+
+def test_an_OPERATIONAL_refusal_is_NOT_a_clean_day():
+    # THIS TEST PREVIOUSLY ASSERTED THE BUG.
+    #
+    # It fed exactly "could not resolve" and "margin" — the desk's two most
+    # common real failures — and asserted ok is True, on the reasoning that a
+    # refusal carrying a reason is the system working. So on 23 Sep 2026, when
+    # the chain would not resolve for three of four units, the owner was
+    # emailed "[STRANGLE OK] end-of-day check clean". A stated reason is not
+    # the same as an acceptable outcome.
+    r = audit([_row("SPY", placed=False,
+                    place_error="could not resolve one or both contracts"),
+               _row("QQQ", placed=False,
+                    place_error="insufficient margin to fund the pair")], MK)
+    assert r["ok"] is False
+    assert r["problems"] == []          # the plumbing was fine...
+    assert len(r["operational"]) == 2   # ...the desk still could not trade
+    assert r["placed"] == 0 and r["placeable"] == 2
+
+
+def test_WEEKLY_units_are_audited_too():
+    # The loop filtered to expiry_kind == "monthly" and so audited half the
+    # desk. Weeklies began placing 14 Sep 2026 and were never added; on 23 Sep
+    # two weekly units failed to resolve a chain entirely unseen.
+    r = audit([_row("SPY", placed=True, credit_actual=800.0,
+                    close_trigger="end_of_day"),
+               _row("SPY", expiry_kind="weekly", placed=False,
+                    place_error="could not resolve one or both contracts"),
+               _row("QQQ", placed=True, credit_actual=600.0,
+                    close_trigger="end_of_day")], MK)
+    assert r["ok"] is False, "a failed WEEKLY unit must not read as clean"
+    assert any("SPY weekly" in o for o in r["operational"])
+    assert r["placed"] == 2 and r["placeable"] == 3
+
+
+def test_every_line_names_the_EXPIRY_not_just_the_market():
+    # "SPX" cannot say whether the monthly or the weekly failed; both exist and
+    # they fail independently.
+    r = audit([_row("SPY", expiry_kind="weekly", placed=False,
+                    place_error="could not resolve one or both contracts"),
+               _row("QQQ", placed=True, credit_actual=1.0,
+                    close_trigger="end_of_day")], MK)
+    assert all(("monthly" in o or "weekly" in o) for o in r["operational"])
 
 
 def test_a_clean_day_reports_clean():
