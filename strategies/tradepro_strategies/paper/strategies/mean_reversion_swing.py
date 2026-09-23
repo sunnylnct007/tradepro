@@ -247,6 +247,21 @@ class MeanReversionSwingStrategy(Strategy):
                              "unreadable, not as an empty account; local state "
                              "is kept and nothing is flattened on this reading")
                 return None
+
+            # NO CROSS-CHECK AGAINST account-state, deliberately. That looked
+            # like a second broker read and is not: the paper daemon PUSHES it.
+            # Comparing this against a snapshot we wrote ourselves is circular,
+            # and when the daemon is stopped the snapshot freezes — the two then
+            # disagree forever and the sleeve can never exit anything. Tried on
+            # 23 Sep; it deadlocked immediately on ASML, LRCX and XSP, all of
+            # which were flat at the broker and stale in the snapshot.
+            #
+            # This endpoint also appears not to report SHORT stock positions at
+            # all (LRCX was absent from it on 22 Sep while the account was short
+            # 252). For THIS guard that fails in the safe direction: an
+            # invisible short reads as nothing held, and nothing held refuses
+            # the sell. It is still a reason not to treat the endpoint as a
+            # complete picture of the book anywhere else.
             return out
         except Exception as exc:  # noqa: BLE001
             _log.warning("could not read BROKER positions (%s) — exits will be "
@@ -413,26 +428,45 @@ class MeanReversionSwingStrategy(Strategy):
             # The rule this desk already had and this file did not apply:
             # verify against positions BEFORE placing. The broker knows what
             # we own; nothing else does.
+            # FAIL CLOSED. This read `if _bpos is not None:` — so when the
+            # broker could NOT be confirmed the guard was skipped and the sell
+            # went ahead. That is backwards, and it cost real money: on 22 Sep
+            # the sleeve sold LRCX 18 shares every 17 minutes from 08:18,
+            # sixteen times, turning +18 into -252 and +3 ASML into -42. About
+            # $149k of short exposure on a long-only desk, and covering LRCX
+            # cost ~$11/share more than it sold for.
+            #
+            # A guard that steps aside when it cannot see is not a guard. The
+            # cost of refusing is a position that exits one bar later; the cost
+            # of proceeding is an unbounded short. Those are not comparable.
             _bpos = self._broker_positions()
-            if _bpos is not None:
-                _have = _bpos.get(sym.upper(), 0.0)
-                if _have <= 0:
-                    self.log_decision(
-                        symbol=sym, bar_ts=bar.timestamp, action="already-flat",
-                        reason=(f"local state says {held} held, but the BROKER says "
-                                f"{_have:+.0f} — the position is gone and this exit "
-                                f"would open a SHORT. Not selling. Local state is "
-                                f"stale, not the broker."))
-                    self._fill_price.pop(sym, None)
-                    self._entry_bar.pop(sym, None)
-                    return []
-                if _have < held:
-                    # Partly closed elsewhere: sell what is actually there.
-                    self.log_decision(
-                        symbol=sym, bar_ts=bar.timestamp, action="resize-to-broker",
-                        reason=(f"local state says {held}, broker says {_have:.0f} — "
-                                f"sizing the exit to the broker"))
-                    held = int(_have)
+            if _bpos is None:
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp, action="hold-unconfirmed",
+                    reason=("the broker could not be read, so this exit cannot be "
+                            "confirmed against a real position. HOLDING. Selling "
+                            "on an unconfirmed position is how this sleeve went "
+                            "short 252 LRCX on 22 Sep; a late exit costs one bar, "
+                            "a wrong one is unbounded."))
+                return []
+            _have = _bpos.get(sym.upper(), 0.0)
+            if _have <= 0:
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp, action="already-flat",
+                    reason=(f"local state says {held} held, but the BROKER says "
+                            f"{_have:+.0f} — the position is gone and this exit "
+                            f"would open a SHORT. Not selling. Local state is "
+                            f"stale, not the broker."))
+                self._fill_price.pop(sym, None)
+                self._entry_bar.pop(sym, None)
+                return []
+            if _have < held:
+                # Partly closed elsewhere: sell what is actually there.
+                self.log_decision(
+                    symbol=sym, bar_ts=bar.timestamp, action="resize-to-broker",
+                    reason=(f"local state says {held}, broker says {_have:.0f} — "
+                            f"sizing the exit to the broker"))
+                held = int(_have)
             fill = self._fill_price.get(sym) or float(
                 getattr(self.position_for(sym), "avg_entry_price", 0) or 0)
             if fill <= 0:
