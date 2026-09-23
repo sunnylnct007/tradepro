@@ -742,12 +742,22 @@ def evaluate(sym, cfg, base, token, state):
             _what = f"is trading {_intraday:.2f} intraday (last 15m bar)"
             _tail = (f"Its last SETTLED close was {px:.2f} on {d.dates[i]}, "
                      f"below the line — this is an intraday extension.")
+        # SAY WHAT YOU ARE WAITING FOR. "Wait for its pullback zone" without
+        # the number is not actionable — the reader cannot set an alert on it,
+        # so the mail becomes something to feel vaguely warned by and then
+        # ignore. Owner's standing rule: a warning must STATE the number.
+        #
+        # prox_hi is the SAME zone top the EMA20_PULLBACK_ZONE alert quotes,
+        # read from the one definition above rather than recomputed here —
+        # a second copy of a level is how this desk ends up mailing two
+        # different "buy zones" for one symbol.
+        _wait = _buy_zone_sentence(prox_hi, px if _daily_hit else _intraday)
         alerts.append(("EXTENDED_DO_NOT_CHASE", d.dates[i],
                        f"{sym} {_what} — at or above "
                        f"{ext:.2f}, which is {_mult}x "
                        f"its daily range above the 20-day average "
                        f"({ema:.2f}). That is an extension, not an entry. "
-                       f"{_tail}"))
+                       f"{_tail}{_wait}"))
     if bw:
         bo = next((b for b in bars if b["c"] >= bw), None)
         if bo:
@@ -945,6 +955,31 @@ def evaluate(sym, cfg, base, token, state):
             _row(sym, cfg, "buy (proposal)", entry, stop, qty, sessions_to, why)), gates
 
 
+def _buy_zone_sentence(prox_hi: float | None, trip: float | None) -> str:
+    """The level a do-not-chase alert is telling you to wait for.
+
+    Owner, 23 Sep 2026: a "MRVL has run too far to chase" mail whose advice was
+    "Wait for its pullback zone" — with no number. The desk had already
+    computed that level and withheld it, so there was nothing to set an alert
+    on. A warning must state the number.
+
+    `prox_hi` is passed in from the ONE definition at the call site
+    (ema + ema_proximity_atr * atr) rather than recomputed, so this can never
+    disagree with the zone the EMA20_PULLBACK_ZONE alert quotes for the same
+    symbol on the same day.
+
+    Returns "" when the level is unknown — an empty tail is honest, an invented
+    number is not.
+    """
+    if not prox_hi:
+        return ""
+    out = f" Its buy zone starts at {prox_hi:.2f}"
+    if trip:
+        out += f", {(trip - prox_hi) / prox_hi * 100.0:.1f}% below here"
+    return (out + " — that is the level this watch is waiting for, and you "
+                  "will get a separate alert if it gets there.")
+
+
 def _provenance(d, bars, opts):
     """The Data panel's contract: {label, source_label, trust, age}."""
     rows = [{"label": "daily bars", "source_label": d.source,
@@ -1022,8 +1057,11 @@ def _mail_item(a_id, sym, text):
     if aid == "EXTENDED_DO_NOT_CHASE":
         return {"sev": 1, "sym": sym,
                 "head": f"{sym} has run too far to chase",
-                "body": text, "act": "Do not buy the spike. Wait for its "
-                                     "pullback zone."}
+                "body": text,
+                "act": ("Do not buy the spike. Wait for the buy zone quoted "
+                        "above — the desk has NOT proposed buying this, and "
+                        "this alert exists only because the name is on your "
+                        "watch list.")}
     if aid == "GAP_DOWN":
         return {"sev": 1, "sym": sym, "head": f"{sym} gapped down hard",
                 "body": text, "act": "Check the position/plan for this name."}
@@ -1866,6 +1904,27 @@ def main() -> int:
             SEV_LABEL = {0: "ACTION — a proposed order",
                          1: "HEADS-UP — worth knowing, nothing to place",
                          2: "SYSTEM — for information only"}
+            # SAY WHY THIS NAME IS IN YOUR INBOX.
+            #
+            # Owner, 23 Sep 2026, on a "MRVL has run too far to chase" mail:
+            # "now i never got email saying buy MRVL". Exactly — and the mail
+            # never said why MRVL was on his screen at all, so a do-not-chase
+            # read as a warning about a trade nobody had offered. The band
+            # heading said "nothing to place", which answers what to DO and
+            # not what this IS.
+            #
+            # Every name in this mail comes from the watch list. Saying so once
+            # per band costs one line and removes the whole question.
+            SEV_WHY = {
+                0: ("A watch-list name whose setup qualified and which the "
+                    "desk has SIZED. This is the only band that ever contains "
+                    "a proposal."),
+                1: ("Watch-list names only. Being here is NOT a proposal to "
+                    "buy — the desk has proposed nothing below, and a name can "
+                    "appear here for weeks without ever becoming a trade."),
+                2: ("Desk plumbing, not a market view. Listed so a setting or "
+                    "a gap is visible rather than silent."),
+            }
             # Email-safe colors (inline styles only): green = act,
             # amber = look, gray = ignore-unless-curious.
             SEV_COLOR = {0: ("#1e7e34", "#f2faf5"),
@@ -1877,10 +1936,13 @@ def main() -> int:
                 if not group:
                     continue
                 text_parts.append(SEV_LABEL[sev])
+                text_parts.append(f"  ({SEV_WHY[sev]})")
                 accent, tint = SEV_COLOR[sev]
                 html_parts.append(
-                    f'<h3 style="margin:18px 0 6px;font:600 13px sans-serif;'
-                    f'color:{accent};text-transform:uppercase">{SEV_LABEL[sev]}</h3>')
+                    f'<h3 style="margin:18px 0 2px;font:600 13px sans-serif;'
+                    f'color:{accent};text-transform:uppercase">{SEV_LABEL[sev]}</h3>'
+                    f'<div style="margin:0 0 8px;font:13px sans-serif;'
+                    f'color:#555">{SEV_WHY[sev]}</div>')
                 for x in group:
                     text_parts.append(f"  {x['head']}\n    {x['body']}\n"
                                       f"    What to do: {x['act']}")
