@@ -1714,37 +1714,54 @@ sessions (14, 15, 21 Sep) have exits filed against the wrong decision row.
 `strangle_execution` holds the correct attribution and could drive a backfill.
 I have not rewritten historical money records; flagging rather than doing.
 
-**BAR-CACHE AUDIT — FIGURES DO NOT RECONCILE, DO NOT QUOTE THEM YET.**
+**BAR-CACHE AUDIT — RECONCILED (third revision), and ONE REAL BAD BAR.**
 
-I filed a number here earlier that does not add up, so I am correcting my own
-entry rather than leaving it to be cited. Two reports of the same 19 Sep audit
-run disagree, and each disagrees with itself:
+Revised twice because the first two versions were wrong. Leaving the trail
+rather than tidying it.
 
-    report 1:  2,645 suspect bars, 27 symbols
-               ...but 4,199 phantom + 2,606 stale = 6,805, not 2,645
-    report 2:  5,835 findings, 12 symbols, all 1d resolution
-               ...periods 1,731 + 2,776 + 16 = 4,523, not 5,835
+CAUSE OF THE BAD FIGURES: the audit log is APPEND-ONLY (the plist redirects
+with `>>`) and held FOUR runs — summary lines at 1895, 3790, 5689, 8338. A
+reader that greps the whole file merges four runs into one. The per-run
+arithmetic was right all along; the SCOPE was wrong. Note that a
+total-vs-breakdown assertion would NOT have caught this: each run was
+internally consistent. What catches it is a run-id header and a reader that
+scopes to the last run. Both belong in `bar_cache_audit.py`.
 
-Partial top-N subtotals could explain the period and per-symbol gaps. They
-CANNOT explain 6,805 vs 2,645, or 27 symbols vs 12. Someone needs to re-run
-`bar_cache_audit.py` and quote one number before any of this is acted on.
+SCOPED TO THE LAST RUN, everything reconciles exactly:
 
-WHAT DOES LOOK SOLID, and it lowers the severity a lot: the audit walks the
-PARQUET store — the one strategies read, not the postgres one the charts read —
-and the findings concentrate in 2010-11 and 2019-20 on illiquid names, with
-only SIXTEEN bars since 2024. APLD's 2019-20 bars predate its 2022 listing as
-Applied Digital; same shape on HIMS (pre-merger SPAC) and WBD (Discovery
-predecessor). These read as PREDECESSOR/SHELL bars: a provider really served
-them, they are economically meaningless, flat closes on ~zero volume. Not
-fabricated, and not the two-stores confusion.
+    2,645 findings = 1,989 zero-volume + 655 stale + 1 spike
+    27 distinct symbols · all 1d · 100 findings since 2024 (NOT 16)
 
-So this is a BACKTEST-HISTORY question on a dozen mostly-illiquid names, not a
-live-signal one. Report-only; nobody has run `--quarantine` or `--refresh`, and
-quarantining 850 partitions should not be the first move.
+AND THE CONCLUSION INVERTS: of the 27 findings dated 2026, TWENTY-SIX are FALSE
+POSITIVES — a zero-volume test fired at ^VIX, ^TNX, PL=F, PA=F, instruments
+that do not report volume at all. ^TNX alone is 33 of the 100 post-2024. The
+audit's own noise floor is most of what looked like signal, which is the
+strongest argument against running `--quarantine` on it. The volume test must
+not fire on instruments that have no volume.
 
-THE MEASURABLE QUESTION, unanswered: does any trade in the gated studies
-ORIGINATE on a suspect bar? That is answerable without touching the store.
-tradepro-ef's prior is that it structurally cannot — the swing rule needs
-pstdev > 0 over 20 bars and an unchanged close drags sd toward 0 — but flagged
-that as reasoning, not measurement, and declined to report it as a result.
-Correctly. Nobody has measured it.
+**THE 27th IS REAL, AND IT IS THE ONE THING HERE WORTH ACTING ON.** Verified
+independently out of the parquet store (`~/.tradepro/bar_cache/us_etf/OKE/1d/
+2026-09.parquet`), not taken on report:
+
+    2026-09-08     96.10    97.83    95.00    97.51   1,528,117
+    2026-09-09   1635.00  1635.00  1635.00  1635.00           0   <-- SYNTHETIC
+    2026-09-10     96.67    96.67    94.96    95.82   1,061,526
+
+Open = high = low = close = 1635.00 on ZERO volume. That is not a bad tick — a
+bad tick moves one field. A bar with four identical prices and no volume is a
+fabricated row. 16.8x the neighbouring closes, dated THIS MONTH, in the store
+the STRATEGIES read (not the postgres one the charts read), on a name inside
+the 956 universe, sitting inside both the 20-day and the 200-day windows today.
+This is the shape of [[project_garbage_bar_false_buy]].
+
+IMPACT IS NOT MEASURED and is tradepro-ef's, mid-flight. One thing to hold
+loosely until they finish: the arithmetic points toward SUPPRESSION rather than
+a false BUY — a 1635 in a 20-bar window inflates both the mean and sigma
+enormously, so a −2.25σ entry becomes unreachable, and a 200-SMA lifted ~7.7
+would push price below its own trend floor. A name that silently STOPS
+qualifying is harder to notice than one that wrongly fires. That is reasoning,
+not a result.
+
+DO NOT silently repair or drop that row. It is one obvious-looking fix and
+exactly the kind that reappears as an unexplained backtest change six weeks on.
+Quarantine with a record, or an owner decision.
