@@ -1317,7 +1317,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
 
     # 0) G3 — TradePro's own chain feed (backend/TradePro.Api ChainEndpoints).
     try:
-        gc = fetch_chain_g3(sym, target_dte=35, right="P")
+        gc = fetch_chain_g3(sym, target_dte=35, right="P",
+                            dte_min=cfg.dte_min, dte_max=cfg.dte_max)
         if gc and gc.puts and gc.spot > 0:
             t = max(gc.dte, 1) / 365.0
             q = select_by_abs_delta(gc.puts, 0.27, gc.spot, t, pricer)
@@ -2278,6 +2279,12 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
     for c in rows:
         try:
             _sym = str(c.get("symbol", "")).upper()
+            _sc = c.get("sigma_context") or {}
+            _hc = c.get("history_check") or {}
+            _assign_p = _sc.get("assignment_prob_pct")
+            _sig_d = _sc.get("strike_sigma_distance")
+            _emp_p = _hc.get("breach_pct")
+            _emp_depth = _hc.get("median_breach_depth_pct")
             out.append(Candidate(
                 symbol=c.get("symbol", ""), strategy="Wheel", tier="failed",
                 action="sell put", as_of=as_of or "",
@@ -2301,6 +2308,25 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
                 gates=c.get("decision_trace") or [],
                 extra={"insider_buys": _insiders.get(_sym),
                        "insider_sells": _sells.get(_sym),
+                       # THE NUMBER THE OWNER ASKED TO FILTER ON (24 Sep 2026):
+                       # "i shd be able to filter the candidates with good
+                       # probability to sell options". Both were already
+                       # computed and then buried in a detail panel.
+                       #
+                       # BOTH travel, never just the model one. The put-overlay
+                       # study (SWING_PUT_OVERLAY_GATES_V1) is the reason: the
+                       # modelled assignment rate was RIGHT at 8.4%, and the
+                       # trade still lost, because assignment landed precisely
+                       # on the dips that kept falling. A risk-neutral
+                       # probability says how OFTEN; only the history says how
+                       # FAR it went when it happened. Ranking on the model
+                       # alone reproduces that study's mistake.
+                       "assignment_prob_pct": _assign_p,
+                       "keep_premium_prob_pct": (
+                           None if _assign_p is None else round(100 - _assign_p, 1)),
+                       "assignment_empirical_pct": _emp_p,
+                       "breach_depth_median_pct": _emp_depth,
+                       "strike_sigma_distance": _sig_d,
                        "gov_contracts": _contracts.get(_sym)},
             ))
         except Exception as exc:  # noqa: BLE001 — one bad row must not lose the screen
