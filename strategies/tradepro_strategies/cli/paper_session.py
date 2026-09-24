@@ -2216,7 +2216,26 @@ def main(argv: list[str] | None = None) -> int:
     # rather than a literal that goes stale the next time the universe moves.
     # And truncation is no longer silent: dropping names from the bus is a
     # coverage loss, so it says which ones and how many.
-    _BUS_SYMBOL_CAP = int(os.environ.get("TRADEPRO_BUS_SYMBOL_CAP", "400"))
+    # 24 Sep 2026 — AND IT WENT STALE AGAIN, EXACTLY AS THE NOTE ABOVE SAID.
+    #
+    # The 25 Aug fix said the cap "now defaults to the SIZE OF THE UNIVERSE WE
+    # TRADE rather than a literal that goes stale the next time the universe
+    # moves". The comment says that; the code kept a literal, 400. The universe
+    # moved to 917 and 517 names — 56% — were silently never evaluated for
+    # entry, including GEN, which the published swing screen listed as a
+    # candidate the same session. The owner had just noticed swing finding more
+    # candidates after the universe widened 244 -> 989; more than half of that
+    # widening was being discarded here.
+    #
+    # So the default IS the universe now, not a number. The environment
+    # variable stays as a deliberate throttle for anyone who hits rate limits,
+    # which is the thing the cap was actually for; daily bars are cached and
+    # harvested nightly, so the 15-minute reruns read cache rather than
+    # refetching. A rate limit is visible and recoverable. A 56% coverage gap
+    # in a forward test whose F1 gate is "live candidates match the committed
+    # harness" is neither.
+    _BUS_SYMBOL_CAP = int(os.environ.get("TRADEPRO_BUS_SYMBOL_CAP")
+                          or len(symbols))
     bus_symbols = symbols
     if len(symbols) > _BUS_SYMBOL_CAP:
         dropped = symbols[_BUS_SYMBOL_CAP:]
