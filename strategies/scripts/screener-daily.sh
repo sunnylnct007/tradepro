@@ -71,20 +71,16 @@ else
   log "candidates digest: FAILED (exit $?) — see $LOG"
 fi
 
-# ── SIGNALS, NOT SCREENS (2 Sep 2026) ───────────────────────────────────────
+# SIGNAL WATCH IS NOT RUN HERE — it has its own lane (24 Sep 2026).
 #
-# Owner: "i dont need more screens i need trading signals".
+# This step called `tradepro-signal-watch`, an entry point that no longer
+# exists: the module became cli/trade_alerts.py and took the launchd agent
+# com.tradepro.trade-alerts with it. So every run of this script has been
+# failing that step and logging "FAILED" into a file nobody reads, while the
+# work itself was being done correctly by the other lane all along.
 #
-# A screen waits for you to come and look. This finds you: a stop breached, a
-# position held past the window its edge was measured over, an order queued and
-# never approved. The index strangle has had exactly this since 11 Aug; equity
-# positions had nothing, so a stop could break at 10:00 and nobody would know.
-#
-# Runs after the screens so it sees today's signals, and fires each event ONCE
-# per day — a watcher that repeats every 15 minutes teaches you to ignore it.
-log "signal watch -> tradepro-signal-watch"
-if ( cd "$STRAT_DIR" && uv run tradepro-signal-watch >>"$LOG" 2>&1 ); then
-  log "signal watch: ok"
-else
-  log "signal watch: FAILED (exit $?) — see $LOG"
-fi
+# Two separate faults, and the second is the one worth remembering: a renamed
+# entry point left a caller behind, and the caller reported its own failure to
+# a log instead of to anything that would be noticed. A step that cannot
+# succeed must be DELETED, not left failing quietly — a daily "FAILED" line
+# that is already expected is indistinguishable from a real one.
