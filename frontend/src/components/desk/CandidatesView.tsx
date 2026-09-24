@@ -403,7 +403,26 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
     // opt-in to the study view, so there it still shows.
     if (hideBlocked) {
       v = v.filter((r) => r.eligible);
-      if (only === "all") v = v.filter((r) => r.tierRaw !== "failed");
+      // THE COMBINED VIEW SHOWS WHAT HAS EVIDENCE. Owner, 24 Sep: "today i
+      // want a trustable tradepro screen".
+      //
+      // On that morning the board carried 125 rows and 33 of them came from a
+      // lane with a recorded result. The other 92 were a DO-NOT-FUND wheel
+      // backtest (82), two lanes with no gates at all (9), and one row from
+      // the Ichimoku rule — the only strategy here with a live record, which
+      // is 30 round-trips at 27% win and -3.76%/trade.
+      //
+      // `failed` was already withheld for exactly this reason. `unproven` is
+      // the same argument one tier along: a candidate from a strategy that has
+      // never been tested must not sit in the same list as one from a strategy
+      // that has, because the list is what the owner trades from and the badge
+      // is four words of grey text.
+      //
+      // Nothing is deleted. Clicking a strategy's own pill still shows it in
+      // full — that click is an explicit choice to look at unproven work.
+      if (only === "all") {
+        v = v.filter((r) => r.tierRaw !== "failed" && r.tierRaw !== "unproven");
+      }
     }
     // Actionable tiers first, then by each strategy's own ranking metric.
     // Cross-strategy metrics are NOT comparable (a σ is not a %/yr), so this
@@ -418,6 +437,10 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
 
   const eligibleCount = rows.filter((r) => r.eligible && r.tierRaw !== "failed").length;
   const withheldCount = rows.filter((r) => r.eligible && r.tierRaw === "failed").length;
+  // COUNTED, NEVER HIDDEN — the same promise the failed tier already carries.
+  // Withholding unproven rows from the combined view is only defensible if the
+  // screen says it is doing it and how many.
+  const unprovenCount = rows.filter((r) => r.eligible && r.tierRaw === "unproven").length;
 
   const Pill = ({ v, label }: { v: string; label: string }) => (
     <button onClick={() => setOnly(v)}
@@ -496,10 +519,19 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         </label>
       </div>
 
-      {hideBlocked && only === "all" && withheldCount > 0 && (
+      {hideBlocked && only === "all" && (withheldCount > 0 || unprovenCount > 0) && (
         <div style={{ fontSize: 11.5, color: MUTED }}>
-          {withheldCount} row(s) from a strategy whose backtest FAILED are not
-          listed here — counted, never hidden. Click its pill to study them.
+          This list is what has EVIDENCE — every row below comes from a
+          strategy that passed its pre-registered gates.
+          {withheldCount > 0 && (
+            <> {withheldCount} row(s) from a strategy whose backtest FAILED are
+            not listed.</>
+          )}
+          {unprovenCount > 0 && (
+            <> {unprovenCount} row(s) from strategies that have never been
+            tested are not listed.</>
+          )}
+          {" "}Counted, never hidden — click a pill to study them.
         </div>
       )}
 
