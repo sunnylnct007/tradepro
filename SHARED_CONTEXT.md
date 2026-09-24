@@ -1754,14 +1754,42 @@ the STRATEGIES read (not the postgres one the charts read), on a name inside
 the 956 universe, sitting inside both the 20-day and the 200-day windows today.
 This is the shape of [[project_garbage_bar_false_buy]].
 
-IMPACT IS NOT MEASURED and is tradepro-ef's, mid-flight. One thing to hold
-loosely until they finish: the arithmetic points toward SUPPRESSION rather than
-a false BUY — a 1635 in a 20-bar window inflates both the mean and sigma
-enormously, so a −2.25σ entry becomes unreachable, and a 200-SMA lifted ~7.7
-would push price below its own trend floor. A name that silently STOPS
-qualifying is harder to notice than one that wrongly fires. That is reasoning,
-not a result.
+**IMPACT NOW MEASURED — AND IT IS A SILENT BLOCK, NOT A FALSE BUY.**
+Computed by tradepro-ef and reproduced independently here; the two agree to the
+decimal. 5,213 bars, exactly one > 500 (index 5202 = 1635.0), last close 90.54.
+
+                            WITH the bar      WITHOUT it
+    20-day mean                 171.59            94.42
+    20-day stdev                335.74             2.08
+    sigma of last close         -0.24            -1.87
+    -2.25 sigma threshold      -583.82            89.75
+    200-day SMA                  93.92            86.12
+    last 90.54 vs 200-SMA       BELOW - BLOCKED   ABOVE - passes
+
+**The live harm is the 200-day trend floor.** A 200-SMA inflated to 93.92 sits
+ABOVE the current price, so OKE fails the trend filter — and momentum tests
+close > 200-SMA too, so BOTH gated sleeves silently exclude it. That runs until
+the bar rolls out of the 200-day window, roughly mid-2027.
+
+BE PRECISE ABOUT THE 20-DAY HALF, because it is easy to overstate: a stdev of
+335 on a $90 name makes -2.25 sigma arithmetically unreachable, so the
+mean-reversion entry CANNOT fire while the spike is in the window. But on
+today's prices it would not have fired anyway (-1.87 sigma against -2.25
+needed, threshold 89.75 vs last 90.54). So: no trade was demonstrably lost
+today. A name is being withheld from both sleeves, which is the thing that
+matters, and no trade has been proven missed.
+
+THIS CORRECTS A MEMORY. The desk's note for this shape is garbage bar ->
+false BUY. The same defect also produces a false BLOCK, and the block is the
+more dangerous to operate with: a bad buy appears in the blotter, a withheld
+name appears NOWHERE. It arrives at the owner's stated red line — not a wrong
+signal, a silently withheld one — from a direction that was never written down.
+Both mechanisms are the same corruption expressing as silence: a FLAT
+zero-volume bar drives sd toward 0, a SPIKE inflates it, and either way the
+gate stops passing.
 
 DO NOT silently repair or drop that row. It is one obvious-looking fix and
 exactly the kind that reappears as an unexplained backtest change six weeks on.
-Quarantine with a record, or an owner decision.
+Quarantine with a record, or an owner decision. The repair PATH matters as much
+as the permission: re-sourcing from the golden chain is auditable, a
+hand-edited parquet is not.
