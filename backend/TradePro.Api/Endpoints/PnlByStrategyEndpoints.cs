@@ -59,8 +59,39 @@ public static class PnlByStrategyEndpoints
             try
             {
                 await using var conn = await db.OpenConnectionAsync(ct);
-                var rows = await conn.QueryAsync<(string strategy_id, string broker)>(
-                    "SELECT strategy_id, broker FROM strategy_broker_map ORDER BY strategy_id");
+                // A HAND-MAINTAINED ALLOW-LIST CANNOT BE THE SOURCE OF TRUTH
+                // FOR "WHICH SLEEVES EXIST" (24 Sep 2026).
+                //
+                // This read strategy_broker_map alone, so the split showed
+                // exactly the five sleeves somebody had remembered to insert —
+                // ichimoku_equity, ichimoku_equity_ibkr, ichimoku_fx_mr,
+                // ichimoku_fx_mr_ibkr, intraday_flat, ALL of them retired —
+                // while mean_reversion_swing_ibkr, the only sleeve actually
+                // trading and the one with 166 orders, was absent. The owner
+                // opened the portfolio screen and called it rubbish, correctly:
+                // it reported P&L for everything except what was being traded.
+                //
+                // The map is still authoritative for the BROKER of a mapped
+                // sleeve (it encodes routing decisions orders cannot). It is
+                // not authoritative for EXISTENCE. Anything that has actually
+                // placed an order exists, whether or not anyone maintained a
+                // row for it, and oms_orders already carries the broker.
+                //
+                // This is the third instance of this desk's hand-maintained
+                // allow-list shape, after the jobs Lambda's drifting permission
+                // list and the EC2 role's ecr-pull resource list. Derive from
+                // reality; keep the list only for what reality cannot say.
+                var rows = await conn.QueryAsync<(string strategy_id, string broker)>(@"
+                    SELECT strategy_id, broker FROM strategy_broker_map
+                    UNION
+                    SELECT DISTINCT o.strategy_id, o.broker
+                      FROM oms_orders o
+                     WHERE o.strategy_id IS NOT NULL
+                       AND o.broker IS NOT NULL
+                       AND o.deleted_at IS NULL
+                       AND NOT EXISTS (SELECT 1 FROM strategy_broker_map m
+                                        WHERE m.strategy_id = o.strategy_id)
+                     ORDER BY 1");
                 map.AddRange(rows.Select(r => (r.strategy_id, r.broker)));
             }
             catch (Exception ex)
