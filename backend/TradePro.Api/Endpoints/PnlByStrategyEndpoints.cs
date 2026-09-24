@@ -472,8 +472,33 @@ public static class PnlByStrategyEndpoints
                     var daysSince = hasLast
                         ? (int?)Math.Max(0, (DateTime.UtcNow - lastAt).Days)
                         : null;
-                    var activity = daysSince is null ? "unknown"
-                        : daysSince <= 7 ? "active" : "dormant";
+                    // THREE OUTCOMES, NOT TWO — and the difference matters
+                    // (24 Sep 2026, caught on the live API immediately after
+                    // shipping the two-way version).
+                    //
+                    // "no OMS orders" is NOT "we could not tell". intraday_flat
+                    // has zero rows in oms_orders and -3,107 realised: it traded
+                    // through IG, whose fills never enter that ledger. Grouping
+                    // it with the live sleeves — which the fail-open rule did —
+                    // recreates the exact "retired work posing as a peer"
+                    // problem this endpoint was changed to solve.
+                    //
+                    //   active   an order inside 7 days
+                    //   dormant  its last order is older than that
+                    //   unknown  the ledger itself could not be read, OR this
+                    //            sleeve books through a broker that does not
+                    //            write to it. Neither active nor dormant, and
+                    //            shown as its own group rather than folded into
+                    //            either — a guess in either direction is worse
+                    //            than saying we cannot tell.
+                    var activityReadable = !(coverageError ?? "").Contains("activity unavailable");
+                    var activity = daysSince is not null
+                        ? (daysSince <= 7 ? "active" : "dormant")
+                        : "unknown";
+                    var activityWhy = daysSince is not null ? null
+                        : activityReadable
+                            ? "no orders in the OMS ledger — this sleeve may book through a broker that does not write to it"
+                            : "the order ledger could not be read";
                     var filled = cov.Filled;
                     var confirmed = cov.WithBrokerId;
                     // UNCONFIRMED only when the strategy HAS fills yet NONE carry a
@@ -507,6 +532,7 @@ public static class PnlByStrategyEndpoints
                         // ledger. The UI folds dormant rows; it must never drop
                         // them, and "unknown" must not read as either.
                         activity,
+                        activityWhy,
                         lastOrderUtc = hasLast ? lastAt : (DateTime?)null,
                         daysSinceLastOrder = daysSince,
                         totalOrders = nOrders,
