@@ -75,21 +75,50 @@ def test_the_graded_harness_runs_the_rule_module_itself():
         assert f"\n{name} =" not in src, f"{name} is re-stated in the graded harness"
 
 
-def test_there_is_exactly_one_definition_of_entry_signal_in_the_tree():
-    """A second `def entry_signal` anywhere is how the drift starts."""
+def test_every_entry_signal_lives_in_signals_and_there_is_one_per_rule():
+    """A second `def entry_signal` FOR THE SAME RULE is how the drift starts.
+
+    STRENGTHENED, not relaxed, on 24 Sep 2026. This asserted exactly ONE
+    definition in the whole tree, which was right while one rule existed and
+    became wrong the moment a second sleeve was added: momentum is a DIFFERENT
+    rule and must expose its own entry, or the paper engine cannot run it.
+
+    Collapsing to "one in the tree" would have forced momentum to either
+    reuse mean reversion's name for a different rule, or live outside
+    signals/ where nothing watches it. Both are worse than what is asserted
+    here, which is the invariant the original test was reaching for:
+
+      * every `def entry_signal` lives in signals/ — no consumer may define
+        one, which is the actual drift this guards (the screen once
+        re-implemented the band inline and got the same answer from different
+        code)
+      * at most ONE per rule module — a rule is defined once
+      * and a rule that wraps another module's definition must DELEGATE, not
+        retype it. test_momentum_paper_port pins momentum's to the screen's
+        own `_entry_signal` by identity, which a copy cannot satisfy.
+    """
     import glob
     import re
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    defs = []
+    by_file: dict[str, list[int]] = {}
     for f in glob.glob(str(root / "**" / "*.py"), recursive=True):
         if ".venv" in f:
             continue
+        rel = str(Path(f).relative_to(root))
         for ln, line in enumerate(Path(f).read_text(errors="replace").split("\n"), 1):
             if re.match(r"\s*def entry_signal\b", line):
-                defs.append(f"{Path(f).relative_to(root)}:{ln}")
-    assert defs == ["tradepro_strategies/signals/mean_reversion.py:84"] or len(defs) == 1, \
-        f"entry_signal is defined in more than one place: {defs}"
+                by_file.setdefault(rel, []).append(ln)
+
+    outside = {f: n for f, n in by_file.items()
+               if not f.startswith("tradepro_strategies/signals/")}
+    assert not outside, (
+        f"entry_signal defined outside signals/: {outside} — a consumer that "
+        "defines the rule is how the screen and the live sleeve drift apart")
+
+    dupes = {f: n for f, n in by_file.items() if len(n) > 1}
+    assert not dupes, f"a rule module defines entry_signal more than once: {dupes}"
+    assert by_file, "no entry_signal found at all — the scan is broken"
 
 
 def test_no_swing_module_hardcodes_the_trend_window_in_a_slice():

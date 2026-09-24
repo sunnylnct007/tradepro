@@ -132,3 +132,64 @@ the gate table is `backtests/logs/momentum_v2.log`. Both survive, so every
 number above can be re-derived — which is precisely what
 [[MEAN_REVERSION_GATES_V1]] cannot offer, and why that file carries a warning
 at the top instead of a result.
+
+## AMENDMENT — 24 Sep 2026. The gates were measured on a universe this lane no longer trades.
+
+Found while porting this rule into the paper engine so it could place orders
+(owner: *"unless we start booking these trades how will we know if our strategy
+is really working or not"*). The port is faithful; the BADGE is not.
+
+**Universe above: 256 symbols. The live screen today: 969.**
+
+Replaying the identical rule — same entry, same −8% hard stop, same 8% trail,
+same 60-session timeout, same corrupt-bar guard — over the universe the lane
+actually screens:
+
+| | gated record (256) | current universe (969) |
+|---|---|---|
+| trades | 5,815 | **41,023** |
+| win | 47.0% | 45.3% |
+| mean/trade | +1.53% | **+1.42%** |
+| median hold | 34b | 35b |
+| top 1% of profit | 31% | 11% |
+| **worst trade** | **−14.7%** | **−36.7%** |
+
+    V0 PASS · G1 PASS · G2 PASS · G3 PASS · G4 PASS · G5 FAIL (−36.7% vs −25%)
+
+### The edge survived. The tail did not.
++1.42% per trade across 41,023 trades is the rule confirmed on **seven times
+the evidence** that earned the badge, and G4 improved sharply (31% → 11%: the
+profit is far less concentrated in a handful of winners than the original
+sample suggested). Nothing here says the rule stopped working.
+
+G5 is what fails, and it fails by a wide margin. A −8% stop checked on the
+close does not survive a gap, and a universe four times larger contains four
+times as many gaps. The −14.7% was never the rule's tail; it was the tail of
+256 names.
+
+### This is the second time this desk has published a tail it did not have
+[[SWING_SIZING_GATES_V1]] recorded exactly this on 20 Sep: the swing rule's
+worst trade was −32.6%, not the −19.6% quoted in its gates doc and its source
+file, because 98 of 244 names were capped at four years of history. Same
+lesson, different cause — there the sample was too short, here it is too
+narrow. **A tail measured on a subset is not the tail you will trade.**
+
+### Consequence — the lane is NOT deployed to paper
+The port is written, tested and registered (`momentum_pullback`, a 38-line
+subclass of the swing engine that swaps only the signal module). It is
+deliberately NOT scheduled. Deploying it today would put a sleeve into an
+account with a `gated` badge describing a universe it does not trade, which is
+the same false claim in the opposite direction from 23 Sep, when this doc's
+missing RESULT section had an assistant tell the owner twice that a genuinely
+gated lane was unproven.
+
+Two honest routes, and this is the owner's call, not a tuning problem:
+
+1. **Trade the universe it was gated on.** Restrict the sleeve to the 256
+   symbols and the record stands as written. Costs signal count.
+2. **Re-register for the wide universe.** Freeze new gates and a prediction
+   BEFORE running, accepting that G5 needs either a wider bar or a mechanism
+   that caps gap risk. Note that G5 was the gate that killed variant A, so
+   moving it is a substantive change and not an admin one.
+
+What must NOT happen is quietly widening G5 to fit the number we just measured.
