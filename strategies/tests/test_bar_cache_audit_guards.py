@@ -61,7 +61,22 @@ def test_a_real_spike_is_still_caught_on_a_traded_name():
     df = pd.DataFrame({"open": close, "high": close, "low": close,
                        "close": close, "volume": [1_000_000] * n}, index=idx)
     df.iloc[5, df.columns.get_loc("volume")] = 0
-    assert find_garbage(df, symbol="OKE"), "a 16.8x fabricated row must be caught"
+    found = find_garbage(df, symbol="OKE")
+    assert found, "a 16.8x fabricated row must be caught"
+    # ASSERT WHICH TEST CAUGHT IT, not merely that something did. "Flat" names
+    # two different checks and conflating them cost a correction (24 Sep):
+    #
+    #   o=h=l=c on zero volume   -> the row was FABRICATED rather than observed
+    #   close == PREVIOUS close  -> the series went STALE
+    #
+    # OKE is not flat by the second definition — 1635.00 against a previous
+    # close of 97.51 — so it is the SPIKE test that must catch it, and it is
+    # the "+1 spike" in that run's 1,989 + 655 + 1 = 2,645. Asserting only
+    # truthiness would keep passing if the spike test were deleted and a
+    # different check happened to fire, which is a test passing for the wrong
+    # reason — the failure mode this whole file exists to prevent.
+    assert any("spike" in reason for _ts, reason in found), (
+        f"expected the isolated-price-spike test to catch it; got {found!r}")
 
 
 def test_the_volume_tests_never_fire_on_intraday_bars():
