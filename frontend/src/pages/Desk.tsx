@@ -42,6 +42,7 @@ import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
 import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
+import { ActionBoard } from "../components/desk/ActionBoard";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
 import { RunLogCard } from "../components/desk/RunLogCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
@@ -144,6 +145,13 @@ export function Desk() {
               layout. Masonry (not a grid) because the panels have very different
               heights — a grid aligns rows to the tallest card and leaves big gaps
               under the short ones; columns pack cards top-to-bottom with no gaps. */}
+          {/* THE FIRST THING ON THE PAGE IS WHAT TO DO (owner, 24 Sep 2026:
+              "i do not want to see noise. I want to see what I am supposed to
+              do. Buy, sell, etc."). Previously the first card naming an action
+              was the SEVENTH down, behind KPIs, health, P&L, audit, broker
+              book, equity tracking and fill replay — all true, none of them an
+              instruction. Those all still render; they render BELOW. */}
+          <ActionBoard />
           <DeskKpiStrip />
           <StrategyHealthPanel />
 
