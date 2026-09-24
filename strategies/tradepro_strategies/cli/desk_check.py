@@ -64,6 +64,29 @@ LIVE_STRATEGIES = ("mean_reversion_swing_ibkr", "ichimoku_equity",
 MIN_REACH_RATE = 0.60
 MIN_EXIT_RATE = 0.50
 
+# HOW FAR BACK AN EXECUTION RATE MAY LOOK.
+#
+# 24 Sep 2026. This check read /api/oms/orders?limit=500 with NO time bound and
+# divided over the lot, so it reported "190 orders · 76 reached the broker" —
+# 40% — and WARNed. Windowed by day, the same data reads:
+#
+#     19 Sep   34 orders    0 reached ( 0%)     <- the outage, since fixed
+#     21 Sep   45 orders   35 reached (78%)
+#     22 Sep   48 orders   26 reached (54%)
+#     23 Sep    6 orders    3 reached (50%)
+#
+# The 40% was mostly a fault that had ALREADY BEEN FIXED, averaged in forever.
+# A rate over an unbounded window cannot distinguish "broken now" from "was
+# broken once", so it can never go green again however well the desk behaves —
+# and a warning that cannot clear is one a reader learns to skip.
+EXEC_WINDOW_DAYS = 7
+
+# Past this, a strategy is not failing — it is not trading.
+# ichimoku_equity_ibkr showed WARN at 19% off orders whose last one was 20 Aug,
+# five weeks dead. Reporting that as an execution failure is a false alarm about
+# a strategy that has nothing to execute.
+DORMANT_AFTER_DAYS = 10
+
 # launchd jobs that must exit 0. `launchctl list` reports the LAST exit
 # status, which is how the --strangle-dte breakage sat unnoticed: status 2,
 # every run, for two days.
@@ -228,17 +251,67 @@ def check_execution(base: str, token: str | None) -> list[Check]:
         return [Check("Execution", UNKNOWN,
                       f"could not read the OMS ({str(exc)[:60]})")]
 
+    def _age_days(o: dict) -> float | None:
+        raw = str(o.get("createdAtUtc") or o.get("createdAt") or "")
+        if not raw:
+            return None
+        try:
+            t = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=dt.UTC)
+        return (dt.datetime.now(dt.UTC) - t).total_seconds() / 86400.0
+
+    def _reached_broker(o: dict) -> bool:
+        """Did this order actually get to IBKR?
+
+        brokerOrderId ALONE says no for an order the broker itself REJECTED,
+        which is backwards: a rejection quoting IBKR's own words is proof it
+        arrived. On 22 Sep 2026 twenty-two orders carried
+
+            "Your account has a minimum of 15 orders working on either the buy
+             or sell side for this particular contract"
+
+        — IBKR refusing a 16th working order. Those reached the broker and were
+        turned away with a reason. Counting them as "dropped before the broker
+        saw them" pointed the reader at the router, which was not the fault.
+        """
+        if o.get("brokerOrderId"):
+            return True
+        why = str(o.get("cancelledReason") or "")
+        # A broker refusal is prose from IBKR. Our own failures are short codes
+        # or a JSON error body ("no bridge", "expired_no_broker_ack").
+        return bool(why) and len(why) > 60 and not why.lstrip().startswith("{")
+
     out = []
     for sid in LIVE_STRATEGIES:
-        mine = [o for o in orders if o.get("strategyId") == sid]
-        if not mine:
+        everything = [o for o in orders if o.get("strategyId") == sid]
+        if not everything:
             continue
-        reached = [o for o in mine if o.get("brokerOrderId")]
+        mine = [o for o in everything
+                if (_age_days(o) or 0) <= EXEC_WINDOW_DAYS]
+        if not mine:
+            # NOT FAILING — NOT TRADING. Say which.
+            ages = [a for a in (_age_days(o) for o in everything) if a is not None]
+            last = min(ages) if ages else None
+            out.append(Check(
+                f"Execution · {sid}", OK,
+                (f"no orders in the last {EXEC_WINDOW_DAYS} days"
+                 + (f" — last was {last:.0f} days ago" if last is not None else "")
+                 + (" · DORMANT, not failing"
+                    if last is not None and last >= DORMANT_AFTER_DAYS else ""))))
+            continue
+        reached = [o for o in mine if _reached_broker(o)]
+        refused = [o for o in mine
+                   if not o.get("brokerOrderId") and _reached_broker(o)]
         filled = [o for o in mine if str(o.get("state")) == "FILLED"]
         sells = [o for o in mine if str(o.get("side", "")).upper() == "SELL"]
         sells_filled = [o for o in sells if str(o.get("state")) == "FILLED"]
-        detail = (f"{len(mine)} orders · {len(reached)} reached the broker · "
-                  f"{len(filled)} filled · exits {len(sells_filled)}/{len(sells)}")
+        detail = (f"last {EXEC_WINDOW_DAYS}d: {len(mine)} orders · "
+                  f"{len(reached)} reached the broker"
+                  + (f" ({len(refused)} of them REFUSED by it)" if refused else "")
+                  + f" · {len(filled)} filled · exits {len(sells_filled)}/{len(sells)}")
         reach_rate = len(reached) / len(mine)
         exit_rate = (len(sells_filled) / len(sells)) if sells else None
         if not reached:
@@ -261,7 +334,9 @@ def check_execution(base: str, token: str | None) -> list[Check]:
                 f"Execution · {sid}", WARN, detail,
                 f"only {reach_rate:.0%} of orders reached the broker"
                 + (f" and {exit_rate:.0%} of exits filled" if exit_rate is not None else "")
-                + " — the rest were dropped before the broker saw them"))
+                + f" in the last {EXEC_WINDOW_DAYS} days — the rest never "
+                  f"reached it at all (a REFUSAL by the broker is counted as "
+                  f"reached, so this is our side)"))
         else:
             out.append(Check(f"Execution · {sid}", OK, detail))
     if not out:
