@@ -974,6 +974,52 @@ def _structure_phrase(struct: str) -> str:
     return f"{struct.split(':')[0]} — no reversal yet; {cost}"
 
 
+def valuation_context(symbols: set[str]) -> dict[str, dict]:
+    """CURRENT valuation figures for display beside an equity row. CONTEXT,
+    NEVER A GATE.
+
+    Owner, 24 Sep 2026: *"i am not saying filter but i need some data to be
+    displayed so we investing on stocks which have fundamental and PE ratio
+    etc"* — and the distinction they drew is the one that makes this safe.
+
+    WHY IT MUST NOT BECOME A FILTER. These are CURRENT snapshots; we hold no
+    point-in-time fundamentals. Filtering a 2006-2026 backtest by today's PE
+    would quietly exclude names that were expensive in 2011 and are cheap now
+    — textbook look-ahead bias, and the result would look excellent and mean
+    nothing. Displaying a current number costs nothing because nothing is
+    decided by it. The lanes' gates were measured WITHOUT these figures and
+    stay exactly as measured.
+
+    Fetched ONCE per screen, and failure is silent: no board may depend on a
+    third party being up, and an absent value renders as absent rather than as
+    a zero. See [[feedback_never_infer_from_an_ibkr_absence]] — the same rule
+    applies to Yahoo.
+    """
+    out: dict[str, dict] = {}
+    try:
+        from ..fundamentals import fetch_fundamentals
+    except Exception as exc:  # noqa: BLE001
+        log.info("valuation context unavailable: %s", str(exc)[:90])
+        return out
+    for sym in sorted(symbols):
+        try:
+            f = fetch_fundamentals(sym)
+            # An ETF has no meaningful PE; emitting one would invite a
+            # comparison that does not exist.
+            if (f.legal_type or "").upper() != "EQUITY":
+                continue
+            row = {"trailing_pe": f.trailing_pe, "forward_pe": f.forward_pe,
+                   "dividend_yield_pct": f.dividend_yield_pct,
+                   "free_cashflow_usd": f.free_cashflow,
+                   "as_of": f.fetched_at, "source": f.source}
+            if any(v is not None for k, v in row.items()
+                   if k not in ("as_of", "source")):
+                out[sym.upper()] = row
+        except Exception as exc:  # noqa: BLE001 — one symbol must not lose the screen
+            log.debug("valuation context %s: %s", sym, str(exc)[:70])
+    return out
+
+
 def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     """Our rows in the shape every strategy emits (Phase 3).
 
@@ -982,6 +1028,9 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
     row from a sleeve that has not been proven.
     """
     from ..candidates import Candidate, emit
+
+    _val = valuation_context({str(c.get("symbol", "")).upper()
+                              for c in cands if c.get("symbol")})
 
     # A candidate this ACCOUNT cannot buy is not a trading signal. It stays on
     # the board (the screen is also a record of what the rule saw) but marked,
@@ -1046,6 +1095,11 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
                 provenance=[f"signal bar {c.get('bar')} — settled daily close "
                             "from the bar store (IBKR-harvested); latest quote "
                             "is display-only"],
+                # CONTEXT ONLY — displayed beside the row, never consulted by
+                # the rule. The gates were measured without it and are
+                # unchanged. Absent when Yahoo does not serve it, which renders
+                # as absent rather than as a zero.
+                extra={"valuation": _val.get(str(c.get("symbol", "")).upper())},
             )
             out.append(cand)
         except Exception:  # noqa: BLE001 — one bad row must not lose the screen
