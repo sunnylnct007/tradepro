@@ -86,3 +86,69 @@ smaller size, not a different universe.
   proves nothing, and saying so is the whole point of G0.
 - Nothing here changes MOMENTUM_GATES_V2's per-trade G5, which stands FAILED
   on the wide universe either way.
+
+## RESULT — run 24 Sep 2026. G1 FAILS at 5%. 3% is the answer, and my prediction was wrong again.
+
+41,023 signals, 2006-11-01 → 2026-09-16, replayed through live constraints
+using the swing study's own `replay` function.
+
+**G0 satisfied, emphatically: 1,071 signals fired in 2008 and 184 in the
+Feb–Apr 2020 crash.** The sleeve did trade both crises.
+
+| size | return | max DD | worst day | peak exposure | |
+|---|---|---|---|---|---|
+| 2.0% | +76% | 17.0% | −2.1% | 30% | all pass |
+| 2.5% | +102% | 20.8% | −2.6% | 38% | all pass |
+| **3.0%** | **+130%** | **24.5%** | **−3.1%** | **46%** | **all pass** |
+| 3.5% | +161% | 28.0% | −3.6% | 54% | fails G1 |
+| 5.0% (swing's live size) | +276% | **37.6%** | −5.2% | 78% | **fails G1** |
+| 8% | +621% | 53.5% | −8.4% | 127% | fails G1 — and on MARGIN |
+
+    at 5%:  G0 PASS · G1 FAIL (37.6% vs 25%) · G2 PASS · G3 PASS · G4 PASS · G5 PASS
+
+### My prediction was wrong, and the reasoning was wrong too
+Recorded before the run: *"All five pass at 5%, and G1 comes in materially
+BETTER than swing's 23.3%... I give it about 75%."*
+
+G1 failed at **37.6%**, materially WORSE than swing's 23.3%. Second sizing
+study in a row where my drawdown call was wrong; on swing I was too pessimistic
+and here too optimistic, which is worth noting as a pattern rather than two
+separate misses.
+
+The reasoning failed at its core claim. I argued momentum would be *"mostly
+FLAT in 2008 and 2020, because a pullback-to-the-10-SMA in an uptrend requires
+an UPTREND, which is exactly what a crash removes."* It fired **1,071 times in
+2008** — six times swing's 166. The 200-day average LAGS, so for months into a
+decline names still sit above it and every bounce to the 10-SMA reads as a
+pullback in an uptrend. The rule cannot tell the start of a bear market from a
+dip, and that is precisely when it trades most.
+
+I also had the hold backwards. I claimed a ~35-bar hold would make exposure
+*smoother* than swing's ~10. It does the opposite in a crash: positions opened
+into the decline stay open through it, so the sleeve is still holding when the
+next leg comes. Longer hold is more time exposed, not less.
+
+### What actually decides it
+The per-trade tail was never the problem. **G5-here PASSES comfortably** — the
+worst trade, −36.7%, costs 1.83% of equity at 5% and 1.10% at 3%. One gap
+cannot hurt the book.
+
+What hurts the book is CONCURRENCY IN A DOWNTREND: many correlated names
+firing at once while the 200-day filter is still stale, each held five weeks.
+That is a drawdown problem, and drawdown problems are solved by size.
+
+### Consequence — per the pre-stated rule for a G1 failure
+**Recommend 3%, and say what it costs.** 3% is the largest swept size clearing
+a 25% drawdown: +130% over the period at a 24.5% max drawdown, against +276%
+at 5% for a 37.6% drawdown. The owner gives up a little over half the return to
+halve the pain. Sizing is the owner's call; this presents the curve and does
+not change any daemon.
+
+Note also that momentum at 3% × 15 peaks at 46% exposure, against swing's 77%
+at 5% × 15 — so the two sleeves can run together without the book being fully
+invested, which a naive 5% for both would not allow.
+
+### What this does NOT do
+It does not rehabilitate [[MOMENTUM_GATES_V2]]'s per-trade G5, which stands
+FAILED at −36.7% on the wide universe. The badge must continue to say so. This
+study says the tail is survivable at 3%, not that it is not there.
