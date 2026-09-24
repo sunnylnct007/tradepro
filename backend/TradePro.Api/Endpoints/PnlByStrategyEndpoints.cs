@@ -273,6 +273,54 @@ public static class PnlByStrategyEndpoints
             }
             catch (Exception ex) { coverageError = $"broker-confirmation coverage unavailable: {ex.Message}"; }
 
+            // WHICH SLEEVES ARE STILL ALIVE — DERIVED, NOT LISTED (24 Sep 2026).
+            //
+            // Deriving the strategy list from orders (above) correctly surfaced
+            // the sleeve that was actually trading. It also surfaced probes and
+            // screen artefacts — exec_path_probe, unattended_probe,
+            // candidates_swing — so the screen went from five dead sleeves to
+            // twelve rows of which two trade. The owner's complaint about the
+            // portfolio screen is precisely this: retired work presented as a
+            // peer of live work.
+            //
+            // The honest separator is the ledger itself. A sleeve that has not
+            // placed an order in a week is not what you are trading today,
+            // whatever anyone remembers about it. Recency is DERIVED, needs no
+            // maintenance, and cannot describe the past the way a hand-kept
+            // list does — which is the failure this endpoint just had.
+            //
+            // Nothing is dropped. Every row still travels with its last-order
+            // date and its count, so the UI can fold the dormant ones and say
+            // how many. Hiding them would be the other error.
+            var lastOrder = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            var orderCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                await using var conn = await db.OpenConnectionAsync(ct);
+                var actRows = await conn.QueryAsync<(string strategy_id, DateTime? last_at, int n)>(@"
+                    SELECT strategy_id,
+                           MAX(created_at_utc) AS last_at,
+                           COUNT(*)::int       AS n
+                      FROM oms_orders
+                     WHERE strategy_id IS NOT NULL
+                       AND deleted_at IS NULL
+                     GROUP BY strategy_id;");
+                foreach (var a in actRows)
+                {
+                    orderCount[a.strategy_id] = a.n;
+                    if (a.last_at is { } t) lastOrder[a.strategy_id] = t;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Fail OPEN on the LABEL, never on the data: if recency cannot
+                // be read, every sleeve is reported with an unknown state
+                // rather than silently marked dormant.
+                coverageError = string.IsNullOrEmpty(coverageError)
+                    ? $"activity unavailable: {ex.Message}"
+                    : coverageError + $"; activity unavailable: {ex.Message}";
+            }
+
             // ── 3. build one row per mapped strategy ───────────────────────
             var outRows = new List<PnlByStrategy.StrategyPnlRow>();
             foreach (var (strategyId, broker) in map)
@@ -416,6 +464,16 @@ public static class PnlByStrategyEndpoints
                 rows = outRows.Select(r =>
                 {
                     fillCoverage.TryGetValue(r.StrategyId, out var cov);
+                    // ACTIVE = placed an order within the last 7 days. Anything
+                    // older is DORMANT: still counted, still shown, but not a
+                    // peer of what is trading now.
+                    var hasLast = lastOrder.TryGetValue(r.StrategyId, out var lastAt);
+                    orderCount.TryGetValue(r.StrategyId, out var nOrders);
+                    var daysSince = hasLast
+                        ? (int?)Math.Max(0, (DateTime.UtcNow - lastAt).Days)
+                        : null;
+                    var activity = daysSince is null ? "unknown"
+                        : daysSince <= 7 ? "active" : "dormant";
                     var filled = cov.Filled;
                     var confirmed = cov.WithBrokerId;
                     // UNCONFIRMED only when the strategy HAS fills yet NONE carry a
@@ -445,6 +503,13 @@ public static class PnlByStrategyEndpoints
                         brokerConfirmedFills = confirmed,
                         unconfirmed,
                         confirmation,
+                        // "active" | "dormant" | "unknown", derived from the
+                        // ledger. The UI folds dormant rows; it must never drop
+                        // them, and "unknown" must not read as either.
+                        activity,
+                        lastOrderUtc = hasLast ? lastAt : (DateTime?)null,
+                        daysSinceLastOrder = daysSince,
+                        totalOrders = nOrders,
                         notes = r.Notes,
                     };
                 }),
