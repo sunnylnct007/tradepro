@@ -1747,7 +1747,27 @@ independently out of the parquet store (`~/.tradepro/bar_cache/us_etf/OKE/1d/
     2026-09-09   1635.00  1635.00  1635.00  1635.00           0   <-- SYNTHETIC
     2026-09-10     96.67    96.67    94.96    95.82   1,061,526
 
-Open = high = low = close = 1635.00 on ZERO volume. That is not a bad tick — a
+Open = high = low = close = 1635.00 on ZERO volume, `source = ibkr_web` — the
+GOLDEN feed, not a fallback, fetched 2026-09-23T21:30Z. So this is not "a
+fallback served junk and IBKR would fix it".
+
+**THE SIGNATURE IS DAILY-ONLY — I overstated this earlier and am correcting it.**
+I wrote that four identical prices on zero volume is a fabricated row. That is
+true of a 1d bar on a volume-reporting instrument and FALSE in general. Swept
+Jun-Sep 2026 across the whole store:
+
+    5m   17,412 flat zero-volume bars     <- normal, an untraded interval
+    1m    3,146                           <- normal
+    1d       93  across 11 partitions     <- the only anomalous resolution
+
+And of those 11 daily partitions, ten are `^VIX`, `PA=F`, `PL=F`, `SI=F`, `KC=F`
+— indices and futures that do not report volume, i.e. precisely the guard-3
+false positives. **`us_etf/OKE/1d/2026-09.parquet` is the only one on a real
+equity/ETF name in the whole four-month window.** That corroborates "only bar
+of its kind" from a different direction.
+
+So a guard on this signature MUST be resolution-aware and volume-aware, or it
+fires 20,558 times on ordinary intraday data. That is not a bad tick — a
 bad tick moves one field. A bar with four identical prices and no volume is a
 fabricated row. 16.8x the neighbouring closes, dated THIS MONTH, in the store
 the STRATEGIES read (not the postgres one the charts read), on a name inside
