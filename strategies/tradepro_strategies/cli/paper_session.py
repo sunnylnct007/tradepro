@@ -87,6 +87,16 @@ _DEFAULT_INTERVALS = {
     "ichimoku_equity": "1d",
     "ichimoku_fx_mr": "1h",
     "mean_reversion_swing": "1d",   # settled daily bars, like ichimoku_equity
+    "momentum_pullback": "1d",      # same engine, momentum's rule
+}
+
+#: Sleeves that ARE the swing engine with a different SIGNALS module. They take
+#: identical constructor arguments, so paper_session builds them from the
+#: registry rather than from a branch per name. Adding a sibling means adding
+#: its module and its name here — never a new construction block.
+_SWING_FAMILY = {
+    "mean_reversion_swing",
+    "momentum_pullback",
 }
 
 
@@ -755,13 +765,27 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             ),
         )
 
-    if strategy_name == "mean_reversion_swing":
-        from ..paper.strategies.mean_reversion_swing import MeanReversionSwingStrategy
+    # BUILD FROM THE REGISTRY, NOT FROM A NAME TYPED TWICE (24 Sep 2026).
+    #
+    # `_strategy_choices` above already reads the registry, precisely so a
+    # strategy cannot be "written, registered, tested and still unrunnable".
+    # Construction was left hardcoded, so argparse ACCEPTED momentum_pullback
+    # and this function then raised "Unknown strategy 'momentum_pullback'".
+    # Half the idea was applied. The lane failed on its first live run.
+    #
+    # Every sleeve in this family is the same engine with a different SIGNALS
+    # module and takes identical constructor arguments, so the class comes from
+    # the registry by name. A new sibling now needs no edit here at all, which
+    # is the only version of this that stays true.
+    if strategy_name in _SWING_FAMILY:
+        from ..paper import strategies as _reg_strategies  # noqa: F401 — registers
+        from ..paper.registry import get as _registry_get
+        _cls = _registry_get(strategy_name).cls
         # LIVE: hold orders for the session. Every order this strategy ever
         # raised outside 13:30-20:00 UTC was swept unfilled — 0 of 46 — so an
         # order built overnight is not an order, it is churn (ARWR and SNOW
         # cycled 36 of them in one night). Replay leaves this off.
-        _s = MeanReversionSwingStrategy(
+        _s = _cls(
             strategy_id=strategy_id,
             params={
                 "symbols": symbols,
