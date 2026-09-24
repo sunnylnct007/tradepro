@@ -1793,3 +1793,60 @@ exactly the kind that reappears as an unexplained backtest change six weeks on.
 Quarantine with a record, or an owner decision. The repair PATH matters as much
 as the permission: re-sourcing from the golden chain is auditable, a
 hand-edited parquet is not.
+
+### 24 Sep — the three audit guards are SHIPPED (PR #218)
+
+Closing the loop on the bar-cache thread above. All three built, tested and
+merged. Stated separately on purpose, because they catch DIFFERENT bugs and
+presenting them as one guard would repeat the overstatement that started this.
+
+1. **The volume test no longer fires at instruments with no volume.**
+   `^VIX`, `^TNX`, `PL=F`, `PA=F` have none by construction. This was 26 of
+   the 27 findings dated 2026, and `^TNX` alone was 33 of the 100 since 2024.
+2. **Each run is stamped with a run id.** The fix for the append-only log that
+   produced the bad figures.
+3. **The total is reconciled against its own breakdown**, and the audit
+   refuses to publish a figure that disagrees with its detail.
+
+Guard 3 would have PASSED all four historical runs — each was internally
+consistent. Only guard 2 catches that bug. Complementary, not redundant.
+
+Measured against the live store:
+
+    findings    2,645 -> 2,021        partitions  850 -> 230
+    findings on volumeless instruments  624 -> 0
+    OKE's fabricated 1635.00 row        STILL CAUGHT
+
+No data touched; report-only remains the default. 1536 tests pass.
+
+**OKE — IMPACT MEASURED, and it is the opposite of the assumed shape.** The
+row is `open=high=low=close=1635.00` on ZERO volume, `source=ibkr_web`. Four
+identical prices and no volume is a FABRICATED row, not a bad tick — a tick
+moves one field.
+
+It does not create a false BUY. It SUPPRESSES signals:
+
+    20-day   WITH spike: mean 171.59  stdev 335.74  sigma -0.24
+             WITHOUT:    mean  94.42  stdev   2.08  sigma -1.87
+    200-SMA  WITH 93.92 -> price 90.54 BELOW -> blocked
+             WITHOUT 86.12 -> price 90.54 ABOVE -> would pass
+
+A stdev of 335 on a $90 name makes -2.25 sigma arithmetically unreachable, and
+the inflated 200-SMA fails the trend filter that BOTH gated sleeves apply.
+OKE is withheld from Swing and Momentum until the bar rolls out of the 200-day
+window, roughly mid-2027.
+
+**Stated narrowly on purpose: a name is being withheld from both sleeves, and
+NO MISSED TRADE HAS BEEN PROVEN.** Without the spike OKE sits at -1.87 sigma
+against a -2.25 threshold, so today's entry would not have fired anyway. The
+withholding is certain; a lost trade is not established.
+
+MEMORY CORRECTION: "garbage bar -> false BUY" is HALF the shape. The same
+corruption produces a false BLOCK, and the block is more dangerous to operate
+with — a bad buy lands in the blotter, a withheld name lands nowhere. A flat
+zero-volume bar drives sd toward 0; a spike inflates it; either way the gate
+stops passing and the failure expresses as SILENCE.
+
+**NOT REPAIRED — owner's call.** One row, obvious fix, and exactly the tidy-up
+that becomes an unexplained backtest change in six weeks. If repaired, re-source
+from the golden chain (auditable); never hand-edit the parquet.
