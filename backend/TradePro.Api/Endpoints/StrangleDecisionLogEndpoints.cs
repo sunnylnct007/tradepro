@@ -188,14 +188,53 @@ public static class StrangleDecisionLogEndpoints
                     delta_mode_net    = COALESCE(@DeltaModeNet, delta_mode_net),
                     delta_target      = COALESCE(@DeltaTarget, delta_target),
                     delta_in_band     = COALESCE(@DeltaInBand, delta_in_band)
-                WHERE market = @Market
+                                WHERE market = @Market
                   -- SAME KEY AS THE DECISION UPSERT. Migration 073 moved that to
                   -- the TRADED session (exchange_date); this still matched as_of,
                   -- so on 2 Sep 2026 four legs closed successfully and not one
-                  -- exit was recorded — the write found no row and 404'd, and
+                  -- exit was recorded -- the write found no row and 404'd, and
                   -- the round trip stayed unanswerable. Two keys for one row.
                   AND COALESCE(exchange_date, as_of) = @AsOf
-                  AND COALESCE(expiry_kind, '') = COALESCE(@ExpiryKind, '');", row);
+                  -- A CLOSE IDENTIFIES ITS ROUND-TRIP BY THE STRIKES IT CLOSED.
+                  --
+                  -- THE SECOND HALF OF A FIX THAT ONLY LANDED ON ONE SITE. The
+                  -- strangle_execution writer below was corrected on 14 Sep 2026
+                  -- to match strikes, because the caller hardcodes
+                  -- expiryKind=monthly for EVERY close (a hardcoded literal in
+                  -- index_strangle_close.py, left over from when monthly was
+                  -- the only expiry placed). THIS writer was not, so the
+                  -- decision log -- the table the end-of-day check, the desk
+                  -- board and every P&L query read -- kept filing every exit
+                  -- against the monthly row.
+                  --
+                  -- What that produced, from the live log:
+                  --   14 Sep  SPX weekly placed, credit 2,866.74
+                  --           SPX MONTHLY (placed=false, no credit) received
+                  --           exit 2,691.63 and realised 175.11
+                  --   2,866.74 - 2,691.63 = 175.11 exactly: right arithmetic,
+                  --   wrong row. Same shape 15 Sep and 21 Sep.
+                  -- Before 14 Sep only monthly ever placed, so a hardcoded
+                  -- monthly was accidentally correct and every row reconciled
+                  -- at 1.00x. The day weeklies began placing, it stopped.
+                  --
+                  -- Strikes differ between expiries (XSP 750/773 weekly vs
+                  -- 752/775 monthly) and are already stored here, so they name
+                  -- the round-trip exactly. Applied to CLOSES only: an OPEN is
+                  -- keyed by expiry_kind, which its caller sends correctly, and
+                  -- may legitimately fill at a strike the proposal did not name.
+                  -- Casts are not decoration: without them Postgres cannot infer
+                  -- the type of a NULL parameter inside a CASE and the whole
+                  -- statement fails with 42P08. It works today only because
+                  -- Dapper happens to send typed nulls from the record; a caller
+                  -- that does not would break the write, not just this branch.
+                  AND (CASE WHEN (@ClosedAtUtc::timestamptz IS NOT NULL
+                                  OR @RealisedPnl::numeric IS NOT NULL)
+                                 AND @PutStrike::numeric IS NOT NULL
+                                 AND @CallStrike::numeric IS NOT NULL
+                            THEN put_strike  = @PutStrike::numeric
+                             AND call_strike = @CallStrike::numeric
+                            ELSE COALESCE(expiry_kind, '') = COALESCE(@ExpiryKind, '')
+                       END);", row);
 
             if (n == 0)
                 // FAIL LOUD. Silently inserting would create a fill with no
