@@ -174,3 +174,20 @@ def exit_decision(closes: list[float], i: int, *, fill_price: float,
     if bars_held >= MAX_HOLD:
         return True, "timeout"
     return False, None
+
+
+# ── TEXT THE RULE OWNS ───────────────────────────────────────────────────────
+# Moved out of the paper strategy (24 Sep 2026) so a second sleeve sharing that
+# file does not describe its trades in this rule's words. The strategy once
+# logged "Ichimoku, above cloud" on every momentum row — a rationale belonging
+# to a different strategy entirely. A shared engine must not carry one rule's
+# sentence.
+TAG = f"swing entry {SIGMA}sigma"
+
+
+def entry_reason(closes: list[float], i: int) -> str:
+    return (f"{SIGMA}\u03c3 below the 20-day mean while above the 200-SMA. "
+            f"close {closes[i]:.2f}, target {target_price(closes, i):.2f} "
+            f"(+{100 * (target_price(closes, i) / closes[i] - 1):.1f}%), "
+            f"stop {stop_price(closes[i]):.2f} (-{100 * STOP_PCT:.0f}%), "
+            f"timeout {MAX_HOLD} sessions")

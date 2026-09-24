@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 
 from ..strategy import Bar, Fill, Order, OrderSide, OrderType, Strategy
 from ..registry import register_strategy
+from ...signals import mean_reversion as _mr_signals
 from ...signals.mean_reversion import (
     MAX_HOLD, MIN_BARS, SIGMA, STOP_PCT, entry_signal, exit_decision,
     reward_risk, stop_price, target_price,
@@ -127,6 +128,26 @@ def _entry_chase_pct() -> float:
 
 @register_strategy("mean_reversion_swing")
 class MeanReversionSwingStrategy(Strategy):
+    # THE RULE IS A SWAPPABLE ATTRIBUTE; EVERYTHING ELSE IN THIS FILE IS NOT
+    # THE RULE (24 Sep 2026).
+    #
+    # This file is 727 lines and roughly twenty of them are mean reversion.
+    # The rest is the part that was expensive to learn: exits that FAIL CLOSED
+    # when the broker cannot be read, positions verified against the broker
+    # before any sell, inherited positions left alone, OMS seeding, the chase
+    # band, the placement window. Every one of those exists because something
+    # went wrong once — the sleeve sold ARWR eleven times, went short 252 LRCX
+    # on a long-only desk, and had entries blocked by phantom positions.
+    #
+    # A second sleeve copied from this file would inherit the rule and NONE of
+    # the scar tissue, and duplicate definitions are already this desk's single
+    # most common bug shape. So the rule moves behind SIGNALS and a new sleeve
+    # subclasses: it swaps the twenty lines and keeps all 707.
+    SIGNALS = _mr_signals
+    #: Human label for the log line, so each rule explains itself in its own
+    #: terms rather than a shared sentence that fits neither.
+    RULE_LABEL = "mean reversion"
+
     """Long-only dip buyer. One position per symbol, no pyramiding.
 
     Deliberately simple in execution: a market order at the open after the
@@ -460,6 +481,21 @@ class MeanReversionSwingStrategy(Strategy):
 
         _log.info("seeded %d open fill(s) confirmed against the broker — these are now "
                       "managed for stop, target and max-hold", seeded)
+    def _fmt_target(self, closes: list[float], i: int) -> str:
+        """A rule with no fixed target must not print one.
+
+        Mean reversion exits AT a level (the 20-day mean) and can name it.
+        Momentum exits on a TRAILING stop and has no target at all — printing
+        one would invent a number the rule never computes. `target_price`
+        returns None there and this renders it as "none (trails)".
+        """
+        t = self.SIGNALS.target_price(closes, i)
+        return "none (trails)" if t is None else f"{t:.2f}"
+
+    def _risk_target(self, closes: list[float], i: int) -> float | None:
+        t = self.SIGNALS.target_price(closes, i)
+        return None if t is None else round(t, 4)
+
     @staticmethod
     def _day(ts) -> str:
         return ts.date().isoformat() if hasattr(ts, "date") else str(ts)[:10]
@@ -569,26 +605,26 @@ class MeanReversionSwingStrategy(Strategy):
                                          "stop or target, so holding rather than guessing")
                 return []
             bars_held = self._bars_held(sym, day)
-            do_exit, why = exit_decision(closes, i, fill_price=fill, bars_held=bars_held)
+            do_exit, why = self.SIGNALS.exit_decision(closes, i, fill_price=fill, bars_held=bars_held)
             if do_exit:
                 self.log_decision(
                     symbol=sym, bar_ts=bar.timestamp, action=f"exit-{why}",
                     reason=(f"{why}: close {closes[i]:.2f} vs target "
-                            f"{target_price(closes, i):.2f} / stop {stop_price(fill):.2f}, "
-                            f"held {bars_held} of {MAX_HOLD} sessions"))
+                            f"{self._fmt_target(closes, i)} / stop {self.SIGNALS.stop_price(fill):.2f}, "
+                            f"held {bars_held} of {self.SIGNALS.MAX_HOLD} sessions"))
                 self.mark_order_in_flight(sym)
                 return [Order(strategy_id=self.strategy_id, symbol=sym,
                               side=OrderSide.SELL, quantity=held, type=OrderType.MARKET,
                               tag=f"swing exit {why} held={bars_held}")]
             self.log_decision(symbol=sym, bar_ts=bar.timestamp, action="hold",
-                              reason=(f"close {closes[i]:.2f}, target {target_price(closes, i):.2f}, "
-                                      f"stop {stop_price(fill):.2f}, session {bars_held}/{MAX_HOLD}"))
+                              reason=(f"close {closes[i]:.2f}, target {self._fmt_target(closes, i)}, "
+                                      f"stop {self.SIGNALS.stop_price(fill):.2f}, session {bars_held}/{self.SIGNALS.MAX_HOLD}"))
             return []
 
         # ── entries: one decision per symbol per session ──────────────────
         if sym in self._decided_today:
             return []
-        if not entry_signal(closes, i):
+        if not self.SIGNALS.entry_signal(closes, i):
             return []
 
         # ── how many slots are free? ──────────────────────────────────────
@@ -643,11 +679,7 @@ class MeanReversionSwingStrategy(Strategy):
 
         self.log_decision(
             symbol=sym, bar_ts=bar.timestamp, action="entry",
-            reason=(f"{SIGMA}σ below the 20-day mean while above the 200-SMA. "
-                    f"close {closes[i]:.2f}, target {target_price(closes, i):.2f} "
-                    f"(+{100*(target_price(closes,i)/closes[i]-1):.1f}%), "
-                    f"stop {stop_price(closes[i]):.2f} (-{100*STOP_PCT:.0f}%), "
-                    f"timeout {MAX_HOLD} sessions"))
+            reason=self.SIGNALS.entry_reason(closes, i))
         self.mark_order_in_flight(sym)
         # RECORD THE REFERENCE PRICE ON THE ORDER.
         #
@@ -731,15 +763,15 @@ class MeanReversionSwingStrategy(Strategy):
         return [Order(strategy_id=self.strategy_id, symbol=sym, side=OrderSide.BUY,
                       quantity=qty, type=OrderType.LIMIT,
                       limit_price=_limit,
-                      risk_target_price=round(target_price(closes, i), 4),
-                      risk_stop_price=round(stop_price(closes[i]), 4),
+                      risk_target_price=self._risk_target(closes, i),
+                      risk_stop_price=round(self.SIGNALS.stop_price(closes[i]), 4),
                       # Structured, not just inside the tag — the tag is an
                       # audit line for humans and cannot be relied on by a study.
                       signal_ref_price=round(closes[i], 4),
                       signal_bar=self._bar_date(i),
-                      tag=f"swing entry {SIGMA}sigma ref={closes[i]:.4f} "
-                          f"tgt={target_price(closes,i):.2f} "
-                          f"stop={stop_price(closes[i]):.2f}")]
+                      tag=(f"{self.SIGNALS.TAG} ref={closes[i]:.4f} "
+                           f"tgt={self._fmt_target(closes, i)} "
+                           f"stop={self.SIGNALS.stop_price(closes[i]):.2f}"))]
 
     # ── helpers ───────────────────────────────────────────────────────────
     def _bar_date(self, i: int) -> str | None:
@@ -791,12 +823,12 @@ class MeanReversionSwingStrategy(Strategy):
                 if not closes:
                     continue
                 k = len(closes) - 1
-                if not entry_signal(closes, k):
+                if not self.SIGNALS.entry_signal(closes, k):
                     continue
                 # ONE definition of the ranking key, in the signals module
                 # beside the rule it ranks. See reward_risk() for why it is
                 # reward:risk and not sigma.
-                scored.append((reward_risk(closes, k), cand))
+                scored.append((self.SIGNALS.reward_risk(closes, k), cand))
             ranked = [c for _, c in sorted(scored, reverse=True)]
         except Exception as exc:  # noqa: BLE001
             _log.warning("could not rank today's candidates (%s) — falling back to "
@@ -830,8 +862,8 @@ class MeanReversionSwingStrategy(Strategy):
             sub = df["close"].dropna()
             closes = [float(x) for x in sub.tolist()]
             self._dates = [str(x)[:10] for x in sub.index]
-            if len(closes) < MIN_BARS:
-                return None, f"{len(closes)} bars, need {MIN_BARS}"
+            if len(closes) < self.SIGNALS.MIN_BARS:
+                return None, f"{len(closes)} bars, need {self.SIGNALS.MIN_BARS}"
             return closes, None
         except Exception as exc:  # noqa: BLE001
             self._dates = None

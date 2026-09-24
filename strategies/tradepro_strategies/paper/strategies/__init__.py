@@ -71,3 +71,6 @@ __all__ = [
 ]
 
 from . import mean_reversion_swing  # noqa: F401 — registers the Swing sleeve
+# Momentum: the SAME engine with a different rule (24 Sep 2026). Must be
+# imported AFTER mean_reversion_swing — it subclasses it.
+from . import momentum_pullback  # noqa: F401 — registers the Momentum sleeve
