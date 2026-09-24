@@ -27,7 +27,30 @@ _DEFAULT_BASE = Path.home() / ".tradepro" / "bar_cache"
 _QUARANTINE_DIR = Path.home() / ".tradepro" / "quarantine"
 
 
-def find_garbage(df: pd.DataFrame) -> list[tuple[object, str]]:
+# INSTRUMENTS THAT DO NOT REPORT VOLUME (24 Sep 2026).
+#
+# Every volume-based test below rests on "a traded US listing never has a
+# median-zero-volume month". True — and indices and continuous futures are not
+# traded listings. ^VIX, ^TNX, PL=F and PA=F have no volume BY CONSTRUCTION,
+# so the dead-partition test fired on all of them, every month, forever.
+#
+# Measured on the 24 Sep run: 26 of the 27 findings dated 2026 were this, and
+# ^TNX alone was 33 of the 100 findings since 2024. The single genuine finding
+# in that run — OKE's fabricated 1635.00 row — was sitting inside that noise.
+# It was found anyway; the next one would not be.
+#
+# An audit whose noise floor swamps its signal trains people to ignore it,
+# which is the same defect as a daily FAILED line nobody reads. Suppressing a
+# check that CANNOT be true here is not loosening the audit; it is the only
+# way the audit's output means anything.
+def reports_volume(symbol: str) -> bool:
+    """False for instruments with no volume to report: indices (^VIX, ^TNX)
+    and continuous futures (PL=F, PA=F). Pure; unit-tested."""
+    sym = str(symbol or "").strip().upper()
+    return not (sym.startswith("^") or sym.endswith("=F"))
+
+
+def find_garbage(df: pd.DataFrame, symbol: str | None = None) -> list[tuple[object, str]]:
     """Per-bar garbage detection — same two checks the write-time guard
     applies (NaN close; isolated >4x / <0.25x spike vs BOTH neighbours),
     but reported per bar instead of rejecting the frame."""
@@ -68,7 +91,8 @@ def find_garbage(df: pd.DataFrame) -> list[tuple[object, str]]:
     # on an otherwise smooth 16-year curve). This audit is REPORT-ONLY by
     # design precisely because that judgement needs a human — flagging is
     # cheap, deleting real history is not.
-    if daily_spaced and "volume" in df.columns:
+    _vol_ok = reports_volume(symbol) if symbol is not None else True
+    if daily_spaced and _vol_ok and "volume" in df.columns:
         vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
         flat_zero = (c == c.shift(1)) & (vol == 0)
         n_phantom = int(flat_zero.sum())
@@ -83,7 +107,8 @@ def find_garbage(df: pd.DataFrame) -> list[tuple[object, str]]:
             out.append((df.index[0], "dead partition (median volume 0 across "
                                      "the month — stale/wrong-contract feed)"))
 
-    if daily_spaced and "volume" in df.columns:
+    _vol_ok = reports_volume(symbol) if symbol is not None else True
+    if daily_spaced and _vol_ok and "volume" in df.columns:
         flat_zero = ((c == c.shift(1))
                      & (pd.to_numeric(df["volume"], errors="coerce").fillna(0) == 0))
         run = 0
@@ -198,6 +223,19 @@ def main() -> int:
     if args.fix_ibkr_volume:
         return _fix_ibkr_volume(base, parquets, apply=args.apply)
 
+    # RUN BOUNDARY (24 Sep 2026). The launchd lane redirects with >>, so this
+    # log accumulates runs forever — four of them, by 24 Sep. Nothing in the
+    # file said where one ended and the next began, and a reader (me) swept all
+    # four as one run and reported 6,805 defects against a stated 2,645, plus
+    # "16 bars since 2024" for a figure that was 100.
+    #
+    # Every per-run number was correct. The SCOPE was wrong, which is why the
+    # total-vs-breakdown assertion below would have passed all four times and
+    # caught nothing. These two guards catch DIFFERENT bugs and neither
+    # substitutes for the other: this one makes a run findable, that one makes
+    # a run internally honest.
+    _run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    print(f"\n===== BAR-CACHE AUDIT RUN {_run_id} =====")
     print(f"bar-cache audit — {len(parquets)} partition file(s) under {base}")
     total_bad = 0
     affected: list[tuple[Path, pd.DataFrame, list[tuple[object, str]]]] = []
@@ -208,7 +246,8 @@ def main() -> int:
             print(f"  ✗ UNREADABLE {p.relative_to(base)}: {exc}")
             total_bad += 1
             continue
-        bad = find_garbage(df)
+        bad = find_garbage(df, symbol=p.relative_to(base).parts[1]
+                           if len(p.relative_to(base).parts) > 1 else None)
         if bad:
             total_bad += len(bad)
             affected.append((p, df, bad))
@@ -263,7 +302,24 @@ def main() -> int:
         _report("ok", f"integrity audit: {len(parquets)} partitions clean")
         return 0
 
-    print(f"\n{total_bad} suspect bar(s) across {len(affected)} partition(s).")
+    # SELF-CHECK: the headline must equal the sum of the rows that produced it.
+    # An audit that publishes a total it has not reconciled against its own
+    # breakdown is asking to be quoted wrongly. Refuses rather than prints a
+    # number it cannot stand behind — a total that disagrees with its detail is
+    # not a smaller problem than a missing total, it is a worse one.
+    _rows = sum(len(b) for _p, _d, b in affected)
+    _unreadable = total_bad - _rows
+    if _unreadable < 0:
+        print(f"\n!! AUDIT ARITHMETIC FAILED for run {_run_id}: counted "
+              f"{total_bad} but its own detail lists {_rows} row(s). "
+              f"REFUSING to report a total that disagrees with its breakdown.")
+        _report("error", f"integrity audit {_run_id}: total {total_bad} != "
+                         f"detail {_rows}; no figure published")
+        return 2
+    print(f"\n[run {_run_id}] {total_bad} suspect bar(s) across "
+          f"{len(affected)} partition(s)"
+          + (f" ({_rows} flagged row(s) + {_unreadable} unreadable file(s))"
+             if _unreadable else "") + ".")
     _report("warn", f"integrity audit: {total_bad} suspect bar(s) across "
                     f"{len(affected)} of {len(parquets)} partition(s) — "
                     f"run tradepro-bar-cache-audit for detail")
@@ -297,7 +353,8 @@ def main() -> int:
             except Exception as exc:  # noqa: BLE001 — report, never abort the sweep
                 print(f"  ! {sym} {res} {part}: {str(exc)[:70]}")
             try:
-                after = find_garbage(_load(p_)) if p_.exists() else []
+                after = (find_garbage(_load(p_), symbol=sym)
+                         if p_.exists() else [])
             except Exception:  # noqa: BLE001
                 after = []
             if after:
