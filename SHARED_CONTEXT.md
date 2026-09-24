@@ -1674,3 +1674,48 @@ input (the blanking incident has NOT recurred).
 writes `realised_pnl`. Chasing the P&L reconciliation break: credit − exit vs
 `realised_pnl` diverged from 14 Sep, the same day BOTH expiries began placing.
 Working hypothesis is two round-trips folded into one row. Will append findings.
+
+### 24 Sep — P&L TRACE RESULT: two bugs, and the reported money was never wrong
+
+**The headline: realised P&L is TRUSTWORTHY.** `/api/strangle-decisions/pnl`
+reads `strangle_execution`, whose writer was corrected on 14 Sep to match
+strikes. −1,812.52 over 10 closed pairs in 14 days stands. What was broken is
+the DECISION LOG — the audit trail the EOD check, the desk board and any
+by-hand query read.
+
+**BUG A — the exit landed on the wrong expiry row.** `index_strangle_close.py`
+hardcoded `expiryKind="monthly"` on every close. From the live log, 14 Sep:
+
+    SPX weekly   placed=true   credit 2,866.74   exit —          realised —
+    SPX MONTHLY  placed=FALSE  credit —          exit 2,691.63   realised 175.11
+
+2,866.74 − 2,691.63 = 175.11 to the cent — right arithmetic, wrong row. Same
+15 and 21 Sep. **Before 14 Sep only monthly placed, so the hardcoded literal
+was ACCIDENTALLY CORRECT and every row reconciled at exactly 1.00x.** That
+1.00x was evidence of nothing and read as proof.
+
+Someone fixed this on 14 Sep — in the `strangle_execution` writer, which now
+matches strikes and 409s loudly. The `strangle_decision_log` UPDATE twenty
+lines above it in the same file was left keying on `expiry_kind`. **One fix,
+two write sites, one applied.** Put this next to "grep the VALUE not the name".
+
+**BUG B — a half pair recorded as the pair's credit.** `_credit_from_broker`
+summed whatever legs the broker returned. On 23 Sep the call came back and the
+put did not, so XSP recorded `credit_actual` 284.78 (the call alone, 2.847797 ×
+100) against an exit of 981.19 — a round trip that lost 69.63 reading as
+−696.41. The close was unaffected (it used the true 911.56), so realised was
+right and the credit beside it was wrong by a factor of ten with nothing
+saying so. The per-leg prices already followed the right rule; the TOTAL did
+not. Now returns NULL unless both legs are seen — and the EOD check already
+reports a NULL credit_actual, so the gap surfaces instead of hiding.
+
+**NOT DONE — owner's call, deliberately not taken unilaterally.** Three
+sessions (14, 15, 21 Sep) have exits filed against the wrong decision row.
+`strangle_execution` holds the correct attribution and could drive a backfill.
+I have not rewritten historical money records; flagging rather than doing.
+
+**From tradepro-ef, parked here rather than left in a log**: the weekly
+bar-cache audit ran Sat 19 Sep and found 2,645 suspect bars over 850 partitions
+on 27 symbols (4,199 phantom — unchanged close on zero volume — and 2,606
+stale). Report-only; nobody has run `--quarantine` or `--refresh`. Strategies
+read that store.

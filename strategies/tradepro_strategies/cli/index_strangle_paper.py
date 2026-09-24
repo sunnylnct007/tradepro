@@ -1172,7 +1172,7 @@ def _occ_strike(desc: str) -> float | None:
     return int(m.group(1)) / 1000.0 if m else None
 
 
-def _credit_from_broker(row: dict, leg: dict) -> dict | None:
+def _credit_from_broker(row: dict, leg: dict, expect_legs: int = 2) -> dict | None:
     """What the broker ACTUALLY filled the two legs at.
 
     Returns {"credit": money, "put_entry": per-share, "call_entry": per-share}
@@ -1221,6 +1221,26 @@ def _credit_from_broker(row: dict, leg: dict) -> dict | None:
         seen += 1
     if not seen:
         return None
+    # A PAIR CREDIT NEEDS BOTH LEGS.
+    #
+    # This summed whatever legs it found and returned the total as the
+    # strangle's credit. On 23 Sep 2026 the broker reported the call and not
+    # the put, so XSP recorded credit_actual 284.78 — the call alone — against
+    # an exit of 981.19, making a round trip that actually lost 69.63 read as
+    # -696.41. The close was unaffected (it used the true 911.56), so realised
+    # was right and the credit beside it was wrong: the two columns disagreed
+    # by a factor of ten and nothing said so.
+    #
+    # The per-leg prices twenty lines up already follow the right rule — record
+    # the leg you have, leave the other NULL, never imply a price nobody paid.
+    # The TOTAL did not. A partial placement is the one case where a single leg
+    # IS the whole position, and the caller says so.
+    #
+    # NULL is the honest answer here and it is not silent: the end-of-day check
+    # already reports "placed but credit_actual is NULL — the fill price was not
+    # captured", which is exactly the gap we want surfaced.
+    if seen < expect_legs:
+        return {"credit": None, **per_leg}
     return {"credit": round(total, 2), **per_leg}
 
 
@@ -1404,9 +1424,20 @@ def record_execution(row: dict, res: dict) -> dict:
     # Owner, 4 Sep 2026: "i cant see what price".
     if body["placed"] or res.get("partial"):
         try:
-            got = _credit_from_broker(row, leg=(row.get("legs") or {}).get(kind) or {})
+            # A partial fill is ONE leg by definition; a whole strangle is two.
+            got = _credit_from_broker(row, leg=(row.get("legs") or {}).get(kind) or {},
+                                      expect_legs=1 if res.get("partial") else 2)
             if got is not None:
-                body["creditActual"] = got["credit"]
+                # Absent, not null: COALESCE on the endpoint would treat an
+                # explicit null as "no change", but sending nothing is clearer
+                # about the fact that we never learned the number.
+                if got.get("credit") is not None:
+                    body["creditActual"] = got["credit"]
+                else:
+                    print(f"  !! {row.get('market')} [{kind}]: the broker reported "
+                          f"only one leg's entry price — credit_actual left "
+                          f"UNSET rather than recording a half-pair as the "
+                          f"pair's credit")
                 # PER SHARE, beside the money. Sent only when the broker
                 # actually reported a fill for that leg — a half-filled pair
                 # records the leg it has and leaves the other NULL rather than
