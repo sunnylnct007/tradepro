@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import re
 import json
 import logging
 import subprocess
@@ -506,6 +507,109 @@ def check_round_trips(base: str, token: str | None) -> list[Check]:
     return out
 
 
+
+def check_option_legs_vs_book(base: str, token: str | None) -> list[Check]:
+    """Every short option leg the BROKER holds must be one the book claims.
+
+    24 Sep 2026. Two SHORT XSP legs sat open in the paper account:
+
+        XSP OCT2026 780 C   qty -1   avg 4.7278   now 5.1700   -44.22
+        XSP OCT2026 758 P   qty -1   avg 5.2278   now 5.2199    +0.79
+
+    Twenty-three days old on a strategy whose entire design is a SAME-DAY
+    close, expiring 16 Oct — and the strangle's own /pnl reported
+    "open legs: 0". No decision row claims them: the nearest is a 3 Sep XSP
+    weekly at exactly 758/780 with placed=None, the shape left behind when
+    placements 404'd for days in early September. The trade happened, the
+    record did not, and nothing has looked at the broker since.
+
+    Every other check on this desk reads OUR records. This one reads the
+    BROKER and asks whether our records explain it, because an unrecorded
+    short option is the one position that cannot be found by reading the book
+    — it is absent from it by definition. Broker is the golden source
+    ([[project_broker_is_golden_source]]).
+    """
+    try:
+        pos = _get(base, token,
+                   "/api/integrations/ibkr/positions?fresh=true", timeout=60)
+        rows = (pos or {}).get("positions") or []
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Option legs vs book", UNKNOWN,
+                      f"could not read broker positions ({str(exc)[:60]})")]
+    legs = [p for p in rows
+            if p.get("isOption") and abs(float(p.get("quantity") or 0)) > 0]
+    if not legs:
+        return [Check("Option legs vs book", OK,
+                      "no option legs open at the broker")]
+    try:
+        dec = _get(base, token, "/api/strangle-decisions?days=45", timeout=60)
+        drows = (dec or {}).get("rows") or []
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Option legs vs book", UNKNOWN,
+                      f"could not read the decision log ({str(exc)[:60]})")]
+
+    def _occ(desc: str):
+        """(strike, right) from an IBKR contract description, via OCC."""
+        m = re.search(r"\d{6}([PC])(\d{8})", (desc or "").upper())
+        return (int(m.group(2)) / 1000.0, m.group(1)) if m else (None, None)
+
+    today = dt.date.today().isoformat()
+    out: list[Check] = []
+    for p in legs:
+        desc = str(p.get("instrumentName") or p.get("ticker") or "")
+        strike, right = _occ(desc)
+        qty = float(p.get("quantity") or 0)
+        short = "SHORT" if qty < 0 else "long"
+        pnl = p.get("unrealisedAbs")
+        who = f"{desc.split()[0]} {strike:.0f}{right}" if strike else desc[:40]
+        if strike is None:
+            out.append(Check("Option legs vs book", UNKNOWN,
+                             f"could not parse a strike from {desc[:50]}"))
+            continue
+        field = "put_strike" if right == "P" else "call_strike"
+        # MATCH THE MARKET, NOT JUST THE NUMBER. SPY and XSP are both about a
+        # tenth of the S&P and quote nearly identical strikes, so a strike-only
+        # match lets a SPY row vouch for an XSP leg and vice versa — the check
+        # would then confirm exactly the orphan it exists to find.
+        mkt = desc.split()[0].upper() if desc.split() else ""
+        claiming = [r for r in drows
+                    if r.get("placed") is True
+                    and str(r.get("market") or "").upper() == mkt
+                    and r.get(field) is not None
+                    and abs(float(r[field]) - strike) < 0.5]
+        if not claiming:
+            out.append(Check(
+                "Option legs vs book", BROKEN,
+                f"{who} {short} {abs(qty):.0f} · unrealised "
+                f"{(f'{float(pnl):+,.2f}' if pnl is not None else 'unknown')} "
+                f"— NO placement record claims this leg",
+                "the broker holds a position the desk has no record of opening; "
+                "it is not in any P&L, not in any risk total, and nothing will "
+                "ever close it"))
+            continue
+        open_rows = [r for r in claiming if not r.get("close_trigger")]
+        if not open_rows:
+            out.append(Check(
+                "Option legs vs book", BROKEN,
+                f"{who} {short} {abs(qty):.0f} — the book says CLOSED, "
+                f"the broker still holds it",
+                "a close was recorded that did not happen at the broker"))
+            continue
+        stale = [r for r in open_rows
+                 if str(r.get("exchange_date") or "")[:10] < today]
+        if stale:
+            when = min(str(r.get("exchange_date"))[:10] for r in stale)
+            out.append(Check(
+                "Option legs vs book", WARN,
+                f"{who} {short} {abs(qty):.0f} · opened {when} and still open",
+                "this strategy closes same-day; a leg carried overnight is the "
+                "exposure the time exit exists to prevent"))
+    if not out:
+        out.append(Check("Option legs vs book", OK,
+                         f"{len(legs)} open leg(s), all claimed by today's book"))
+    return out
+
+
 # ── assembly ──────────────────────────────────────────────────────────────
 def run_checks(base: str, token: str | None) -> list[Check]:
     checks: list[Check] = []
@@ -514,7 +618,8 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_execution(base, token),
                check_jobs,
                lambda: check_broker_agrees(base, token),
-               lambda: check_round_trips(base, token)):
+               lambda: check_round_trips(base, token),
+               lambda: check_option_legs_vs_book(base, token)):
         try:
             checks.extend(fn())
         except Exception as exc:  # noqa: BLE001
