@@ -1714,8 +1714,37 @@ sessions (14, 15, 21 Sep) have exits filed against the wrong decision row.
 `strangle_execution` holds the correct attribution and could drive a backfill.
 I have not rewritten historical money records; flagging rather than doing.
 
-**From tradepro-ef, parked here rather than left in a log**: the weekly
-bar-cache audit ran Sat 19 Sep and found 2,645 suspect bars over 850 partitions
-on 27 symbols (4,199 phantom — unchanged close on zero volume — and 2,606
-stale). Report-only; nobody has run `--quarantine` or `--refresh`. Strategies
-read that store.
+**BAR-CACHE AUDIT — FIGURES DO NOT RECONCILE, DO NOT QUOTE THEM YET.**
+
+I filed a number here earlier that does not add up, so I am correcting my own
+entry rather than leaving it to be cited. Two reports of the same 19 Sep audit
+run disagree, and each disagrees with itself:
+
+    report 1:  2,645 suspect bars, 27 symbols
+               ...but 4,199 phantom + 2,606 stale = 6,805, not 2,645
+    report 2:  5,835 findings, 12 symbols, all 1d resolution
+               ...periods 1,731 + 2,776 + 16 = 4,523, not 5,835
+
+Partial top-N subtotals could explain the period and per-symbol gaps. They
+CANNOT explain 6,805 vs 2,645, or 27 symbols vs 12. Someone needs to re-run
+`bar_cache_audit.py` and quote one number before any of this is acted on.
+
+WHAT DOES LOOK SOLID, and it lowers the severity a lot: the audit walks the
+PARQUET store — the one strategies read, not the postgres one the charts read —
+and the findings concentrate in 2010-11 and 2019-20 on illiquid names, with
+only SIXTEEN bars since 2024. APLD's 2019-20 bars predate its 2022 listing as
+Applied Digital; same shape on HIMS (pre-merger SPAC) and WBD (Discovery
+predecessor). These read as PREDECESSOR/SHELL bars: a provider really served
+them, they are economically meaningless, flat closes on ~zero volume. Not
+fabricated, and not the two-stores confusion.
+
+So this is a BACKTEST-HISTORY question on a dozen mostly-illiquid names, not a
+live-signal one. Report-only; nobody has run `--quarantine` or `--refresh`, and
+quarantining 850 partitions should not be the first move.
+
+THE MEASURABLE QUESTION, unanswered: does any trade in the gated studies
+ORIGINATE on a suspect bar? That is answerable without touching the store.
+tradepro-ef's prior is that it structurally cannot — the swing rule needs
+pstdev > 0 over 20 bars and an unchanged close drags sd toward 0 — but flagged
+that as reasoning, not measurement, and declined to report it as a result.
+Correctly. Nobody has measured it.
