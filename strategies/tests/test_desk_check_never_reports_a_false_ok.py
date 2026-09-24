@@ -148,6 +148,7 @@ def test_a_check_that_crashes_becomes_UNKNOWN_rather_than_vanishing(monkeypatch)
     monkeypatch.setattr(dc, "check_jobs", lambda: [])
     monkeypatch.setattr(dc, "check_broker_agrees", lambda *a, **k: [])
     monkeypatch.setattr(dc, "check_round_trips", lambda *a, **k: [])
+    monkeypatch.setattr(dc, "check_option_legs_vs_book", lambda *a, **k: [])
     checks = dc.run_checks("http://x", None)
     assert [c.status for c in checks] == [UNKNOWN]
     assert "kaboom" in checks[0].detail
