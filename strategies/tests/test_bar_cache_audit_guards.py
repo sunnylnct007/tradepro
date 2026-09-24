@@ -62,3 +62,28 @@ def test_a_real_spike_is_still_caught_on_a_traded_name():
                        "close": close, "volume": [1_000_000] * n}, index=idx)
     df.iloc[5, df.columns.get_loc("volume")] = 0
     assert find_garbage(df, symbol="OKE"), "a 16.8x fabricated row must be caught"
+
+
+def test_the_volume_tests_never_fire_on_intraday_bars():
+    """A FLAT ZERO-VOLUME 5m BAR IS NORMAL — it is an untraded interval.
+
+    Swept across the store for Jun-Sep 2026: 17,412 such bars at 5m and 3,146
+    at 1m, against 93 at 1d. Any o=h=l=c-on-zero-volume test applied without a
+    resolution condition would fire 20,558 times on ordinary intraday data and
+    rebuild the exact noise floor the volume guard just removed.
+
+    The store holds 2,632 5m and 438 1m partitions today and the audit reports
+    ZERO findings on them — every one of the 2,021 is 1d. That holds because
+    of `daily_spaced` (median index spacing >= 20h), which is easy to weaken by
+    accident. This pins the property rather than the implementation.
+    """
+    n = 78
+    idx = pd.date_range("2026-09-09 13:30", periods=n, freq="5min", tz="UTC")
+    df = pd.DataFrame(
+        {"open": [100.0] * n, "high": [100.0] * n, "low": [100.0] * n,
+         "close": [100.0] * n, "volume": [0] * n}, index=idx)
+    assert find_garbage(df, symbol="OKE") == [], (
+        "a flat zero-volume 5m bar is an untraded interval, not a defect")
+
+    idx1 = pd.date_range("2026-09-09 13:30", periods=n, freq="1min", tz="UTC")
+    assert find_garbage(df.set_index(idx1), symbol="OKE") == [], "same at 1m"
