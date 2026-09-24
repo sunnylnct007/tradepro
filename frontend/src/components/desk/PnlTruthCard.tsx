@@ -55,11 +55,23 @@ export function PnlTruthCard() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Derived from the ledger by the API: "active" = placed an order inside 7
-  // days. "unknown" is grouped with active on purpose — not knowing whether a
-  // sleeve is live is not the same as knowing it is not.
-  const active = rows.filter((r) => (r as any).activity !== "dormant");
+  // THREE GROUPS, because there are three answers (24 Sep 2026).
+  //
+  // The first version grouped "unknown" WITH active, reasoning that not knowing
+  // whether a sleeve is live is not the same as knowing it is not. True, and it
+  // put intraday_flat — retired, -£3,107 realised, zero rows in the OMS because
+  // it booked through IG — straight back beside the two sleeves that traded
+  // today. That is the "retired work posing as a peer" problem this card was
+  // changed to fix, reintroduced by the fix.
+  //
+  // So unknown is neither folded away nor promoted: it gets its own line with
+  // the API's reason. Guessing in either direction is worse than saying so.
+  const active = rows.filter((r) => (r as any).activity === "active");
   const dormant = rows.filter((r) => (r as any).activity === "dormant");
+  const unknown = rows.filter((r) => {
+    const a = (r as any).activity;
+    return a !== "active" && a !== "dormant";
+  });
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, background: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
@@ -122,6 +134,23 @@ export function PnlTruthCard() {
           <div style={{ marginTop: 6, fontSize: 9, color: "var(--text-muted)", padding: "0 6px", lineHeight: 1.5 }}>
             <b style={{ color: "#3fb950" }}>Realised</b> = booked closed trades (trust this). <b>Open</b> = unrealised mark-to-market — moves with price, not money in the bank.
             <span style={{ color: "#d29922" }}> ⚠ = Open is soft</span> (holds orphaned positions the strategy isn't managing → Net overstates the real result until wound down).
+            {unknown.length > 0 && (
+              <div style={{ marginTop: 6, paddingTop: 5, borderTop: "1px dashed #1b2233" }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>
+                  {unknown.length} sleeve(s) whose activity cannot be determined —
+                  neither counted as live nor as retired
+                </div>
+                {unknown.map((r) => (
+                  <div key={r.strategyId} style={{ display: "grid",
+                        gridTemplateColumns: "minmax(120px,1.4fr) 2fr", gap: 6,
+                        padding: "2px 6px", fontSize: 10.5, color: "var(--text-muted)" }}>
+                    <span>{r.strategyId}</span>
+                    <span>{(r as any).activityWhy ?? "no activity data"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {dormant.length > 0 && (
               <div style={{ marginTop: 6, paddingTop: 5, borderTop: "1px dashed #1b2233" }}>
                 <button
