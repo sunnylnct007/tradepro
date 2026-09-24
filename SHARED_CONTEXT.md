@@ -1766,8 +1766,29 @@ false positives. **`us_etf/OKE/1d/2026-09.parquet` is the only one on a real
 equity/ETF name in the whole four-month window.** That corroborates "only bar
 of its kind" from a different direction.
 
-So a guard on this signature MUST be resolution-aware and volume-aware, or it
-fires 20,558 times on ordinary intraday data. That is not a bad tick — a
+So a PROPOSED guard on this signature must be resolution- and volume-aware, or
+it fires 20,558 times on ordinary intraday data. (tradepro-ef checked: no
+shipped guard keys on this signature, and the existing volume tests are already
+resolution-gated by `daily_spaced` — median index spacing >= 20h — so the
+20,558 scenario cannot occur today. Pinned as a property test in PR #220.)
+
+**AND "FLAT" MEANS TWO DIFFERENT THINGS — my o=h=l=c measurements above are NOT
+what the guards test.** Correcting myself once more:
+
+    my sweep         open == high == low == close   (flat WITHIN the bar)
+    the guards       close == PREVIOUS close        (unchanged BETWEEN sessions)
+
+Those select different rows. By the guards' definition OKE's bar is not flat at
+all — close 1635.00 against a previous close of 97.51 — and it is caught by the
+SPIKE test, not a flat test. That is the "+ 1 spike" in ef's reconciled
+breakdown (1,989 zero-volume + 655 stale + 1 spike = 2,645). The single spike
+in the whole run is OKE.
+
+Both signatures are real and they are complementary: o=h=l=c on zero volume
+says a row was FABRICATED rather than observed; close==prev-close on zero
+volume says a series went STALE. Anyone building on this should pick
+deliberately and name which one they mean, because the same word is currently
+doing both jobs. That is not a bad tick — a
 bad tick moves one field. A bar with four identical prices and no volume is a
 fabricated row. 16.8x the neighbouring closes, dated THIS MONTH, in the store
 the STRATEGIES read (not the postgres one the charts read), on a name inside
