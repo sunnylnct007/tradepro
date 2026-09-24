@@ -12,28 +12,40 @@ neither would have raised.
 This is the repo's dominant bug shape — two components quietly disagreeing
 about the same value. The fix is ONE definition, not two kept in step.
 """
+import os
 from unittest.mock import patch
 
 import tradepro_strategies.cli.index_strangle_paper as P
 
-def _unparked():
-    """These tests are about PLACEMENT MECHANICS, not about whether SPY happens
-    to be parked today.
+def _desk_restrictions_lifted():
+    """These tests are about PLACEMENT MECHANICS, not about which unit the desk
+    happens to be trading today.
 
-    SPY/QQQ/GOLD were parked on 12 Sep 2026 while the IBKR market-data session
-    is dark. The park is a legitimate refusal and fires FIRST, before the
-    provisional / shut-session / stand-aside logic these tests exist to check —
-    so it must be lifted to reach them, exactly as the opening-auction clock is.
+    TWO desk-scope restrictions fire BEFORE the mechanics these tests check, so
+    both must be lifted to reach them, exactly as the opening-auction clock is:
 
-    Lifted, not deleted: `placement_parked` is real behaviour with its own test
-    in test_index_strangle_markets_one_definition.py.
+      * `placement_parked` — SPY/QQQ/GOLD, parked 12 Sep 2026 while the IBKR
+        market-data session is dark.
+      * PLACE_UNITS — from 23 Sep 2026 the desk places XSP monthly ALONE until
+        that unit is reliable, so a SPY row never reaches the broker call.
+
+    Lifted, not deleted: both are real behaviour with their own tests
+    (test_index_strangle_markets_one_definition.py,
+    test_place_one_unit_until_reliable.py).
     """
     import copy
+    import contextlib
     from tradepro_strategies.cli import index_strangle_paper as _P
     m = copy.deepcopy(_P.MARKETS)
     for c in m.values():
         c.pop("placement_parked", None)
-    return patch.object(_P, "MARKETS", m)
+
+    @contextlib.contextmanager
+    def _both():
+        with patch.object(_P, "MARKETS", m), \
+             patch.dict(os.environ, {"TRADEPRO_STRANGLE_PLACE_UNITS": "all"}):
+            yield
+    return _both()
 
 
 
@@ -88,7 +100,7 @@ def test_the_placement_reports_the_expiry_it_traded():
          patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
         import requests
         with patch.object(requests, "post", fake_post):
-            with _unparked():
+            with _desk_restrictions_lifted():
                 res = P.place_paper(_row(), contracts=1, shadow=True)
 
     assert res["expiry_kind"] == "monthly"
@@ -186,7 +198,7 @@ def test_an_api_rejection_carries_a_reason():
          patch.object(P, "load_credentials", create=True, return_value=("http://x", "t")):
         import requests
         with patch.object(requests, "post", lambda *a, **k: R()):
-            with _unparked():
+            with _desk_restrictions_lifted():
                 res = P.place_paper(_row(), contracts=1, shadow=True)
 
     assert res["placed"] is False

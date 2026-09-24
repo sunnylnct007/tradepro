@@ -269,8 +269,14 @@ def _record_exit(base, tok, market: str, expiry: str,
     # failed SILENTLY. Strikes are stored on the execution row and differ
     # between expiries (XSP 750/773 weekly vs 752/775 monthly), so they say
     # which row this is without anyone inferring a calendar rule.
+    # NO EXPIRY IS CLAIMED. This sent "monthly" for every close, which is a
+    # statement the close job cannot make: it closes broker positions and knows
+    # their STRIKES, never which expiry bucket they came from. The strikes below
+    # identify the round-trip; asserting an expiry we have not established is
+    # how the wrong row got every exit for nine sessions. If the strikes are
+    # unknown the write now 404s loudly rather than landing on a guess.
     body = {"market": market, "asOf": session or _dt.date.today().isoformat(),
-            "expiryKind": "monthly" if expiry else None,
+            "expiryKind": None,
             "putStrike": (strikes or {}).get("P"),
             "callStrike": (strikes or {}).get("C"),
             "exitCostActual": cost_out,

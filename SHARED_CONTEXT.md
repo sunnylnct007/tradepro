@@ -1674,3 +1674,122 @@ input (the blanking incident has NOT recurred).
 writes `realised_pnl`. Chasing the P&L reconciliation break: credit − exit vs
 `realised_pnl` diverged from 14 Sep, the same day BOTH expiries began placing.
 Working hypothesis is two round-trips folded into one row. Will append findings.
+
+### 24 Sep — P&L TRACE RESULT: two bugs, and the reported money was never wrong
+
+**The headline: realised P&L is TRUSTWORTHY.** `/api/strangle-decisions/pnl`
+reads `strangle_execution`, whose writer was corrected on 14 Sep to match
+strikes. −1,812.52 over 10 closed pairs in 14 days stands. What was broken is
+the DECISION LOG — the audit trail the EOD check, the desk board and any
+by-hand query read.
+
+**BUG A — the exit landed on the wrong expiry row.** `index_strangle_close.py`
+hardcoded `expiryKind="monthly"` on every close. From the live log, 14 Sep:
+
+    SPX weekly   placed=true   credit 2,866.74   exit —          realised —
+    SPX MONTHLY  placed=FALSE  credit —          exit 2,691.63   realised 175.11
+
+2,866.74 − 2,691.63 = 175.11 to the cent — right arithmetic, wrong row. Same
+15 and 21 Sep. **Before 14 Sep only monthly placed, so the hardcoded literal
+was ACCIDENTALLY CORRECT and every row reconciled at exactly 1.00x.** That
+1.00x was evidence of nothing and read as proof.
+
+Someone fixed this on 14 Sep — in the `strangle_execution` writer, which now
+matches strikes and 409s loudly. The `strangle_decision_log` UPDATE twenty
+lines above it in the same file was left keying on `expiry_kind`. **One fix,
+two write sites, one applied.** Put this next to "grep the VALUE not the name".
+
+**BUG B — a half pair recorded as the pair's credit.** `_credit_from_broker`
+summed whatever legs the broker returned. On 23 Sep the call came back and the
+put did not, so XSP recorded `credit_actual` 284.78 (the call alone, 2.847797 ×
+100) against an exit of 981.19 — a round trip that lost 69.63 reading as
+−696.41. The close was unaffected (it used the true 911.56), so realised was
+right and the credit beside it was wrong by a factor of ten with nothing
+saying so. The per-leg prices already followed the right rule; the TOTAL did
+not. Now returns NULL unless both legs are seen — and the EOD check already
+reports a NULL credit_actual, so the gap surfaces instead of hiding.
+
+**NOT DONE — owner's call, deliberately not taken unilaterally.** Three
+sessions (14, 15, 21 Sep) have exits filed against the wrong decision row.
+`strangle_execution` holds the correct attribution and could drive a backfill.
+I have not rewritten historical money records; flagging rather than doing.
+
+**BAR-CACHE AUDIT — RECONCILED (third revision), and ONE REAL BAD BAR.**
+
+Revised twice because the first two versions were wrong. Leaving the trail
+rather than tidying it.
+
+CAUSE OF THE BAD FIGURES: the audit log is APPEND-ONLY (the plist redirects
+with `>>`) and held FOUR runs — summary lines at 1895, 3790, 5689, 8338. A
+reader that greps the whole file merges four runs into one. The per-run
+arithmetic was right all along; the SCOPE was wrong. Note that a
+total-vs-breakdown assertion would NOT have caught this: each run was
+internally consistent. What catches it is a run-id header and a reader that
+scopes to the last run. Both belong in `bar_cache_audit.py`.
+
+SCOPED TO THE LAST RUN, everything reconciles exactly:
+
+    2,645 findings = 1,989 zero-volume + 655 stale + 1 spike
+    27 distinct symbols · all 1d · 100 findings since 2024 (NOT 16)
+
+AND THE CONCLUSION INVERTS: of the 27 findings dated 2026, TWENTY-SIX are FALSE
+POSITIVES — a zero-volume test fired at ^VIX, ^TNX, PL=F, PA=F, instruments
+that do not report volume at all. ^TNX alone is 33 of the 100 post-2024. The
+audit's own noise floor is most of what looked like signal, which is the
+strongest argument against running `--quarantine` on it. The volume test must
+not fire on instruments that have no volume.
+
+**THE 27th IS REAL, AND IT IS THE ONE THING HERE WORTH ACTING ON.** Verified
+independently out of the parquet store (`~/.tradepro/bar_cache/us_etf/OKE/1d/
+2026-09.parquet`), not taken on report:
+
+    2026-09-08     96.10    97.83    95.00    97.51   1,528,117
+    2026-09-09   1635.00  1635.00  1635.00  1635.00           0   <-- SYNTHETIC
+    2026-09-10     96.67    96.67    94.96    95.82   1,061,526
+
+Open = high = low = close = 1635.00 on ZERO volume. That is not a bad tick — a
+bad tick moves one field. A bar with four identical prices and no volume is a
+fabricated row. 16.8x the neighbouring closes, dated THIS MONTH, in the store
+the STRATEGIES read (not the postgres one the charts read), on a name inside
+the 956 universe, sitting inside both the 20-day and the 200-day windows today.
+This is the shape of [[project_garbage_bar_false_buy]].
+
+**IMPACT NOW MEASURED — AND IT IS A SILENT BLOCK, NOT A FALSE BUY.**
+Computed by tradepro-ef and reproduced independently here; the two agree to the
+decimal. 5,213 bars, exactly one > 500 (index 5202 = 1635.0), last close 90.54.
+
+                            WITH the bar      WITHOUT it
+    20-day mean                 171.59            94.42
+    20-day stdev                335.74             2.08
+    sigma of last close         -0.24            -1.87
+    -2.25 sigma threshold      -583.82            89.75
+    200-day SMA                  93.92            86.12
+    last 90.54 vs 200-SMA       BELOW - BLOCKED   ABOVE - passes
+
+**The live harm is the 200-day trend floor.** A 200-SMA inflated to 93.92 sits
+ABOVE the current price, so OKE fails the trend filter — and momentum tests
+close > 200-SMA too, so BOTH gated sleeves silently exclude it. That runs until
+the bar rolls out of the 200-day window, roughly mid-2027.
+
+BE PRECISE ABOUT THE 20-DAY HALF, because it is easy to overstate: a stdev of
+335 on a $90 name makes -2.25 sigma arithmetically unreachable, so the
+mean-reversion entry CANNOT fire while the spike is in the window. But on
+today's prices it would not have fired anyway (-1.87 sigma against -2.25
+needed, threshold 89.75 vs last 90.54). So: no trade was demonstrably lost
+today. A name is being withheld from both sleeves, which is the thing that
+matters, and no trade has been proven missed.
+
+THIS CORRECTS A MEMORY. The desk's note for this shape is garbage bar ->
+false BUY. The same defect also produces a false BLOCK, and the block is the
+more dangerous to operate with: a bad buy appears in the blotter, a withheld
+name appears NOWHERE. It arrives at the owner's stated red line — not a wrong
+signal, a silently withheld one — from a direction that was never written down.
+Both mechanisms are the same corruption expressing as silence: a FLAT
+zero-volume bar drives sd toward 0, a SPIKE inflates it, and either way the
+gate stops passing.
+
+DO NOT silently repair or drop that row. It is one obvious-looking fix and
+exactly the kind that reappears as an unexplained backtest change six weeks on.
+Quarantine with a record, or an owner decision. The repair PATH matters as much
+as the permission: re-sourcing from the golden chain is auditable, a
+hand-edited parquet is not.
