@@ -1172,6 +1172,51 @@ def _occ_strike(desc: str) -> float | None:
     return int(m.group(1)) / 1000.0 if m else None
 
 
+def _credit_with_retry(row: dict, leg: dict, expect_legs: int,
+                       market: str = "", kind: str = "") -> dict | None:
+    """The filled credit, allowing for the broker not having booked it yet.
+
+    THE RACE, seen live on 24 Sep 2026. XSP monthly placed at 14:12:35Z and the
+    credit was read immediately after. IBKR had not booked the position yet, so
+    the read found no legs and credit_actual was left NULL. Five hours later the
+    SAME call returned 995.56 — put 5.227797 + call 4.727797 — because by then
+    the position existed. Nothing was wrong with the capture except WHEN it ran.
+
+    That number is only recoverable while the position is OPEN: IBKR returns
+    avgPrice NULL on the order, so the fill price lives on the position and
+    nowhere else, and the 19:45Z time exit destroys it. A miss is permanent, and
+    it is the one number this whole paper exercise exists to collect.
+
+    So: retry briefly rather than accept a NULL. Bounded tight — this runs
+    inside the placement path, which already spends a retry budget of its own,
+    and a placed position is not at risk while we wait.
+    """
+    import time as _t
+    attempts = int(os.environ.get("TRADEPRO_CREDIT_RETRIES", "4"))
+    wait_s = float(os.environ.get("TRADEPRO_CREDIT_RETRY_WAIT_S", "6"))
+    got = None
+    for i in range(max(1, attempts)):
+        try:
+            got = _credit_from_broker(row, leg=leg, expect_legs=expect_legs)
+        except Exception as exc:  # noqa: BLE001 — a read failure is retryable
+            log.warning("credit read failed for %s [%s] (attempt %d): %s",
+                        market, kind, i + 1, str(exc)[:90])
+            got = None
+        if got is not None and got.get("credit") is not None:
+            if i:
+                print(f"  credit for {market} [{kind}] arrived on attempt "
+                      f"{i + 1} — the broker had not booked the fill yet")
+            return got
+        if i < attempts - 1:
+            _t.sleep(wait_s)
+    # Say so LOUDLY. A NULL here is unrecoverable once the position closes.
+    print(f"  !! {market} [{kind}]: the broker never reported a fill price "
+          f"after {attempts} attempts over ~{attempts * wait_s:.0f}s — "
+          f"credit_actual will be NULL and CANNOT be recovered once this "
+          f"position closes")
+    return got
+
+
 def _credit_from_broker(row: dict, leg: dict, expect_legs: int = 2) -> dict | None:
     """What the broker ACTUALLY filled the two legs at.
 
@@ -1425,8 +1470,9 @@ def record_execution(row: dict, res: dict) -> dict:
     if body["placed"] or res.get("partial"):
         try:
             # A partial fill is ONE leg by definition; a whole strangle is two.
-            got = _credit_from_broker(row, leg=(row.get("legs") or {}).get(kind) or {},
-                                      expect_legs=1 if res.get("partial") else 2)
+            got = _credit_with_retry(row, leg=(row.get("legs") or {}).get(kind) or {},
+                                     expect_legs=1 if res.get("partial") else 2,
+                                     market=str(row.get("market") or ""), kind=kind)
             if got is not None:
                 # Absent, not null: COALESCE on the endpoint would treat an
                 # explicit null as "no change", but sending nothing is clearer

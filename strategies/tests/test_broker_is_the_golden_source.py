@@ -93,16 +93,19 @@ def test_a_short_at_the_broker_is_never_treated_as_something_to_sell():
     assert s._broker_positions()["ARWR"] < 0
 
 
-@pytest.mark.parametrize("broker_qty,local,expect_sell_qty", [
-    (61.0, 61, 61),     # agree — sell the lot
-    (30.0, 61, 30),     # partly closed elsewhere — size to the broker
-    (0.0, 61, 0),       # gone — sell nothing
-    (-671.0, 61, 0),    # already short — sell nothing, this is the incident
-])
-def test_the_exit_is_always_sized_to_the_broker(broker_qty, local, expect_sell_qty):
-    """Local state may only ever REDUCE the order, never justify one."""
-    sized = 0 if broker_qty <= 0 else int(min(local, broker_qty))
-    assert sized == expect_sell_qty
+# THE SIZING TEST THAT USED TO LIVE HERE RE-DERIVED THE RULE.
+#
+#     sized = 0 if broker_qty <= 0 else int(min(local, broker_qty))
+#     assert sized == expect_sell_qty
+#
+# That asserts on a copy of the arithmetic, so it passed whatever the strategy
+# did — including, on 24 Sep 2026, a period when the exit branch that emits the
+# SELL had not run in production since 22 Sep and nothing exercised it.
+#
+# Its four cases (61->61, 30->30, 0->0, -671->0) are now driven through the REAL
+# on_bar in tests/test_the_exit_actually_emits_a_sell.py, which was verified to
+# FAIL when the exit path is neutered. Deleted rather than kept beside it: a
+# re-derivation that agrees with the code teaches you to trust it.
 
 
 # ── the desk check must SEE the divergence, not just the strategy ─────────

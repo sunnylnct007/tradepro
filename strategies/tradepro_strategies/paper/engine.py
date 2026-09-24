@@ -589,6 +589,10 @@ class Engine:
             # 15, where 5 were Ichimoku's leftovers and the strangle's option
             # legs. See Strategy.managed_positions.
             current_positions=dict(reg.strategy.managed_positions()),
+            # Approved-but-unfilled names count toward the concurrency cap. On
+            # 24 Sep four entries were approved in one cycle against two free
+            # slots because positions only move on fill.
+            in_flight=reg.strategy.in_flight_symbols(),
             now=datetime.now(timezone.utc),
         )
 

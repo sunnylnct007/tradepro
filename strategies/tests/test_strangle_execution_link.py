@@ -242,10 +242,16 @@ def test_the_report_branch_is_an_else_not_a_condition():
 # ---------------------------------------------------------------------------
 
 def test_the_placement_records_the_credit_it_was_filled_at():
+    # The call is now wrapped in _credit_with_retry (24 Sep 2026: the read beat
+    # IBKR booking the fill, so credit_actual was NULL on a position whose price
+    # was visible five hours later). The INTENT is unchanged and is what this
+    # asserts: the credit reaches the row FROM THE BROKER, never invented — so
+    # follow the chain rather than pin one function name.
     import inspect
     src = inspect.getsource(P.record_execution)
     assert "creditActual" in src
-    assert "_credit_from_broker" in src
+    assert "_credit_with_retry" in src
+    assert "_credit_from_broker" in inspect.getsource(P._credit_with_retry)
 
 
 def test_the_credit_is_money_not_per_share():
