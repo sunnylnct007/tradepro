@@ -582,7 +582,13 @@ class Engine:
             strategy_capital_usd=reg.capital_usd,
             mark_price=mark,
             marks=per_symbol,
-            current_positions=dict(reg.strategy.positions),
+            # MANAGED, NOT MERELY HELD. On a shared broker account a
+            # strategy's book contains the other strategies' positions too,
+            # and counting those against this one's max_open_positions blocked
+            # every swing entry on 24 Sep 2026 — 18 projected against a cap of
+            # 15, where 5 were Ichimoku's leftovers and the strangle's option
+            # legs. See Strategy.managed_positions.
+            current_positions=dict(reg.strategy.managed_positions()),
             now=datetime.now(timezone.utc),
         )
 

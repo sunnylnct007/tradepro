@@ -324,6 +324,45 @@ class MeanReversionSwingStrategy(Strategy):
                          str(exc)[:110])
             return None
 
+    def is_inherited(self, symbol: str) -> bool:
+        """True when this account holds `symbol` but THIS strategy did not open it.
+
+        `_fill_price` / `_entry_bar` are built by `_seed_from_oms` from OMS
+        fills filtered to our own strategy_id, so a name absent from both is a
+        name we have no fill for. The IBKR paper account carried DIS, ABBV and
+        COP from the Ichimoku clone that ran here until 22 Aug 2026.
+
+        ONE DEFINITION, TWO USES. `on_bar` uses it to leave such a position
+        alone, and `managed_positions` uses it to keep the position off our
+        own limits. Those were separate ideas until 24 Sep, when the sleeve
+        was found correctly refusing to TRADE the inherited names while being
+        blocked BY them: 18 projected positions against a cap of 15, five of
+        which were another strategy's. Refusing to manage a position and still
+        being charged for it is half a rule applied in one place.
+
+        Fails toward INHERITED, matching `_seed_from_oms`: if the OMS could not
+        be read the maps are empty, everything reads as inherited, and the
+        sleeve manages nothing rather than managing what it cannot verify.
+        """
+        return symbol not in self._fill_price and symbol not in self._entry_bar
+
+    def managed_positions(self):  # type: ignore[override]
+        """Our own positions only — see `is_inherited`.
+
+        A held name we did not open belongs to whoever opened it: its cost
+        basis is theirs, any P&L booked against it is fiction, and it must not
+        consume a slot in OUR max_open_positions.
+        """
+        # ANY SIGN. on_bar gates its ignore-inherited branch on held > 0
+        # because it is deciding whether to EXIT a long. Ownership does not
+        # depend on direction: this sleeve is long-only, so a SHORT position in
+        # its book was necessarily opened by something else — on 24 Sep that
+        # was the strangle's two XSP legs, qty -1 each, sitting in an equity
+        # strategy's position count.
+        return {sym: pos for sym, pos in self.positions.items()
+                if not (int(getattr(pos, "quantity", 0) or 0) != 0
+                        and self.is_inherited(sym))}
+
     def _seed_from_oms(self) -> None:
         """Entry PRICES from the OMS; what we actually HOLD comes from the broker.
 
@@ -460,7 +499,7 @@ class MeanReversionSwingStrategy(Strategy):
         # So: a position this strategy did not open is LEFT ALONE and named.
         # Flattening them is a decision for a human, not a side effect of
         # starting a test.
-        if held > 0 and sym not in self._fill_price and sym not in self._entry_bar:
+        if held > 0 and self.is_inherited(sym):
             self.log_decision(
                 symbol=sym, bar_ts=bar.timestamp, action="ignore-inherited",
                 reason=(f"holding {held} shares this strategy did not open — inherited from a "
