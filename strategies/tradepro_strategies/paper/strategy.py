@@ -357,6 +357,21 @@ class Strategy(ABC):
                 if ap is not None and float(ap) > 0:
                     pos.avg_entry_price = float(ap)
 
+    def managed_positions(self) -> dict[str, "Position"]:
+        """The positions this strategy is RESPONSIBLE for.
+
+        Defaults to everything it holds. A strategy sharing a broker account
+        with others overrides this to exclude positions it did not open, so
+        they are not counted against ITS limits.
+
+        Kept separate from `positions` on purpose: the strategy must still SEE
+        an inherited holding (so it can decline to manage it, and so it never
+        buys more of a name the account already holds) while not being CHARGED
+        for it. The engine feeds this to the risk gate; everything else keeps
+        reading `positions`.
+        """
+        return self.positions
+
     def position_for(self, symbol: str) -> Position:
         """Get or lazy-create the Position for a symbol. Strategies
         always read through this — never `self.positions[symbol]`

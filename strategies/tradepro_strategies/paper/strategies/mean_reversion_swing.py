@@ -49,6 +49,61 @@ _DEFAULT_CHASE_PCT = 1.5
 _chase_cache: list[float] = []
 
 
+_band_cache: list = []
+_DEFAULT_BAND_PCT = 2.0
+
+
+def reband_limit(cap: float, live: float | None,
+                 band_pct: float) -> tuple[float, bool]:
+    """The BUY limit to send: the anti-chase cap, lowered into IBKR's band.
+
+    LOWERS ONLY. Returns (limit, was_lowered). A live price above the cap, or no
+    live price at all, returns the cap untouched — this can never make an entry
+    more aggressive than the cap already permits, so it cannot reproduce the
+    3 Sep 2026 SNOW fill (367.44 on a 305.84 reference, above its own target).
+
+    Pure so it can be tested against the real rule rather than a copy of it.
+    """
+    if not live or live <= 0 or not cap or cap <= 0:
+        return cap, False
+    banded = round(live * (1 + band_pct / 100.0), 2)
+    if banded < cap:
+        return banded, True
+    return cap, False
+
+
+def _entry_band_pct() -> float:
+    """How far above the LIVE price a BUY limit may sit, for IBKR's sake.
+
+    IBKR rejected limits 3.8%, 5.9% and 7.4% above the market on 23 Sep 2026
+    and quoted its own threshold each time: 190.511058 against a market of
+    185.07 is 2.94%. 2.0% sits inside that with room for the price to move
+    between the quote and the send, and is config so it can be widened without
+    a deploy if the band turns out to be venue-dependent.
+
+    Read once per process, same as the chase cap: a wedged API must not block a
+    trade decision.
+    """
+    if _band_cache:
+        return _band_cache[0]
+    val = _DEFAULT_BAND_PCT
+    try:
+        import requests
+        from ...cli.push_to_api import load_credentials
+        base, token = load_credentials()
+        r = requests.get(f"{base.rstrip('/')}/api/settings-kv/swing_entry_live_band_pct",
+                         headers={"Authorization": f"Bearer {token}"} if token else {},
+                         timeout=10)
+        if r.status_code == 200:
+            got = r.json().get("value")
+            if isinstance(got, (int, float)) and 0 < float(got) < 20:
+                val = float(got)
+    except Exception:  # noqa: BLE001 — default, not a blocked entry
+        pass
+    _band_cache.append(val)
+    return val
+
+
 def _entry_chase_pct() -> float:
     """Read once per process; a wedged API must not block a trade decision."""
     if _chase_cache:
@@ -290,6 +345,45 @@ class MeanReversionSwingStrategy(Strategy):
                          str(exc)[:110])
             return None
 
+    def is_inherited(self, symbol: str) -> bool:
+        """True when this account holds `symbol` but THIS strategy did not open it.
+
+        `_fill_price` / `_entry_bar` are built by `_seed_from_oms` from OMS
+        fills filtered to our own strategy_id, so a name absent from both is a
+        name we have no fill for. The IBKR paper account carried DIS, ABBV and
+        COP from the Ichimoku clone that ran here until 22 Aug 2026.
+
+        ONE DEFINITION, TWO USES. `on_bar` uses it to leave such a position
+        alone, and `managed_positions` uses it to keep the position off our
+        own limits. Those were separate ideas until 24 Sep, when the sleeve
+        was found correctly refusing to TRADE the inherited names while being
+        blocked BY them: 18 projected positions against a cap of 15, five of
+        which were another strategy's. Refusing to manage a position and still
+        being charged for it is half a rule applied in one place.
+
+        Fails toward INHERITED, matching `_seed_from_oms`: if the OMS could not
+        be read the maps are empty, everything reads as inherited, and the
+        sleeve manages nothing rather than managing what it cannot verify.
+        """
+        return symbol not in self._fill_price and symbol not in self._entry_bar
+
+    def managed_positions(self):  # type: ignore[override]
+        """Our own positions only — see `is_inherited`.
+
+        A held name we did not open belongs to whoever opened it: its cost
+        basis is theirs, any P&L booked against it is fiction, and it must not
+        consume a slot in OUR max_open_positions.
+        """
+        # ANY SIGN. on_bar gates its ignore-inherited branch on held > 0
+        # because it is deciding whether to EXIT a long. Ownership does not
+        # depend on direction: this sleeve is long-only, so a SHORT position in
+        # its book was necessarily opened by something else — on 24 Sep that
+        # was the strangle's two XSP legs, qty -1 each, sitting in an equity
+        # strategy's position count.
+        return {sym: pos for sym, pos in self.positions.items()
+                if not (int(getattr(pos, "quantity", 0) or 0) != 0
+                        and self.is_inherited(sym))}
+
     def _seed_from_oms(self) -> None:
         """Entry PRICES from the OMS; what we actually HOLD comes from the broker.
 
@@ -441,7 +535,7 @@ class MeanReversionSwingStrategy(Strategy):
         # So: a position this strategy did not open is LEFT ALONE and named.
         # Flattening them is a decision for a human, not a side effect of
         # starting a test.
-        if held > 0 and sym not in self._fill_price and sym not in self._entry_bar:
+        if held > 0 and self.is_inherited(sym):
             self.log_decision(
                 symbol=sym, bar_ts=bar.timestamp, action="ignore-inherited",
                 reason=(f"holding {held} shares this strategy did not open — inherited from a "
@@ -615,6 +709,57 @@ class MeanReversionSwingStrategy(Strategy):
         # trade the strategy would have wanted. Band is config
         # (settings-kv swing_entry_max_chase_pct, default 1.5%).
         _limit = round(closes[i] * (1 + _entry_chase_pct() / 100.0), 2)
+        # ...AND ONE IBKR WILL ACTUALLY ACCEPT.
+        #
+        # 23 Sep 2026, one cycle, three entries lost with nothing placed:
+        #
+        #   AMP   limit 543.76  market 513.60  +5.9%   REJECTED
+        #   ALL   limit 246.50  market 229.44  +7.4%   REJECTED
+        #   FANG  limit 192.11  market 185.07  +3.8%   REJECTED
+        #
+        # "We cannot accept an order at a limit price at or more aggressive
+        # than X. Please submit your order using a limit price that is closer
+        # to the current market price of Y." IBKR refuses a BUY limit much
+        # more than ~3% above the market, whatever the reason for it.
+        #
+        # The cap above is measured from the SIGNAL close and is deliberately
+        # not re-derived at send time — that is what stops the strategy paying
+        # up through the band that defined the trade. But when the market has
+        # FALLEN more than 3% below that cap, the mean-reversion case is
+        # STRONGER, not weaker, and a limit above the market fills at the
+        # market anyway. So the desk was losing precisely the entries it most
+        # wanted, on a technicality, silently.
+        #
+        # LOWERING ONLY, NEVER RAISING. This can only ever move the limit DOWN
+        # toward the live price, so it cannot make an entry more aggressive
+        # than the anti-chase cap already permits, and it cannot resurrect the
+        # 3 Sep SNOW fill (367.44 on a 305.84 reference) — that order was above
+        # its cap, and the cap is untouched here.
+        #
+        # No live price means NO CHANGE: place the same order as before rather
+        # than guess. A missing quote must not silently alter an entry.
+        try:
+            from ...live_quote import live_prices
+            _live = (live_prices([sym]) or {}).get(sym)
+        except Exception as exc:  # noqa: BLE001 — never lose an entry over this
+            _live, exc_note = None, str(exc)[:80]
+            self.log_decision(symbol=sym, bar_ts=bar.timestamp,
+                              action="limit-not-rebanded",
+                              reason=(f"could not read a live price to check the "
+                                      f"limit against IBKR's band ({exc_note}) — "
+                                      f"sending the signal-based limit unchanged"))
+        _cap = _limit
+        _limit, _lowered = reband_limit(_cap, _live, _entry_band_pct())
+        if _lowered:
+            self.log_decision(
+                symbol=sym, bar_ts=bar.timestamp, action="limit-rebanded",
+                reason=(f"the anti-chase cap of {_cap:.2f} is "
+                        f"{100 * (_cap / _live - 1):.1f}% above the live "
+                        f"{_live:.2f}, and IBKR refuses a BUY limit that far "
+                        f"out — sending {_limit:.2f} instead. The cap off the "
+                        f"{closes[i]:.2f} signal close is UNCHANGED; this only "
+                        f"moves the limit DOWN, and a limit above the market "
+                        f"still fills at the market."))
         return [Order(strategy_id=self.strategy_id, symbol=sym, side=OrderSide.BUY,
                       quantity=qty, type=OrderType.LIMIT,
                       limit_price=_limit,

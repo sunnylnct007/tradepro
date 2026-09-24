@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import re
 import json
 import logging
 import subprocess
@@ -63,6 +64,29 @@ LIVE_STRATEGIES = ("mean_reversion_swing_ibkr", "ichimoku_equity",
 # one managed 9 of 48 — there is no ambiguous middle to tune against.
 MIN_REACH_RATE = 0.60
 MIN_EXIT_RATE = 0.50
+
+# HOW FAR BACK AN EXECUTION RATE MAY LOOK.
+#
+# 24 Sep 2026. This check read /api/oms/orders?limit=500 with NO time bound and
+# divided over the lot, so it reported "190 orders · 76 reached the broker" —
+# 40% — and WARNed. Windowed by day, the same data reads:
+#
+#     19 Sep   34 orders    0 reached ( 0%)     <- the outage, since fixed
+#     21 Sep   45 orders   35 reached (78%)
+#     22 Sep   48 orders   26 reached (54%)
+#     23 Sep    6 orders    3 reached (50%)
+#
+# The 40% was mostly a fault that had ALREADY BEEN FIXED, averaged in forever.
+# A rate over an unbounded window cannot distinguish "broken now" from "was
+# broken once", so it can never go green again however well the desk behaves —
+# and a warning that cannot clear is one a reader learns to skip.
+EXEC_WINDOW_DAYS = 7
+
+# Past this, a strategy is not failing — it is not trading.
+# ichimoku_equity_ibkr showed WARN at 19% off orders whose last one was 20 Aug,
+# five weeks dead. Reporting that as an execution failure is a false alarm about
+# a strategy that has nothing to execute.
+DORMANT_AFTER_DAYS = 10
 
 # launchd jobs that must exit 0. `launchctl list` reports the LAST exit
 # status, which is how the --strangle-dte breakage sat unnoticed: status 2,
@@ -228,17 +252,67 @@ def check_execution(base: str, token: str | None) -> list[Check]:
         return [Check("Execution", UNKNOWN,
                       f"could not read the OMS ({str(exc)[:60]})")]
 
+    def _age_days(o: dict) -> float | None:
+        raw = str(o.get("createdAtUtc") or o.get("createdAt") or "")
+        if not raw:
+            return None
+        try:
+            t = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=dt.UTC)
+        return (dt.datetime.now(dt.UTC) - t).total_seconds() / 86400.0
+
+    def _reached_broker(o: dict) -> bool:
+        """Did this order actually get to IBKR?
+
+        brokerOrderId ALONE says no for an order the broker itself REJECTED,
+        which is backwards: a rejection quoting IBKR's own words is proof it
+        arrived. On 22 Sep 2026 twenty-two orders carried
+
+            "Your account has a minimum of 15 orders working on either the buy
+             or sell side for this particular contract"
+
+        — IBKR refusing a 16th working order. Those reached the broker and were
+        turned away with a reason. Counting them as "dropped before the broker
+        saw them" pointed the reader at the router, which was not the fault.
+        """
+        if o.get("brokerOrderId"):
+            return True
+        why = str(o.get("cancelledReason") or "")
+        # A broker refusal is prose from IBKR. Our own failures are short codes
+        # or a JSON error body ("no bridge", "expired_no_broker_ack").
+        return bool(why) and len(why) > 60 and not why.lstrip().startswith("{")
+
     out = []
     for sid in LIVE_STRATEGIES:
-        mine = [o for o in orders if o.get("strategyId") == sid]
-        if not mine:
+        everything = [o for o in orders if o.get("strategyId") == sid]
+        if not everything:
             continue
-        reached = [o for o in mine if o.get("brokerOrderId")]
+        mine = [o for o in everything
+                if (_age_days(o) or 0) <= EXEC_WINDOW_DAYS]
+        if not mine:
+            # NOT FAILING — NOT TRADING. Say which.
+            ages = [a for a in (_age_days(o) for o in everything) if a is not None]
+            last = min(ages) if ages else None
+            out.append(Check(
+                f"Execution · {sid}", OK,
+                (f"no orders in the last {EXEC_WINDOW_DAYS} days"
+                 + (f" — last was {last:.0f} days ago" if last is not None else "")
+                 + (" · DORMANT, not failing"
+                    if last is not None and last >= DORMANT_AFTER_DAYS else ""))))
+            continue
+        reached = [o for o in mine if _reached_broker(o)]
+        refused = [o for o in mine
+                   if not o.get("brokerOrderId") and _reached_broker(o)]
         filled = [o for o in mine if str(o.get("state")) == "FILLED"]
         sells = [o for o in mine if str(o.get("side", "")).upper() == "SELL"]
         sells_filled = [o for o in sells if str(o.get("state")) == "FILLED"]
-        detail = (f"{len(mine)} orders · {len(reached)} reached the broker · "
-                  f"{len(filled)} filled · exits {len(sells_filled)}/{len(sells)}")
+        detail = (f"last {EXEC_WINDOW_DAYS}d: {len(mine)} orders · "
+                  f"{len(reached)} reached the broker"
+                  + (f" ({len(refused)} of them REFUSED by it)" if refused else "")
+                  + f" · {len(filled)} filled · exits {len(sells_filled)}/{len(sells)}")
         reach_rate = len(reached) / len(mine)
         exit_rate = (len(sells_filled) / len(sells)) if sells else None
         if not reached:
@@ -261,7 +335,9 @@ def check_execution(base: str, token: str | None) -> list[Check]:
                 f"Execution · {sid}", WARN, detail,
                 f"only {reach_rate:.0%} of orders reached the broker"
                 + (f" and {exit_rate:.0%} of exits filled" if exit_rate is not None else "")
-                + " — the rest were dropped before the broker saw them"))
+                + f" in the last {EXEC_WINDOW_DAYS} days — the rest never "
+                  f"reached it at all (a REFUSAL by the broker is counted as "
+                  f"reached, so this is our side)"))
         else:
             out.append(Check(f"Execution · {sid}", OK, detail))
     if not out:
@@ -431,6 +507,109 @@ def check_round_trips(base: str, token: str | None) -> list[Check]:
     return out
 
 
+
+def check_option_legs_vs_book(base: str, token: str | None) -> list[Check]:
+    """Every short option leg the BROKER holds must be one the book claims.
+
+    24 Sep 2026. Two SHORT XSP legs sat open in the paper account:
+
+        XSP OCT2026 780 C   qty -1   avg 4.7278   now 5.1700   -44.22
+        XSP OCT2026 758 P   qty -1   avg 5.2278   now 5.2199    +0.79
+
+    Twenty-three days old on a strategy whose entire design is a SAME-DAY
+    close, expiring 16 Oct — and the strangle's own /pnl reported
+    "open legs: 0". No decision row claims them: the nearest is a 3 Sep XSP
+    weekly at exactly 758/780 with placed=None, the shape left behind when
+    placements 404'd for days in early September. The trade happened, the
+    record did not, and nothing has looked at the broker since.
+
+    Every other check on this desk reads OUR records. This one reads the
+    BROKER and asks whether our records explain it, because an unrecorded
+    short option is the one position that cannot be found by reading the book
+    — it is absent from it by definition. Broker is the golden source
+    ([[project_broker_is_golden_source]]).
+    """
+    try:
+        pos = _get(base, token,
+                   "/api/integrations/ibkr/positions?fresh=true", timeout=60)
+        rows = (pos or {}).get("positions") or []
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Option legs vs book", UNKNOWN,
+                      f"could not read broker positions ({str(exc)[:60]})")]
+    legs = [p for p in rows
+            if p.get("isOption") and abs(float(p.get("quantity") or 0)) > 0]
+    if not legs:
+        return [Check("Option legs vs book", OK,
+                      "no option legs open at the broker")]
+    try:
+        dec = _get(base, token, "/api/strangle-decisions?days=45", timeout=60)
+        drows = (dec or {}).get("rows") or []
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Option legs vs book", UNKNOWN,
+                      f"could not read the decision log ({str(exc)[:60]})")]
+
+    def _occ(desc: str):
+        """(strike, right) from an IBKR contract description, via OCC."""
+        m = re.search(r"\d{6}([PC])(\d{8})", (desc or "").upper())
+        return (int(m.group(2)) / 1000.0, m.group(1)) if m else (None, None)
+
+    today = dt.date.today().isoformat()
+    out: list[Check] = []
+    for p in legs:
+        desc = str(p.get("instrumentName") or p.get("ticker") or "")
+        strike, right = _occ(desc)
+        qty = float(p.get("quantity") or 0)
+        short = "SHORT" if qty < 0 else "long"
+        pnl = p.get("unrealisedAbs")
+        who = f"{desc.split()[0]} {strike:.0f}{right}" if strike else desc[:40]
+        if strike is None:
+            out.append(Check("Option legs vs book", UNKNOWN,
+                             f"could not parse a strike from {desc[:50]}"))
+            continue
+        field = "put_strike" if right == "P" else "call_strike"
+        # MATCH THE MARKET, NOT JUST THE NUMBER. SPY and XSP are both about a
+        # tenth of the S&P and quote nearly identical strikes, so a strike-only
+        # match lets a SPY row vouch for an XSP leg and vice versa — the check
+        # would then confirm exactly the orphan it exists to find.
+        mkt = desc.split()[0].upper() if desc.split() else ""
+        claiming = [r for r in drows
+                    if r.get("placed") is True
+                    and str(r.get("market") or "").upper() == mkt
+                    and r.get(field) is not None
+                    and abs(float(r[field]) - strike) < 0.5]
+        if not claiming:
+            out.append(Check(
+                "Option legs vs book", BROKEN,
+                f"{who} {short} {abs(qty):.0f} · unrealised "
+                f"{(f'{float(pnl):+,.2f}' if pnl is not None else 'unknown')} "
+                f"— NO placement record claims this leg",
+                "the broker holds a position the desk has no record of opening; "
+                "it is not in any P&L, not in any risk total, and nothing will "
+                "ever close it"))
+            continue
+        open_rows = [r for r in claiming if not r.get("close_trigger")]
+        if not open_rows:
+            out.append(Check(
+                "Option legs vs book", BROKEN,
+                f"{who} {short} {abs(qty):.0f} — the book says CLOSED, "
+                f"the broker still holds it",
+                "a close was recorded that did not happen at the broker"))
+            continue
+        stale = [r for r in open_rows
+                 if str(r.get("exchange_date") or "")[:10] < today]
+        if stale:
+            when = min(str(r.get("exchange_date"))[:10] for r in stale)
+            out.append(Check(
+                "Option legs vs book", WARN,
+                f"{who} {short} {abs(qty):.0f} · opened {when} and still open",
+                "this strategy closes same-day; a leg carried overnight is the "
+                "exposure the time exit exists to prevent"))
+    if not out:
+        out.append(Check("Option legs vs book", OK,
+                         f"{len(legs)} open leg(s), all claimed by today's book"))
+    return out
+
+
 # ── assembly ──────────────────────────────────────────────────────────────
 def run_checks(base: str, token: str | None) -> list[Check]:
     checks: list[Check] = []
@@ -439,7 +618,8 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_execution(base, token),
                check_jobs,
                lambda: check_broker_agrees(base, token),
-               lambda: check_round_trips(base, token)):
+               lambda: check_round_trips(base, token),
+               lambda: check_option_legs_vs_book(base, token)):
         try:
             checks.extend(fn())
         except Exception as exc:  # noqa: BLE001
