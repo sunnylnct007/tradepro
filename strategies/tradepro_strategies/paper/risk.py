@@ -126,6 +126,11 @@ class RiskContext:
     # fallback for symbols not present.
     marks: dict[str, float] = field(default_factory=dict)
     current_positions: dict[str, "Position"] = field(default_factory=dict)
+    # Orders approved but not yet filled. A concurrency cap counted against
+    # positions alone cannot see an order it approved milliseconds earlier —
+    # see _projected_open_count. Defaulted so every existing construction of
+    # this context keeps working unchanged.
+    in_flight: frozenset[str] = frozenset()
     now: datetime | None = None
 
 
@@ -189,7 +194,9 @@ def check_order(
 
     # Concurrency — count strategies' OPEN positions (post-order).
     if limits.max_open_positions is not None:
-        post_open = _projected_open_count(ctx.current_positions, order, new_qty_signed)
+        post_open = _projected_open_count(ctx.current_positions, order,
+                                          new_qty_signed,
+                                          getattr(ctx, "in_flight", frozenset()))
         if post_open > limits.max_open_positions:
             return RiskCheckResult.fail(
                 "max_open_positions",
@@ -279,13 +286,28 @@ def _projected_open_count(
     current_positions: dict[str, "Position"],
     order: "Order",
     new_qty_signed: int,
+    in_flight: frozenset[str] = frozenset(),
 ) -> int:
     """How many symbols would be non-flat after this order fills.
-    Excludes the order's symbol from current_positions (using the
-    projected new qty for it instead) so we don't double-count."""
-    other_open = sum(
-        1
-        for s, p in current_positions.items()
-        if s != order.symbol and p.quantity != 0
-    )
-    return other_open + (1 if new_qty_signed != 0 else 0)
+
+    Excludes the order's symbol from current_positions (using the projected new
+    qty for it instead) so we don't double-count.
+
+    IN-FLIGHT ORDERS OCCUPY A SLOT. 24 Sep 2026: with 13 held against a cap of
+    15, four entries were approved in ONE cycle — AMP, ABNB, ALL, PAYX — each
+    projecting 14, because positions only move on FILL and none of the earlier
+    three had filled when the next was checked. All four filled. The sleeve
+    ended the day holding 17 against a limit of 15.
+
+    A cap that can only see settled positions is not a concurrency limit, it is
+    a limit on how many positions you had when you started. The strategy
+    already tracks in-flight symbols to avoid stacking two orders on one name
+    (mark_order_in_flight / has_order_in_flight); this counts them so the same
+    fact also constrains the total.
+    """
+    held = {s for s, p in current_positions.items() if p.quantity != 0}
+    other_open = sum(1 for s in held if s != order.symbol)
+    # Approved-but-unfilled names that are not already held and are not this
+    # order — each will become a position.
+    pending = sum(1 for s in in_flight if s not in held and s != order.symbol)
+    return other_open + pending + (1 if new_qty_signed != 0 else 0)

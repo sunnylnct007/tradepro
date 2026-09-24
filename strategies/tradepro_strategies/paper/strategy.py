@@ -318,6 +318,15 @@ class Strategy(ABC):
         error-prone; today it's manual at the call site."""
         self._in_flight_symbols.add(symbol)
 
+    def in_flight_symbols(self) -> frozenset[str]:
+        """Symbols with an order emitted but not yet filled.
+
+        The risk gate needs these: a concurrency cap counted against POSITIONS
+        alone cannot see an order it approved thirty milliseconds ago, because
+        positions only move on fill.
+        """
+        return frozenset(self._in_flight_symbols)
+
     def clear_order_in_flight(self, symbol: str) -> None:
         self._in_flight_symbols.discard(symbol)
 
