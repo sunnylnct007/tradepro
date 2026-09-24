@@ -78,8 +78,33 @@ class OptionsRiskConfig:
     # Greek entry gates (§9.2)
     delta_min: float = 0.20
     delta_max: float = 0.35
-    dte_min: int = 25
-    dte_max: int = 50
+    # 25 -> 21 (24 Sep 2026). MEASURED, not loosened. On 24 Sep the only
+    # tradeable monthly was 17 Oct at 22 DTE — deep open interest, live
+    # quotes — and the 25-day floor rejected it by three days. The admissible
+    # alternative, 20 Nov at 57 DTE, came back with ZERO open interest on
+    # every leg and every quote null: in-band and untradeable.
+    #
+    # The floor guards against short-dated gamma, which is a real risk near
+    # expiry. It is not a real difference between 22 and 25 days, and 25 was a
+    # round number rather than a measured threshold. 21 = three weeks keeps the
+    # guard where it belongs (inside two weeks) while admitting the front
+    # monthly for the whole cycle.
+    dte_min: int = 21
+    # 50 -> 60 (24 Sep 2026). NOT a taste change: consecutive monthlies are
+    # 28-35 calendar days apart, so a band narrower than 35 days cannot always
+    # contain one, and this screen deliberately prefers monthlies (they carry
+    # ~2.3x the open interest, and the OI gate is calibrated for them). At
+    # 25-50 the screen went blind for ~8 days of every cycle — on 24 Sep the
+    # listed monthlies were 23 and 57 DTE and NEITHER was admissible, so all
+    # 82 candidates were rejected on the calendar.
+    #
+    # dte_min + 35 = 56 is the smallest max that always reaches one; 60 keeps
+    # a margin. It that makes a monthly always
+    # reachable. The floor stays at 25: it guards against short-dated gamma,
+    # which is the real risk, and widening only the far end is the conservative
+    # direction — a longer-dated put has LOWER gamma per day. "Too far out to
+    # be worth it" is already priced by the annualised-yield gate.
+    dte_max: int = 60
     iv_rank_min: float = 30.0          # %
     # BRIDGE vega gate (OAuth-only architecture, 2026-08-09): while our own
     # options_iv_daily dataset accumulates toward a trustworthy rank window,

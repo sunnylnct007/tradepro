@@ -36,10 +36,14 @@ def test_short_tier_abuts_the_standard_band_no_dead_zone():
     from tradepro_strategies.quant_engine.options.risk import OptionsRiskConfig
     base = OptionsRiskConfig()
     s = _cfg()
-    assert s.dte_max == base.dte_min - 1 == 24
+    # Asserted as a PROPERTY, not against the literal 24 (24 Sep 2026): the
+    # standard floor moved 25 -> 21 when the liquid front monthly turned out to
+    # sit at 22 DTE, and this test failed on the stale constant while the
+    # invariant it exists to protect was never in danger.
+    assert s.dte_max == base.dte_min - 1
     assert s.dte_min == 7
-    # no DTE between 7 and 50 is unreachable by both tiers
-    for d in range(7, 51):
+    # no DTE across the two tiers' combined span is unreachable by both
+    for d in range(s.dte_min, base.dte_max + 1):
         assert (s.dte_min <= d <= s.dte_max) or (base.dte_min <= d <= base.dte_max), d
 
 

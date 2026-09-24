@@ -1638,3 +1638,39 @@ was the warning and I read it as "exits are broken" rather than "exits repeat".
 Unrelated and still standing from today: the desk-check verdict now renders on
 every desk view (PR #190) — it is what surfaced the 0/47 in the first place. Its
 banner will read BROKEN until the 21:45 job recomputes.
+
+---
+
+## 24 Sep 2026 — STRANGLE: three mail/placement fixes SHIPPED; P&L trace STARTING (tradepro-7f)
+
+**Deployed and verified**: Lambda `tradepro-jobs` reports `jobs_commit d73b616b0e48`,
+which carries all three. All 15 EventBridge rules still hold their `{"job": ...}`
+input (the blanking incident has NOT recurred).
+
+- **PR #207 `index_strangle_eod.py`** — the EOD check mailed `[STRANGLE OK] clean`
+  on 23 Sep while 3 of 4 units never placed. Two faults: `elif placed is False
+  and err: pass` graded any *reasoned* refusal as acceptable (a chain outage
+  passes that trivially), and the loop filtered `expiry_kind == "monthly"` so
+  weeklies — placing since 14 Sep — were never audited at all.
+- **PR #208 `index_strangle_paper.py`** — `PLACE_UNITS` now `(("XSP","monthly"),)`.
+  21 sessions of decision log: XSP monthly 11/13 = 85%, XSP weekly 4/6, SPX
+  weekly 3/6, SPX monthly 6/13 with 3 outright broker margin rejections.
+  Override with `TRADEPRO_STRANGLE_PLACE_UNITS`.
+- **PR #211 `preearnings_watch.py`** — a do-not-chase mail for MRVL never said
+  MRVL was on the watch list, and "wait for its pullback zone" withheld the
+  number the desk had already computed (239.53, 8.9% below).
+
+**TWO THINGS A REFACTOR COULD SILENTLY UNDO** — flagging for whoever touches these:
+1. The `PLACE_UNITS` gate is INSIDE `place_paper()` deliberately, not a filter on
+   the caller's unit list. Hoist it and stood-down units stop writing a decision
+   row; the EOD check then reads the missing row as "no placement attempt
+   recorded at all" — a false alarm every session.
+2. `"not in the placement set"` is matched by `_EXPECTED_REFUSALS` in
+   `index_strangle_eod.py`. Reword it in one file only and every session goes red.
+   Two files, one string.
+
+**CLAIMING (trace in progress, may edit)**: `index_strangle_close.py`,
+`index_strangle_paper.py` (record_execution / push_decisions), and whatever
+writes `realised_pnl`. Chasing the P&L reconciliation break: credit − exit vs
+`realised_pnl` diverged from 14 Sep, the same day BOTH expiries began placing.
+Working hypothesis is two round-trips folded into one row. Will append findings.

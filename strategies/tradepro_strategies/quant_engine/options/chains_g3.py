@@ -59,7 +59,7 @@ def _month_to_date(month: str) -> str | None:
 _MIN_MONTHLY_LEGS = 6
 
 
-def fetch_chain_g3(
+def _fetch_chain_g3_once(
     symbol: str,
     *,
     target_dte: int = 35,
@@ -67,6 +67,8 @@ def fetch_chain_g3(
     max_strikes: int = 20,
     expiry: str | None = None,     # exact expiry (YYYY-MM-DD) — weekly selection (SPEC §1)
     prefer_monthly: bool = True,
+    dte_min: int | None = None,    # the band the CALLER will judge this against
+    dte_max: int | None = None,
     api_base: str | None = None,
     api_token: str | None = None,
     timeout: float = 30.0,
@@ -118,7 +120,33 @@ def fetch_chain_g3(
             return None
         chosen_month = _want_month
     else:
-        chosen_month = min(months_data["months"], key=lambda m: abs(_dte(m) - target_dte))
+        # CHOOSE INSIDE THE BAND WE ARE ABOUT TO BE JUDGED BY (24 Sep 2026).
+        #
+        # Consecutive monthlies are 28-35 days apart. The screen's DTE band was
+        # 25-50 — twenty-five days wide, i.e. NARROWER THAN THE GAP BETWEEN
+        # MONTHLIES — so for part of every cycle no monthly could satisfy it.
+        # On 24 Sep the two listed monthlies were 17 Oct (23 DTE) and 20 Nov
+        # (57 DTE); nearest-to-target picked October, and the DTE gate then
+        # rejected it for being two days short. 75 of 82 candidates died that
+        # way, on a contract WE selected, while an admissible one was listed.
+        #
+        # So: among months inside [dte_min, dte_max], take the one nearest
+        # target_dte. Only if NONE is admissible fall back to nearest overall,
+        # and let the caller's gate fail honestly — a genuine calendar fact
+        # ("no listed monthly sits in the band this week") rather than an
+        # artefact of our own selection order.
+        _months = list(months_data["months"])
+        if dte_min is not None and dte_max is not None:
+            _in_band = [m for m in _months if dte_min <= _dte(m) <= dte_max]
+            if _in_band:
+                _months = _in_band
+            else:
+                log.info("%s: no listed month inside %d-%d DTE (listed: %s) — "
+                         "using nearest to %dd; the DTE gate will fail and the "
+                         "reason is the calendar, not the contract", symbol,
+                         dte_min, dte_max,
+                         ", ".join(f"{m}={_dte(m)}d" for m in _months), target_dte)
+        chosen_month = min(_months, key=lambda m: abs(_dte(m) - target_dte))
 
     try:
         _params = {"month": chosen_month, "right": right, "maxStrikes": max_strikes}
@@ -202,9 +230,10 @@ def fetch_chain_g3(
         if _why:
             log.info("%s: monthly %s unusable (%s) — falling back to the expiry "
                      "nearest %dd", symbol, chosen_month, _why, target_dte)
-            return fetch_chain_g3(
+            return _fetch_chain_g3_once(
                 symbol, target_dte=target_dte, right=right,
                 max_strikes=max_strikes, expiry=None, prefer_monthly=False,
+                dte_min=dte_min, dte_max=dte_max,
                 api_base=api_base, api_token=api_token, timeout=timeout)
 
     if not spot or not legs:
@@ -228,7 +257,14 @@ def fetch_chain_g3(
     elif _mats:
         def _iso(m: str) -> str:
             return f"{m[:4]}-{m[4:6]}-{m[6:]}"
-        best = min(_mats, key=lambda m: abs((_dt.date.fromisoformat(_iso(m)) - today).days - target_dte))
+        def _leg_dte(m: str) -> int:
+            return (_dt.date.fromisoformat(_iso(m)) - today).days
+        _pick = _mats
+        if dte_min is not None and dte_max is not None:
+            _ok = [m for m in _mats if dte_min <= _leg_dte(m) <= dte_max]
+            if _ok:
+                _pick = _ok                 # same rule as the month choice above
+        best = min(_pick, key=lambda m: abs(_leg_dte(m) - target_dte))
         expiry_iso = _iso(best)
         legs = [l for l in legs if str(l.get("maturityDate")) == best] or legs
     else:
@@ -339,3 +375,48 @@ _CAPTURE_WARNED = False
 
 
 __all__ = ["fetch_chain_g3"]
+
+
+def fetch_chain_g3(
+    symbol: str,
+    *,
+    target_dte: int = 35,
+    right: str = "P",
+    max_strikes: int = 20,
+    expiry: str | None = None,
+    prefer_monthly: bool = True,
+    dte_min: int | None = None,
+    dte_max: int | None = None,
+    api_base: str | None = None,
+    api_token: str | None = None,
+    timeout: float = 30.0,
+) -> OptionChain | None:
+    """Prefer an expiry inside the caller's DTE band, but never return NOTHING
+    just to honour it.
+
+    THE SECOND HALF OF THE 24 Sep 2026 FIX, and the reason the first half alone
+    was wrong. Making selection band-aware correctly steered XOM off the 22-DTE
+    October monthly and onto the 57-DTE November one — which turned out to be
+    UNTRADEABLE: zero open interest on every leg, every quote null. The screen
+    went from "a usable chain the DTE gate rejects" to "no chain at all", which
+    is strictly worse: a blocked row at least states a reason.
+
+    An in-band contract that does not trade is not a better answer than an
+    out-of-band one that does. So the band is a PREFERENCE: try it, and if it
+    yields nothing usable, fall back to nearest-to-target and let the caller's
+    gate judge what actually exists. The liquidity checks inside the core
+    already decide "usable"; this only decides which expiry to ask about first.
+    """
+    kw = dict(target_dte=target_dte, right=right, max_strikes=max_strikes,
+              expiry=expiry, prefer_monthly=prefer_monthly,
+              api_base=api_base, api_token=api_token, timeout=timeout)
+    banded = dte_min is not None and dte_max is not None and not expiry
+    if banded:
+        out = _fetch_chain_g3_once(symbol, dte_min=dte_min, dte_max=dte_max, **kw)
+        if out is not None:
+            return out
+        log.info("%s: no usable chain inside %d-%d DTE — retrying without the "
+                 "band. A tradeable out-of-band contract beats none at all; "
+                 "the caller's DTE gate still judges what comes back.",
+                 symbol, dte_min, dte_max)
+    return _fetch_chain_g3_once(symbol, **kw)
