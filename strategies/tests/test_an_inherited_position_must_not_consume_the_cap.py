@@ -11,7 +11,11 @@
 The IBKR paper account is SHARED. Of the 18:
 
     13  swing's own
-     3  DIS, ABBV, COP   the Ichimoku clone that ran here until 22 Aug 2026
+     3  DIS, ABBV, COP   ichimoku_equity_ibkr — the DORMANT clone, last order
+                      20 Aug 2026. NOT ichimoku_equity, which is a different
+                      sleeve, still trading, on T212. Both held these tickers
+                      in their own accounts, so an attribution that ignores
+                      the broker names the wrong one.
      2  XSP 758P/780C    the strangle's option legs, qty -1 each
 
 An "ignore-inherited" rule already existed in on_bar and worked — the sleeve
