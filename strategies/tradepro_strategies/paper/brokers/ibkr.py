@@ -20,9 +20,15 @@ Why this file is a SKELETON today:
     every order — the placeholder is here but the routing table
     (strategy_id → account_id) is the operator's config knob.
 
-Safety story: live IBKR orders refuse to send unless the account id
-starts with "DU" (paper) OR `allow_real_orders=True` is set AND the
-env var `TRADEPRO_IBKR_ALLOW_LIVE=1`. Same two-key posture as T212.
+Safety story: THIS BUILD IS PAPER ONLY. An account id that does not start
+with "DU" (an IBKR paper account) cannot place an order, and there is no
+environment variable that changes that — TRADEPRO_IBKR_ALLOW_LIVE is gone.
+Going live requires editing `_live_orders_enabled` in a reviewed commit.
+
+Why a wall rather than the previous two-key gate: this desk places orders
+automatically on two sleeves every fifteen minutes. An env var set on the
+wrong host, inherited by a subprocess, or copied into a launchd plist reaches
+live money with no code review anywhere in the path.
 """
 from __future__ import annotations
 
@@ -247,14 +253,38 @@ class IBKRRouter(OrderRouter):
             self.default_account = os.environ.get("TRADEPRO_IBKR_ACCOUNT")
 
     def _live_orders_enabled(self, account: str) -> bool:
-        """Paper accounts (DU prefix) are always allowed. Live accounts
-        need both the constructor flag and the env override."""
+        """PAPER ONLY. There is no environment variable that turns this on.
+
+        Owner, 26 Sep 2026: *"i want to remove ibkr live credentials from
+        secret manager"*, *"so by no means we can hit live ibkr"*.
+
+        This used to be a GATE: a live account was allowed when the constructor
+        flag AND TRADEPRO_IBKR_ALLOW_LIVE=1 were both set. Two conditions is
+        better than one, and it is still a switch — an env var set on the wrong
+        host, inherited by a subprocess, or copied into a plist reaches live
+        money with no code review anywhere in the path. This desk now places
+        orders automatically on two sleeves every fifteen minutes; that is not
+        a thing to leave behind a flag.
+
+        So the flag is gone and the rule is structural: an account that is not
+        an IBKR paper account (DU prefix) cannot trade, whatever the
+        environment says. Removing the credentials, which the owner is doing
+        separately, closes the same door from the other side — credentials can
+        be re-added by accident; this cannot be re-enabled by accident.
+
+        TO GO LIVE LATER this function must be CHANGED, in a commit, in a pull
+        request. That is the point: the decision becomes reviewable rather than
+        environmental.
+        """
         if account and account.startswith("DU"):
             return True
-        return (
-            self.allow_real_orders
-            and os.environ.get("TRADEPRO_IBKR_ALLOW_LIVE") == "1"
-        )
+        log.error(
+            "REFUSING to place orders on account %r — this build is PAPER "
+            "ONLY. An IBKR paper account starts with 'DU'. No environment "
+            "variable enables live trading; going live requires a code change "
+            "and a review. Nothing has been sent to the broker.",
+            account or "<unset>")
+        return False
 
     async def run(
         self,
