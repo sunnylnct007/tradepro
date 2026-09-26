@@ -30,6 +30,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import time
+
 import requests
 
 from ..bar_cache.asset_classes import UsEtfPlugin  # noqa: F401 — registers the plugins
@@ -40,6 +42,11 @@ log = logging.getLogger(__name__)
 # Big enough that 244 symbols x 10 sessions is a handful of calls, small enough
 # that one bad batch is legible in a log rather than a wall of JSON.
 BATCH = 500
+
+#: A dropped connection is not a rejection. Three attempts with backoff
+#: turns a transient blip into a delay instead of a day-stale chart store.
+PUSH_ATTEMPTS = 3
+PUSH_BACKOFF_S = 5
 
 
 def _credentials() -> tuple[str | None, str | None]:
@@ -115,16 +122,52 @@ def push_bars(
     written = 0
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     url = f"{api_base.rstrip('/')}/api/admin/data-trust/bars"
+    # RETRY WHAT IS TRANSIENT; NEVER RETRY A REJECTION (26 Sep 2026).
+    #
+    # This had no retry at all, so ONE dropped connection left the chart store a
+    # full day behind — the next attempt was the next daily run. It happened on
+    # 16, 18 and 25 September, and on 26 Sep the charts still showed 23 Sep for
+    # OVV and AES while the parquet store the strategies read had 25 Sep. A
+    # position opened yesterday was being charted against two-day-old bars.
+    #
+    # The distinction that matters: a ConnectionError or a 5xx means the write
+    # did not happen and MAY succeed on retry. A 4xx means the server
+    # understood us and said no — retrying that is just a slower failure. So
+    # transient faults back off and retry; rejections still raise at once.
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
-        resp = requests.post(url, json={"resolution": resolution, "bars": batch},
-                             timeout=120, headers=headers)
-        if resp.status_code >= 300:
-            # FAIL LOUD. A push that half-lands and reports success is exactly
-            # how the two stores drifted apart unnoticed for weeks.
+        n_batch = i // BATCH + 1
+        n_total = (len(rows) + BATCH - 1) // BATCH
+        resp = None
+        last_exc: Exception | None = None
+        for attempt in range(1, PUSH_ATTEMPTS + 1):
+            try:
+                resp = requests.post(url, json={"resolution": resolution, "bars": batch},
+                                     timeout=120, headers=headers)
+            except requests.RequestException as exc:
+                last_exc = exc
+                resp = None
+            else:
+                if resp.status_code < 300:
+                    break
+                if resp.status_code < 500:
+                    # FAIL LOUD and at once. A push that half-lands and reports
+                    # success is exactly how the two stores drifted apart.
+                    raise RuntimeError(
+                        f"bar push rejected ({resp.status_code}) on batch "
+                        f"{n_batch} of {n_total}: {resp.text[:200]}")
+                last_exc = RuntimeError(f"HTTP {resp.status_code}: {resp.text[:120]}")
+                resp = None
+            if attempt < PUSH_ATTEMPTS:
+                wait = PUSH_BACKOFF_S * (2 ** (attempt - 1))
+                log.warning("bar push batch %d/%d attempt %d/%d failed (%s) — "
+                            "retrying in %ds", n_batch, n_total, attempt,
+                            PUSH_ATTEMPTS, str(last_exc)[:90], wait)
+                time.sleep(wait)
+        if resp is None:
             raise RuntimeError(
-                f"bar push rejected ({resp.status_code}) on batch {i // BATCH + 1} "
-                f"of {(len(rows) + BATCH - 1) // BATCH}: {resp.text[:200]}")
+                f"bar push batch {n_batch} of {n_total} failed after "
+                f"{PUSH_ATTEMPTS} attempts: {last_exc}")
         written += (resp.json() or {}).get("written", 0)
 
     return {"symbols": len(symbols), "rows": len(rows), "written": written,

@@ -6,7 +6,9 @@ and the chart still drew 4 Sep.
 """
 import io
 import tokenize
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from tradepro_strategies.cli import bar_cache_push
 
@@ -47,12 +49,53 @@ def test_the_push_reads_disk_and_never_fetches():
     assert "allow_partial=True" in code
 
 
-def test_a_rejected_batch_raises_rather_than_returning_a_count():
+def test_a_rejected_batch_raises_rather_than_returning_a_count(tmp_path):
     """A push that half-lands and reports success is exactly how the stores
-    drifted apart unnoticed."""
-    code = _code_only(Path(bar_cache_push.__file__).read_text())
-    assert "raise RuntimeError(" in code
-    assert "resp.status_code >= 300" in code
+    drifted apart unnoticed.
+
+    ASSERTS THE BEHAVIOUR, NOT THE SOURCE TEXT (26 Sep 2026). This grepped for
+    the literal "resp.status_code >= 300". Adding retry split that branch into
+    "< 300 -> done" and "< 500 -> raise", so the test failed while the property
+    it protects was strengthened. A grep test cannot tell those apart — the
+    standing lesson on this desk. It now drives the real function against real
+    bars on disk and a stubbed transport.
+    """
+    import pandas as pd
+    import pytest
+
+    part = tmp_path / "us_etf" / "OVV" / "1d"
+    part.mkdir(parents=True)
+    idx = pd.date_range("2026-09-24", periods=2, freq="B", tz="UTC")
+    pd.DataFrame({"open": [1.0, 1.0], "high": [1.0, 1.0], "low": [1.0, 1.0],
+                  "close": [1.0, 1.0], "volume": [10, 10],
+                  "source": ["ibkr", "ibkr"]}, index=idx
+                 ).to_parquet(part / "2026-09.parquet")
+
+    calls = {"n": 0}
+
+    class _Rejected:
+        status_code = 422
+        text = "bad payload"
+
+        def json(self):
+            return {"written": 0}
+
+    def fake_post(url, **kw):
+        calls["n"] += 1
+        return _Rejected()
+
+    with patch.object(bar_cache_push.requests, "post", side_effect=fake_post), \
+         patch.object(bar_cache_push.time, "sleep", lambda *_a, **_k: None):
+        with pytest.raises(RuntimeError, match="rejected"):
+            bar_cache_push.push_bars(
+                base_dir=tmp_path, symbols=["OVV"], asset_class="us_etf",
+                resolution="1d",
+                start=datetime(2026, 9, 24, tzinfo=UTC),
+                end=datetime(2026, 9, 26, tzinfo=UTC),
+                api_base="http://api")
+
+    assert calls["n"] == 1, (
+        f"a 4xx was POSTed {calls['n']} times — a rejection must not be retried")
 
 
 def test_an_empty_push_is_a_failure_not_a_success():
