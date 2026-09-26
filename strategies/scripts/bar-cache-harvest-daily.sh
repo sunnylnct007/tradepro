@@ -130,4 +130,28 @@ if [[ $PUSH_RC -ne 0 ]]; then
         "harvest succeeded. See $LOG"
     exit $PUSH_RC
 fi
-log "push complete — both stores now hold the same session"
+# VERIFY, DO NOT ASSERT (26 Sep 2026).
+#
+# This line used to read "push complete — both stores now hold the same
+# session". That was a CLAIM. Nothing compared them, and on 26 Sep the check
+# that finally did found 719 of 1006 symbols two sessions behind, plus 37 the
+# chart store had never heard of — including AES, which momentum had bought two
+# days earlier. The push had "succeeded" every time it did not crash.
+#
+# A successful POST proves the rows we SENT were accepted. It says nothing
+# about the symbols we did not send, a batch that half-landed, or a store that
+# was rebuilt underneath us. So the claim is now earned: reconcile the chart
+# store against the golden parquet, repair what drifted, and FAIL if anything
+# is still behind afterwards.
+log "verifying the chart store against the golden parquet"
+"$UV" run tradepro-bar-reconcile --resolution 1d --asset us_etf \
+    --api-base "$API_URL" --repair >>"$LOG" 2>&1
+RECON_RC=$?
+if [[ $RECON_RC -ne 0 ]]; then
+    # Non-zero means drift SURVIVED the repair — a real fault, not a blip.
+    log "FATAL: chart store still diverges from the golden store after repair "\
+        "(reconcile exited $RECON_RC). The charts are NOT showing what the "\
+        "strategies read. See $LOG"
+    exit $RECON_RC
+fi
+log "push complete and VERIFIED — the chart store matches the golden parquet"
