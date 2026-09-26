@@ -37,8 +37,11 @@ Strategies
 
 T212 live trading requires both `--allow-real-orders` AND the env
 var `TRADEPRO_T212_ALLOW_LIVE=1` — same two-key gate the router enforces.
-IBKR live trading needs `TRADEPRO_IBKR_ALLOW_LIVE=1` and a non-DU
-account id.
+IBKR LIVE TRADING IS NOT POSSIBLE IN THIS BUILD (26 Sep 2026). The router
+refuses any account that is not an IBKR paper account (DU prefix), and no
+environment variable changes that — TRADEPRO_IBKR_ALLOW_LIVE no longer
+exists. Going live requires changing _live_orders_enabled in a reviewed
+commit, which is the point: the decision is reviewable, not environmental.
 """
 from __future__ import annotations
 
