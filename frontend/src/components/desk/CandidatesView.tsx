@@ -240,17 +240,17 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       if (a.movers) setMovers(a.movers);
     } catch { /* engine not yet run this cycle — absence is not an error */ }
 
-    // Setups lane (the cockpit's Today's Setups stars) — same artifact the
-    // cockpit panel reads, so the two surfaces cannot disagree.
-    for (const uni of ["large_50", "high_beta"]) {
-      try {
-        const r: any = await api.todaySetupsArtifact(uni);
-        const a: any = r?.artifact ?? {};
-        if (a.candidates_v2?.length) {
-          out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
-        }
-      } catch { /* lane optional */ }
-    }
+    // SETUPS LANE REMOVED (26 Sep 2026). It IS the Ichimoku scanner over
+    // large_50 + high_beta, and Ichimoku is retired on this desk — the live
+    // sleeves are Swing and Momentum. The tab had already collapsed to
+    // "Setups (0)" and could only ever show zero, which is not a quiet day,
+    // it is a lane that cannot produce.
+    //
+    // A pill that always reads (0) trains the reader to ignore pills. Removed
+    // rather than left to sit at zero, and removed rather than hidden: the
+    // ICH artifacts are still published and still readable on the Ichimoku
+    // cards behind the toggle on the portfolio page, for as long as
+    // ichimoku_equity keeps trading on T212.
 
     try {
       const r = await api.postEarningsPuts();
