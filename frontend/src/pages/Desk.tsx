@@ -95,6 +95,12 @@ export function Desk() {
   // null → account-value chart (DeskRightRail).
   // string → SymbolDetailRail for that Yahoo symbol.
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  // Ichimoku's three cards, collapsed by default. Remembered per viewer so a
+  // reader who wants them does not re-open them every visit.
+  const [showIchimoku, setShowIchimoku] = useState(() => {
+    try { return localStorage.getItem("desk.showIchimoku") === "1"; }
+    catch { return false; }
+  });
   // The STRATEGY the symbol was clicked under (from the strategy-grouped row) so
   // the detail rail shows only THAT strategy's orders/fills — not another
   // strategy that happens to hold the same ticker (e.g. the IBKR clone bleeding
@@ -155,18 +161,45 @@ export function Desk() {
           <DeskKpiStrip />
           <StrategyHealthPanel />
 
+          {/* LESS CLUTTER (owner, 26 Sep 2026). Three of these cards describe
+              ICHIMOKU, which is no longer what this desk trades: EquityTracking
+              is "ICH equity — live vs backtest", FillReplay is "ICH equity —
+              fill replay" (n=1), and TodaySetups is the ICH large_50/high_beta
+              scanner. They sat between the P&L split and the broker book as
+              equals, on a page whose live sleeves are Swing and Momentum.
+
+              COLLAPSED, NOT DELETED. ichimoku_equity is still live on T212 and
+              carries +345 open, so its cards are not wrong — they are not what
+              you came to look at. Deleting them would make the desk quieter by
+              making it less true, which is the trade this desk does not take.
+              The toggle says what is behind it and how many. */}
+          <button
+            onClick={() => setShowIchimoku((v) => {
+              const n = !v;
+              try { localStorage.setItem("desk.showIchimoku", n ? "1" : "0"); } catch { /* private window */ }
+              return n;
+            })}
+            style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6,
+                     color: "var(--text-muted)", fontSize: 11, padding: "3px 9px",
+                     cursor: "pointer", marginBottom: 10 }}>
+            {showIchimoku ? "▾" : "▸"} Ichimoku (T212) — 3 cards: live-vs-backtest,
+            fill replay, setups scanner
+          </button>
+
           <div style={{ columnCount: wide ? 3 : 1, columnGap: 12 }}>
             {[
               <PnlTruthCard key="pnl" />,
               <SignalAuditCard key="sig" />,
               <BrokerBookCard key="brk" />,
-              <EquityTrackingCard key="eq" />,
-              <FillReplayCard key="fill" />,
               // Compact indicator only — the full run-log stream lives on the
               // Data tab (owner, 22 Aug 2026: "dashboard should be an
               // indicator; logs should be a separate tab").
               <RunLogCard key="runlog" compact />,
-              <TodaySetupsCard key="setups" />,
+              ...(showIchimoku ? [
+                <EquityTrackingCard key="eq" />,
+                <FillReplayCard key="fill" />,
+                <TodaySetupsCard key="setups" />,
+              ] : []),
             ].map((card) => (
               <div key={card.key} style={{ breakInside: "avoid", marginBottom: 12 }}>
                 {card}

@@ -598,7 +598,10 @@ def _common_records(cands: list[dict], as_of: str) -> list[dict]:
                 # before. Third instance of this shape, after the Setups
                 # screen's "engine: BUY" and the watch's mismatched "repair".
                 eligible=True,
-                why=(f"pullback to the 10-day avg in an uptrend · "
+                # See signals/momentum_pullback.entry_reason for why this no
+                # longer says "pullback": the rule admits a close up to 0.5%
+                # ABOVE the 10-day, and TECH fired on 24 Sep having RISEN.
+                why=(f"back at its 10-day average in an uptrend · "
                      f"{c.get('pct_above_20sma')}% over the 20-day, "
                      f"{c.get('pct_above_200sma')}% over the 200-day · "
                      f"trails {c.get('trailing_pct')}%"),
