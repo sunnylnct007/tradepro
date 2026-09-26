@@ -122,9 +122,27 @@ def reward_risk(closes: list[float], i: int) -> float:
     return float(closes[i] / s200 - 1.0)
 
 
+# THE WORDS MUST DESCRIBE THE TEST, NOT A STORY ABOUT IT (25 Sep 2026).
+#
+# Both sites said "pullback to the 10-day avg". The rule admits
+# close <= 10-day * 1.005 — up to half a percent ABOVE the average — and only
+# requires that yesterday's close was above yesterday's average. Measured on
+# the live board the day momentum went live:
+#
+#     AAPL   337.02 -> 335.92   -0.33%   +0.77% -> +0.16% vs its 10-day
+#     TECH    72.52 ->  72.57   +0.07%   +0.24% -> +0.24% vs its 10-day
+#
+# AAPL did pull back, slightly. TECH DID NOT: the price ROSE and its distance
+# to the average is unchanged. It qualified by sitting near its 10-day two days
+# running. The row claimed a move the price never made, and a reader checking
+# the chart would have found the board wrong rather than the rule.
+#
+# Two readers also mistook the GATED badge for "blocked" within a minute of
+# each other; when two readers make the same error the label is wrong, not the
+# readers. Same defect class, same fix: say what is true.
 def entry_reason(closes: list[float], i: int) -> str:
     s10, s20, s200 = sma(closes, i, 10), sma(closes, i, 20), sma(closes, i, 200)
-    return (f"pullback to the 10-day avg in an uptrend. close {closes[i]:.2f} "
+    return (f"back at its 10-day average in an uptrend. close {closes[i]:.2f} "
             f"(10d {s10:.2f}, 20d {s20:.2f}, "
             f"{100 * (closes[i] / s200 - 1):.1f}% over the 200-day), "
             f"hard stop {stop_price(closes[i]):.2f} (-{100 * STOP_PCT:.0f}%), "
