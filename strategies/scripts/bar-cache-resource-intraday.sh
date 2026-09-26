@@ -137,7 +137,30 @@ run_bounded() {
     wait "$pid"
 }
 
-for RES in 5m 1m; do
+# 1m DROPPED — NOTHING READS IT (26 Sep 2026).
+#
+# Owner: "we dont need to harvest 1m candle if we see its a potential issue".
+# It is an issue, and a bigger one than the storage:
+#
+#     5m done rc=124   <- 4-hour wall clock EXCEEDED
+#     1m done rc=124   <- 4-hour wall clock EXCEEDED
+#
+# Both halves time out, so this lane holds an IBKR session for 8+ hours a
+# night. That is the resource this desk can least afford to waste: we have ONE
+# market-data session, and over its subscription cap IBKR serves EMPTY FIELDS
+# rather than an error — the "flaky feed" that cost days of diagnosis was us
+# oversubscribing ourselves.
+#
+# And 1m has no consumer. intraday-engine, intraday-enqueue and
+# paper-intraday-flat are all unloaded; intraday_flat is retired with -3,019
+# realised. The live sleeves are daily. 3.4M rows across 169 symbols were being
+# re-sourced nightly, timing out, and read by nothing.
+#
+# 5m STAYS: it is the input to the spike-fade study the owner wants for
+# intraday shorts, and it is scoped to candidate names rather than the universe.
+#
+# To bring 1m back, add it here — and give it a consumer first.
+for RES in 5m; do
     log "re-sourcing $RES from IBKR: $FROM_DATE → $TO_DATE"
     run_bounded "$PY" -m tradepro_strategies.cli.bar_cache_harvest \
         --resolution "$RES" --asset us_etf \
