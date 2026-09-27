@@ -43,6 +43,19 @@ class Fundamentals:
     fund_family: str | None
     category: str | None
     legal_type: str | None              # 'Exchange Traded Fund', 'Equity', etc.
+    # WHAT THE TICKER ACTUALLY IS (27 Sep 2026). Owner: "when we display the
+    # symbols will be good to display a small font for company name and the
+    # sector". Yahoo returns these in the SAME quote-summary call this module
+    # already makes for PE and yield, so they cost nothing extra — no new
+    # provider, no second round trip.
+    #
+    # They are context, never a gate. Nothing selects or ranks on sector; this
+    # is so a reader recognises PANW without looking it up, and can see at a
+    # glance that six of today's candidates are the same sector.
+    long_name: str | None               # 'Dell Technologies Inc.'
+    sector: str | None                  # 'Technology'
+    industry: str | None                # 'Computer Hardware'
+    market_cap_usd: float | None
     inception_date: str | None          # ISO YYYY-MM-DD when known
     # Costs + flows
     expense_ratio_pct: float | None     # e.g. 0.03 for VOO (0.03% per year)
@@ -113,6 +126,7 @@ def _empty(symbol: str) -> Fundamentals:
         symbol=symbol,
         fetched_at=datetime.now(timezone.utc).isoformat(),
         fund_family=None, category=None, legal_type=None, inception_date=None,
+        long_name=None, sector=None, industry=None, market_cap_usd=None,
         expense_ratio_pct=None, aum_usd=None,
         dividend_yield_pct=None, distribution_yield_pct=None,
         ytd_return_pct=None, three_year_return_pct=None, five_year_return_pct=None,
@@ -446,6 +460,11 @@ def fetch_fundamentals(symbol: str, info: dict | None = None) -> Fundamentals:
         fund_family=info.get("fundFamily") or info.get("fund_family"),
         category=info.get("category"),
         legal_type=info.get("legalType") or info.get("quoteType"),
+        # Same call, no extra round trip — see the dataclass note.
+        long_name=(info.get("longName") or info.get("shortName")),
+        sector=info.get("sector"),
+        industry=info.get("industry"),
+        market_cap_usd=_safe_float(info.get("marketCap")),
         inception_date=_inception_iso(info.get("fundInceptionDate")),
         # Yahoo returns expense ratio in percent already (0.03 means 0.03%
         # for VOO, not 3%). Don't apply the fraction → percent transform
