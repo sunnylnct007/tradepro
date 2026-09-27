@@ -45,17 +45,42 @@ def _entry(job: str) -> str:
     raise AssertionError(f"job {job!r} is not in the JOBS registry")
 
 
+#: The sleeves this file guards. A RETIRED sleeve satisfies every rule here
+#: more strongly than manual mode does — it cannot place at all — so the guards
+#: skip it rather than failing. Retiring a job must not require weakening the
+#: guard that made it safe.
+def _live_paper_jobs() -> list[str]:
+    import lambda_handler as LH
+    return [j for j in ("paper_swing_dryrun", "paper_equity_dryrun")
+            if j not in LH.RETIRED_JOBS]
+
+
+def _assert_retired_or(job: str, check) -> None:
+    """Either the job is retired (stronger), or it must pass `check`."""
+    import lambda_handler as LH
+    if job in LH.RETIRED_JOBS:
+        assert job not in LH.JOBS, (
+            f"{job} is listed as retired AND still runnable — retirement must "
+            "actually stop it, not just label it")
+        return
+    check(_entry(job))
+
+
 def test_both_paper_sleeves_are_registered():
+    """A retired sleeve is still NAMED in the source — as a retirement. The
+    point is that it is accounted for, not that it runs."""
     for job in ("paper_swing_dryrun", "paper_equity_dryrun"):
         assert f'"{job}"' in SRC
 
 
 def test_neither_can_place_automatically():
     # The single most expensive mistake available here.
+    def _check(e: str) -> None:
+        assert '"manual"' in e, "must be in manual placement mode"
+        assert '"auto"' not in e, "must NOT be armed while the Mac still runs"
+
     for job in ("paper_swing_dryrun", "paper_equity_dryrun"):
-        e = _entry(job)
-        assert '"manual"' in e, f"{job} must be in manual placement mode"
-        assert '"auto"' not in e, f"{job} must NOT be armed while the Mac still runs"
+        _assert_retired_or(job, _check)
 
 
 def test_neither_pushes_a_ledger_that_would_collide_with_the_mac():
@@ -130,8 +155,10 @@ def test_the_paper_sleeves_did_NOT_get_armed_by_this_change():
     """The evening batch moves; the order-placing sleeves do not. They stay in
     manual with no --push until a resting broker stop exists — a Lambda killed
     at 900s can place one leg and die, which a sleeping Mac cannot."""
+    def _check(e: str) -> None:
+        assert '"manual"' in e, "must stay in manual mode"
+        assert '"--push"' not in e, "must not push"
+        assert '"auto"' not in e, "must not be armed"
+
     for job in ("paper_swing_dryrun", "paper_equity_dryrun"):
-        e = _entry(job)
-        assert '"manual"' in e
-        assert '"--push"' not in e
-        assert '"auto"' not in e
+        _assert_retired_or(job, _check)
