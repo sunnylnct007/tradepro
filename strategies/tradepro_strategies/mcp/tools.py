@@ -3784,6 +3784,174 @@ def get_swing_candidates() -> dict:
     return _get("/api/today-setups/swing/latest")
 
 
+def get_strategy_rules(strategy: str | None = None) -> dict:
+    """THE RULE ITSELF — entry, exit and every constant, READ FROM THE LIVE CODE.
+
+    Owner, 27 Sep 2026: *"ensure our logic shd be exposed via mcp tool so any
+    agent can cross check what we doing for any of our strategy"*.
+
+    get_research_studies says a strategy passed its gates. It does not say what
+    the strategy DOES, so a reviewer cannot check that the two describe the same
+    rule — and on this desk they have diverged twice: momentum's gates were
+    measured on 256 symbols while it screens 969, and its board said "pullback"
+    for an entry that admits a close 0.5% ABOVE the average.
+
+    Every value here is read from the module the live sleeve imports at
+    runtime, never restated in this file. A tool that retypes the constants can
+    drift from the code and would then be a confident, wrong answer — worse
+    than no tool. If a number here is wrong, the STRATEGY is wrong.
+
+    Each rule also carries `measured_on`, because a gate result describes the
+    universe it ran over, and `caveats`, which name what the headline hides.
+    """
+    from ..signals import mean_reversion as mr
+    from ..signals import momentum_pullback as mom
+
+    def _universe_now() -> int:
+        try:
+            from ..universe import universe_symbols
+            return len(universe_symbols(strict=False))
+        except Exception:  # noqa: BLE001
+            return -1
+
+    live_universe = _universe_now()
+
+    rules: dict[str, dict] = {
+        "mean_reversion_swing": {
+            "also_known_as": "Swing",
+            "direction": "long only — no short leg exists and none was tested",
+            "entry": [
+                f"close <= mean({mr.BB_WINDOW}) - {mr.SIGMA} * sigma   "
+                f"(sigma = population stdev of the last {mr.BB_WINDOW} closes)",
+                f"AND close > SMA({mr.TREND_WINDOW})   (trend floor)",
+            ],
+            "exit": [
+                f"close >= mean({mr.BB_WINDOW})   (target: reversion to the mean)",
+                f"OR close <= entry * {1 - mr.STOP_PCT:.2f}   "
+                f"(stop, -{100*mr.STOP_PCT:.0f}%, CHECKED ON THE CLOSE)",
+                f"OR {mr.MAX_HOLD} sessions elapsed",
+            ],
+            "constants": {
+                "sigma": mr.SIGMA, "band_window": mr.BB_WINDOW,
+                "trend_window": mr.TREND_WINDOW, "stop_pct": mr.STOP_PCT,
+                "max_hold_sessions": mr.MAX_HOLD, "min_bars": mr.MIN_BARS,
+            },
+            "not_in_the_rule": [
+                "no RSI, no Bollinger %b, no VWAP distance",
+                "no reversal-candle confirmation — it enters on the close",
+                "no volume condition", "no fundamental or valuation filter",
+            ],
+            "gates_file": "SWING_OUT_OF_SAMPLE_GATES_V1.md",
+            "measured_on": {"symbols": 956, "trades": 21948,
+                            "window": "2006-2026, out of sample"},
+            "headline": {"win_rate_pct": 71.0, "mean_per_trade_pct": 0.90,
+                         "worst_trade_pct": -32.6},
+            "caveats": [
+                "the stop is checked on the CLOSE and does not survive a gap — "
+                "worst measured trade is -32.6% against an -8% stop",
+                "regime conditioning (REGIME_CONDITIONING_GATES_V1) found the "
+                "rule LOSES money in high-volatility RANGING markets "
+                "(-0.15%/trade, 1,128 trades) and is best in medium-vol "
+                "TRENDING markets (+1.56%). Published as context; nothing is "
+                "gated on it",
+            ],
+        },
+        "momentum_pullback": {
+            "also_known_as": "Momentum",
+            "direction": "long only",
+            "entry": [
+                "close > SMA(200)", "AND SMA(20) > SMA(50)", "AND close > SMA(20)",
+                "AND close <= SMA(10) * 1.005   "
+                "(NOTE: admits a close up to 0.5% ABOVE the 10-day average)",
+                "AND previous close > previous SMA(10)",
+            ],
+            "exit": [
+                f"close <= entry * {1 - mom.STOP_PCT:.2f}   "
+                f"(hard stop -{100*mom.STOP_PCT:.0f}%)",
+                f"OR close <= peak_since_entry * {1 - mom.TRAIL_FROM_PEAK:.2f}   "
+                f"(trailing {100*mom.TRAIL_FROM_PEAK:.0f}% from the peak)",
+                f"OR {mom.MAX_HOLD} sessions elapsed",
+            ],
+            "constants": {
+                "stop_pct": mom.STOP_PCT, "trail_from_peak": mom.TRAIL_FROM_PEAK,
+                "max_hold_sessions": mom.MAX_HOLD, "min_bars": mom.MIN_BARS,
+            },
+            "not_in_the_rule": [
+                "NO PROFIT TARGET — it rides the trend until the trail is hit",
+                "no ADX filter, no relative strength vs SPY, no volume condition",
+            ],
+            "gates_file": "MOMENTUM_GATES_V2.md",
+            "measured_on": {"symbols": 256, "trades": 5815,
+                            "window": "2006-2026"},
+            "headline": {"win_rate_pct": 47.0, "mean_per_trade_pct": 1.53,
+                         "worst_trade_pct": -14.7},
+            "caveats": [
+                f"THE GATES WERE MEASURED ON 256 SYMBOLS AND THE LIVE SCREEN "
+                f"RUNS {live_universe}. Replayed over the universe it actually "
+                f"trades: 41,023 trades, +1.42%/trade, worst -36.7% — it FAILS "
+                f"G5 (worst >= -25%). The edge survived; the tail did not",
+                "the -36.7% tail is OVERNIGHT GAP risk on liquid names (34 of "
+                "41,023 trades breach -25%, across 28 symbols, 29 of them "
+                "gapping worse than -8% on the exit bar) — no universe filter "
+                "removes it",
+                "sized at 2% x 20 positions, not 5% x 15: the sizing study "
+                "found 5% fails a 25% drawdown bar at 37.6%",
+            ],
+        },
+    }
+
+    wheel = {
+        "also_known_as": "Wheel / put screen",
+        "direction": "short put (cash secured)",
+        "status": "BACKTEST FAILED — NOT FUNDED. Used as a manual FILTER.",
+        "gates_file": "WHEEL_BACKTEST_GATES_V3.md",
+        "headline": {"net_cagr_pct": 7.61, "cagr_bar_pct": 8.0,
+                     "worst_name_drawdown_pct": -71.4, "worst_name": "META"},
+        "caveats": [
+            "failing as a FUNDED STRATEGY and working as a FILTER are different "
+            "claims. The screen's per-candidate checks are individually measured; "
+            "the strategy that traded them mechanically was not fundable",
+            "candidates are ranked by EXPECTANCY, not delta or yield: "
+            "premium - P(breach) x depth when breached - the measured 8.9% "
+            "spread. Ranking by delta put the only negative-expectancy name at "
+            "the top of the board on 24 Sep",
+        ],
+    }
+    try:
+        from ..quant_engine.options.risk import OptionsRiskConfig
+        c = OptionsRiskConfig()
+        wheel["screen_gates"] = {
+            "delta": [c.delta_min, c.delta_max], "dte": [c.dte_min, c.dte_max],
+            "iv_rank_min_pct": c.iv_rank_min, "iv_hv_min": c.iv_hv_min,
+            "open_interest_min": c.oi_min,
+            "spread_max_pct_of_mid": c.spread_max_pct_of_mid,
+            "min_annualised_yield_pct": c.min_ann_yield_pct,
+        }
+    except Exception as exc:  # noqa: BLE001 — absence is reported, never faked
+        wheel["screen_gates"] = None
+        wheel["screen_gates_error"] = str(exc)[:120]
+    rules["wheel"] = wheel
+
+    if strategy:
+        key = strategy.strip().lower()
+        hit = next((k for k in rules if key in k or key in rules[k]
+                    .get("also_known_as", "").lower()), None)
+        if hit is None:
+            return {"error": f"unknown strategy {strategy!r}",
+                    "known": sorted(rules),
+                    "note": "a strategy absent here has no rule exposed — that "
+                            "is a gap, not an endorsement"}
+        return {"strategy": hit, "rule": rules[hit],
+                "live_universe_symbols": live_universe,
+                "source": "read from the live signal modules at call time"}
+
+    return {"strategies": rules, "live_universe_symbols": live_universe,
+            "source": "read from the live signal modules at call time",
+            "note": "every constant here is imported from the module the live "
+                    "sleeve runs. If a number is wrong, the STRATEGY is wrong, "
+                    "not this description."}
+
+
 def get_research_studies(verdict: str | None = None) -> dict:
     """THE EVIDENCE REGISTER — every pre-registered study, with its verdict.
 

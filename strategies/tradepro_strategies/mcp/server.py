@@ -132,6 +132,18 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_swing_candidates())
 
     @mcp.tool()
+    @instrumented("get_strategy_rules")
+    def get_strategy_rules(strategy: str = "") -> str:
+        """THE RULE ITSELF — entry, exit and every constant, read from the LIVE
+        code at call time. get_research_studies says a strategy passed its
+        gates; this says what the strategy DOES, so the two can be checked
+        against each other. They have diverged twice here. Carries `measured_on`
+        (a gate result describes the universe it ran over) and `caveats` naming
+        what the headline hides — including momentum's gates being measured on
+        256 symbols while it screens 956."""
+        return _json(t.get_strategy_rules(strategy or None))
+
+    @mcp.tool()
     @instrumented("get_research_studies")
     def get_research_studies(verdict: str = "") -> str:
         """THE EVIDENCE REGISTER — every pre-registered study and its verdict.
