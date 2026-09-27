@@ -227,6 +227,61 @@ def empirical_assignment_risk(closes: list[float], *, otm_pct: float,
     }
 
 
+#: Measured median put bid-ask on this desk, as a FRACTION of mid
+#: (THETA_EARLY_CLOSE_GATES_V1). Crossing it was the single largest cost in
+#: that study, and it is paid on every round trip.
+SPREAD_FRAC = 0.089
+
+
+def expectancy_pct(*, annualized_yield_pct: float | None, dte: int | None,
+                   breach_pct: float | None,
+                   median_breach_depth_pct: float | None) -> dict | None:
+    """What this put is WORTH, not how safe it looks.
+
+    THE REASON THIS EXISTS (24 Sep 2026). Ranking the board by delta — or by
+    the keep-probability delta implies — put ORCL on top at 80.1%, and ORCL was
+    the ONLY negative-expectancy row on that board. When it breaches it goes a
+    median 10% past the strike. Rare-but-deep beats frequent-but-shallow, and
+    no probability-of-assignment number can see that, because depth is not in
+    it.
+
+    The arithmetic is the put-overlay study's own:
+
+        EV = premium collected − P(breach) × depth when breached − spread
+
+    P(breach) and depth are this NAME'S OWN HISTORY over a window this long,
+    not a model. The model's N(−d2) is still published beside it and they
+    often disagree — on 24 Sep GM's history said assignment was half what the
+    model priced, and ORCL's said it was worse. Where they disagree is exactly
+    where the ranking changes, so both travel and neither is hidden.
+
+    Returns None when any input is missing. An expectancy computed from a
+    missing term is a number that means nothing, and this desk does not publish
+    those.
+    """
+    if annualized_yield_pct is None or not dte:
+        return None
+    if breach_pct is None or median_breach_depth_pct is None:
+        return None
+    premium = annualized_yield_pct * dte / 365.0      # collected this cycle, %
+    assignment_cost = (breach_pct / 100.0) * median_breach_depth_pct
+    spread_cost = premium * SPREAD_FRAC
+    ev = premium - assignment_cost - spread_cost
+    return {
+        "expectancy_pct": round(ev, 3),
+        "premium_pct": round(premium, 3),
+        "assignment_cost_pct": round(assignment_cost, 3),
+        "spread_cost_pct": round(spread_cost, 3),
+        "clears_the_spread": ev > 0,
+        "formula": (f"{premium:.2f}% premium − {breach_pct:.1f}% × "
+                    f"{median_breach_depth_pct:.1f}% assignment − "
+                    f"{spread_cost:.2f}% spread = {ev:+.2f}%"),
+        "why": ("what the trade is worth per cycle on the collateral it ties "
+                "up, using this name's OWN breach history rather than a model. "
+                "Ranking by delta or by yield puts the worst trade on top."),
+    }
+
+
 def decision_trace(*, eligible: bool, blocks: list[str], warnings: list[str],
                    cfg, delta: float | None, dte: int, oi: int | None,
                    premium: float | None, strike: float | None,
@@ -1916,9 +1971,15 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             spread=spread, iv_rank=(ivr.iv_rank if ivr.available else None),
             iv_hv=(ivr.iv_hv_ratio if ivr.available else None), regime=regime,
             notional_gbp=notional_gbp),
-        "history_check": (empirical_assignment_risk(
+        "history_check": (_hist := (empirical_assignment_risk(
             closes, otm_pct=((ref_close - strike) / ref_close if (ref_close and strike) else 0.05),
-            dte=dte) if closes else None),
+            dte=dte) if closes else None)),
+        # THE RANKING NUMBER. See expectancy_pct — delta and yield both put the
+        # worst trade on top, because neither can see how FAR a breach goes.
+        "expectancy": expectancy_pct(
+            annualized_yield_pct=ann_yield_pct, dte=dte,
+            breach_pct=(_hist or {}).get("breach_pct"),
+            median_breach_depth_pct=(_hist or {}).get("median_breach_depth_pct")),
         # Show-your-working: every derived figure with its arithmetic.
         "calcs": explain_calcs(
             symbol=sym, spot=ref_close, strike=strike, premium=premium, dte=dte,

@@ -53,9 +53,97 @@ public static class TodaySetupsEndpoints
             });
         });
 
+        // ── THE ARCHIVE, READABLE (migration 082) ─────────────────────────
+        //
+        // REGISTERED ON THE READ GROUP, and that is the whole point of this
+        // note. These first went on the /ingest group a few lines below,
+        // because both groups live in this one file and the variable is
+        // called `group` in both. The routes deployed fine and answered 401
+        // on /api/ingest/... — an authenticated WRITE path — while the read
+        // path 404'd. I spent a deploy cycle blaming a build race before
+        // reading the file. Two groups, one variable name, in one scope.
+        //
+        // An archive nothing can read is a slower way of losing the data. Two
+        // shapes, because there are two questions:
+        //
+        //   /{strategy}/history          what did this strategy say, day by day
+        //   /{strategy}/on/{date}        what did it say on THAT day
+        //
+        // `history` returns dates and row counts by default, not artifacts —
+        // five weeks of full boards is megabytes, and the caller almost always
+        // wants to pick a date first. `full=true` returns the artifacts.
+        group.MapGet("/{strategy}/history", async (
+            string strategy, int? limit, bool? full, NpgsqlDataSource db) =>
+        {
+            var n = Math.Clamp(limit ?? 90, 1, 400);
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = (await conn.QueryAsync<ArchiveRow>(@"
+                SELECT as_of_date, as_of_utc, archived_at_utc,
+                       artifact::text AS artifact_text,
+                       COALESCE(jsonb_array_length(artifact->'candidates_v2'), 0) AS rows_published
+                  FROM signal_archive
+                 WHERE strategy = @strategy
+                 ORDER BY as_of_date DESC
+                 LIMIT @n;", new { strategy, n })).ToList();
+
+            return Results.Ok(new
+            {
+                strategy,
+                days = rows.Count,
+                // Say the RANGE, so a caller can tell "no history" from
+                // "history starts later than you assumed".
+                firstDate = rows.Count > 0 ? rows[^1].as_of_date : (DateTime?)null,
+                lastDate = rows.Count > 0 ? rows[0].as_of_date : (DateTime?)null,
+                entries = rows.Select(r => new
+                {
+                    date = r.as_of_date,
+                    asOfUtc = r.as_of_utc,
+                    archivedAtUtc = r.archived_at_utc,
+                    rowsPublished = r.rows_published,
+                    artifact = (full ?? false)
+                        ? System.Text.Json.JsonDocument.Parse(r.artifact_text).RootElement
+                        : (System.Text.Json.JsonElement?)null,
+                }),
+            });
+        });
+
+        group.MapGet("/{strategy}/on/{date}", async (
+            string strategy, string date, NpgsqlDataSource db) =>
+        {
+            if (!DateTime.TryParse(date, out var d))
+                return Results.BadRequest(new { error = "date must be YYYY-MM-DD" });
+            await using var conn = await db.OpenConnectionAsync();
+            var row = await conn.QueryFirstOrDefaultAsync<ArchiveRow>(@"
+                SELECT as_of_date, as_of_utc, archived_at_utc,
+                       artifact::text AS artifact_text, 0 AS rows_published
+                  FROM signal_archive
+                 WHERE strategy = @strategy AND as_of_date = @d;",
+                new { strategy, d = d.Date });
+
+            // A day with no row is NOT an empty board — it is a day we did not
+            // record. Those are different facts and the caller must be able to
+            // tell them apart.
+            if (row is null)
+                return Results.NotFound(new
+                {
+                    strategy,
+                    date = d.Date,
+                    error = "no signals archived for this strategy on this date — "
+                          + "this means NOT RECORDED, not 'no candidates'",
+                });
+
+            return Results.Ok(new
+            {
+                strategy,
+                date = row.as_of_date,
+                asOfUtc = row.as_of_utc,
+                archivedAtUtc = row.archived_at_utc,
+                artifact = System.Text.Json.JsonDocument.Parse(row.artifact_text).RootElement,
+            });
+        });
+
         return app;
     }
-
     public static IEndpointRouteBuilder MapTodaySetupsIngestEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/ingest")
