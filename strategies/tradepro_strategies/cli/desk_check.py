@@ -144,15 +144,51 @@ class Check:
 
 
 def _hours_since(iso: str | None) -> float | None:
+    """Age in MARKET hours — weekend time does not count (27 Sep 2026).
+
+    A board whose producer runs on weekdays holds FRIDAY's signal all weekend.
+    There is no newer data for it to have. Counting calendar hours made every
+    Sunday read:
+
+        [FAIL] Board · Watch / pre-earnings: 42h old (limit 30h)
+        [FAIL] Board · Wheel (put selling):  32h old (limit 30h)
+
+    …and the desk reported BROKEN — do not trade — for boards that were
+    working exactly as designed. A check that cries wolf every weekend is a
+    check people learn to skip on Monday, which is the day it matters.
+
+    The frontend already counts this way and says why: "a signal published at
+    Friday's close is not stale on Sunday". This is that rule, applied to the
+    check that actually gates the banner.
+
+    Saturday and Sunday contribute ZERO. A genuinely stale board still fails:
+    Friday's close to Monday lunchtime is only a few market hours, but a board
+    that missed Monday's own run crosses the limit on Monday evening as it
+    should.
+    """
     if not iso:
         return None
     try:
         t = dt.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
         if t.tzinfo is None:
             t = t.replace(tzinfo=dt.UTC)
-        return (dt.datetime.now(dt.UTC) - t).total_seconds() / 3600
     except (ValueError, TypeError):
         return None
+
+    now = dt.datetime.now(dt.UTC)
+    if t >= now:
+        return 0.0
+
+    total = 0.0
+    cur = t
+    while cur < now:
+        # Walk to the next midnight, or to `now`, whichever comes first.
+        nxt = min(now, (cur + dt.timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0))
+        if cur.weekday() < 5:                      # Mon-Fri only
+            total += (nxt - cur).total_seconds() / 3600
+        cur = nxt
+    return total
 
 
 def _get(base: str, token: str | None, path: str, timeout: int = 30):
