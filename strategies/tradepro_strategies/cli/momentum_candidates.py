@@ -561,6 +561,13 @@ def valuation_context(symbols: set[str]) -> dict[str, dict]:
             row = {"trailing_pe": f.trailing_pe, "forward_pe": f.forward_pe,
                    "dividend_yield_pct": f.dividend_yield_pct,
                    "free_cashflow_usd": f.free_cashflow,
+                   # WHAT THE TICKER IS (27 Sep 2026). Same fetch, no extra
+                   # cost. Context only — nothing selects or ranks on sector.
+                   # A reader should not have to look up what PANW does, and
+                   # should be able to see at a glance that six of today's
+                   # candidates are all Technology.
+                   "long_name": f.long_name, "sector": f.sector,
+                   "industry": f.industry, "market_cap_usd": f.market_cap_usd,
                    "as_of": f.fetched_at, "source": f.source}
             if any(v is not None for k, v in row.items()
                    if k not in ("as_of", "source")):

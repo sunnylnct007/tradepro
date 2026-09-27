@@ -666,7 +666,41 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                                      textUnderlineOffset: 3 }}>
                         {r.symbol}
                       </span>
-                    ) : r.symbol}</td>
+                    ) : r.symbol}
+                    {/* WHAT THE TICKER IS (owner, 27 Sep 2026: "when we display
+                        the symbols will be good to display a small font for
+                        company name and the sector").
+
+                        Context, never a gate — nothing selects or ranks on
+                        sector. Two things it earns: a reader should not have to
+                        look up what PANW does, and six Technology names in a
+                        row should be VISIBLE rather than something you notice
+                        after placing all six. Concentration is a risk this
+                        board could not previously show.
+
+                        Rendered only when known. An unknown name is left blank
+                        rather than filled with the ticker again — a placeholder
+                        that looks like data is worse than a space. */}
+                    {((r.extra as any)?.valuation?.long_name
+                      || (r.extra as any)?.valuation?.sector) && (
+                      <div style={{ fontFamily: "var(--font-sans)", fontWeight: 400,
+                                    fontSize: 10, lineHeight: 1.3, marginTop: 2,
+                                    color: "var(--text-muted)",
+                                    maxWidth: 190, overflow: "hidden",
+                                    textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                           title={[(r.extra as any)?.valuation?.long_name,
+                                   (r.extra as any)?.valuation?.industry]
+                                   .filter(Boolean).join(" · ")}>
+                        {(r.extra as any)?.valuation?.long_name}
+                        {(r.extra as any)?.valuation?.sector && (
+                          <span style={{ opacity: 0.75 }}>
+                            {(r.extra as any)?.valuation?.long_name ? " · " : ""}
+                            {(r.extra as any)?.valuation?.sector}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    </td>
                     <td style={{ padding: "7px 8px" }}>
                       {r.strategy}
                       {/* Tier beside the name, always — never colour alone. */}
