@@ -63,6 +63,25 @@ export interface WheelRow {
   /** Distance-to-strike in standard deviations + the assignment odds.
    *  Delta flatters distance: our HOOD pick read "0.30 delta" while sitting
    *  0.41σ below spot with a 1-in-3 chance of finishing through it. */
+  /** WHAT THE TRADE IS WORTH, not how safe it looks — the default sort.
+   *
+   *  Ranking by delta put ORCL top of the board on 24 Sep at 80.1%
+   *  keep-probability, and ORCL was the only NEGATIVE expectancy row on it:
+   *  when it breaches it goes a median 10% past the strike. Rare-but-deep
+   *  beats frequent-but-shallow and delta cannot see it, because depth is not
+   *  in delta. Yield cannot see it either — ORCL paid a mid-board 30.4%/yr.
+   *
+   *  EV = premium − P(breach) x depth when breached − the measured 8.9% spread,
+   *  using the NAME'S OWN history rather than a model. Null when any term is
+   *  missing: an expectancy built on a missing term means nothing. */
+  expectancy?: {
+    expectancy_pct?: number | null;
+    premium_pct?: number | null;
+    assignment_cost_pct?: number | null;
+    spread_cost_pct?: number | null;
+    clears_the_spread?: boolean | null;
+    formula?: string | null;
+  } | null;
   sigma_context?: {
     one_sigma_move?: number | null;
     one_sigma_move_pct?: number | null;
@@ -145,7 +164,7 @@ function quality(r: WheelRow): { label: string; degraded: boolean } {
 }
 
 type SortKey = "symbol" | "yield" | "oi" | "ivhv" | "delta" | "premium" | "strike" | "dte"
-  | "sigma" | "assign";
+  | "sigma" | "assign" | "ev";
 
 // GENERIC over the row type on purpose. The callers hold a richer `Candidate`
 // and their handlers need those extra fields, so a non-generic
@@ -161,7 +180,9 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
   onRecord?: (r: T) => void;
   busy?: boolean;
 }) {
-  const [sort, setSort] = useState<SortKey>("yield");
+  // DEFAULT IS EXPECTANCY, not yield. See the `expectancy` field above:
+  // both yield and delta rank the worst trade first.
+  const [sort, setSort] = useState<SortKey>("ev");
   const [desc, setDesc] = useState(true);
   const [onlyEligible, setOnlyEligible] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -175,11 +196,14 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
         case "sigma": return r.sigma_context?.strike_sigma_distance ?? -1;
         // Safest first when sorted: invert so low assignment odds rank high.
         case "assign": return -(r.sigma_context?.assignment_prob_pct ?? 999);
+        // A row with NO expectancy sorts last rather than first — a missing
+        // number must never outrank a measured one.
+        case "ev": return r.expectancy?.expectancy_pct ?? -9999;
         case "delta": return r.suggested_delta ?? -1;
         case "premium": return r.suggested_premium ?? -1;
         case "dte": return r.dte ?? 9999;
         case "strike": return r.suggested_strike ?? -1;
-        default: return r.annualized_yield_pct ?? -1;
+        default: return r.expectancy?.expectancy_pct ?? -9999;
       }
     };
     const f = onlyEligible ? rows.filter((r) => r.eligible) : rows;
@@ -249,6 +273,9 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
               {th("Δ", "delta", true)}
               {th("Premium", "premium", true)}
               {th("Yield", "yield", true)}
+              {/* EV is the DEFAULT sort and sits beside Yield deliberately —
+                  the two disagree, and seeing them adjacent is the point. */}
+              {th("EV", "ev", true)}
               {th("OI", "oi", true)}
               {th("Spread", undefined, true)}
               {th("IV/HV", "ivhv", true)}
@@ -308,6 +335,19 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_delta, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_premium, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.annualized_yield_pct, 0, "%")}</td>
+                  <td style={{ padding: "7px 8px", textAlign: "right" }}
+                      title={r.expectancy?.formula ?? "no breach history for this name — expectancy cannot be computed, and is not guessed"}>
+                    {r.expectancy?.expectancy_pct == null ? (
+                      // NOT a zero. No history means no number, and a dash says
+                      // so rather than implying break-even.
+                      <span style={{ color: "var(--text-muted)" }}>—</span>
+                    ) : (
+                      <b style={{ color: r.expectancy.expectancy_pct > 0 ? OK : BAD }}>
+                        {r.expectancy.expectancy_pct > 0 ? "+" : ""}
+                        {r.expectancy.expectancy_pct.toFixed(2)}%
+                      </b>
+                    )}
+                  </td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>
                     {r.open_interest === null ? <span style={{ color: MUTED }}>—</span> : r.open_interest}
                   </td>

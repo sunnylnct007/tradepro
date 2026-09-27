@@ -53,19 +53,15 @@ public static class TodaySetupsEndpoints
             });
         });
 
-        return app;
-    }
-
-    public static IEndpointRouteBuilder MapTodaySetupsIngestEndpoints(this IEndpointRouteBuilder app)
-    {
-        var group = app.MapGroup("/ingest")
-            .WithTags("TodaySetups/Ingest")
-            .RequireAuthorization(Auth.IngestTokenAuth.Policy);
-
-        // POST /api/ingest/today-setups
-        // Body: { "universe": "large_50", "label": "latest", "uploaded_by": "...",
-        //         "note": "...", "artifact": { ...CLI emit... } }
         // ── THE ARCHIVE, READABLE (migration 082) ─────────────────────────
+        //
+        // REGISTERED ON THE READ GROUP, and that is the whole point of this
+        // note. These first went on the /ingest group a few lines below,
+        // because both groups live in this one file and the variable is
+        // called `group` in both. The routes deployed fine and answered 401
+        // on /api/ingest/... — an authenticated WRITE path — while the read
+        // path 404'd. I spent a deploy cycle blaming a build race before
+        // reading the file. Two groups, one variable name, in one scope.
         //
         // An archive nothing can read is a slower way of losing the data. Two
         // shapes, because there are two questions:
@@ -146,6 +142,17 @@ public static class TodaySetupsEndpoints
             });
         });
 
+        return app;
+    }
+    public static IEndpointRouteBuilder MapTodaySetupsIngestEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/ingest")
+            .WithTags("TodaySetups/Ingest")
+            .RequireAuthorization(Auth.IngestTokenAuth.Policy);
+
+        // POST /api/ingest/today-setups
+        // Body: { "universe": "large_50", "label": "latest", "uploaded_by": "...",
+        //         "note": "...", "artifact": { ...CLI emit... } }
         group.MapPost("/today-setups", async (
             System.Text.Json.JsonElement payload, NpgsqlDataSource db,
             ILogger<Program> log) =>
