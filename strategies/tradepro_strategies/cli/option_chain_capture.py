@@ -125,6 +125,13 @@ def _scrub_nan(rows: list[dict]) -> tuple[list[dict], int]:
     return cleaned, scrubbed
 
 
+#: A dropped connection is not a rejection. Legs already fetched from IBKR
+#: are expensive — the strangle roots keep no history to absorb a lost
+#: night, so throwing them away on one blip fails the whole run.
+_PUSH_ATTEMPTS = 3
+_PUSH_BACKOFF_S = 4
+
+
 def _post_rows(rows: list[dict]) -> int:
     """Batch-upsert captured legs. Best-effort: a push failure must not lose the
     rest of the run."""
@@ -141,13 +148,45 @@ def _post_rows(rows: list[dict]) -> int:
         if not base:
             log.warning("no API base — captured %d rows cannot be persisted", len(rows))
             return 0
-        r = requests.post(
-            f"{base.rstrip('/')}/api/options/quotes-daily",
-            json={"rows": rows},
-            headers={"Authorization": f"Bearer {token}"} if token else {},
-            timeout=60)
-        if r.status_code != 200:
-            log.warning("quote push failed HTTP %s: %s", r.status_code, r.text[:200])
+        # RETRY WHAT IS TRANSIENT (27 Sep 2026). This had a single attempt, so
+        # one dropped connection threw away legs that had already been fetched
+        # — and for the strangle roots, which keep no history to absorb a lost
+        # night, that fails the whole run. On 26 Sep QQQ@7d and ^XSP@21d both
+        # fetched legs and stored nothing, and the desk read BROKEN as a result.
+        #
+        # Same rule as the bar push: a ConnectionError or a 5xx means the write
+        # did not happen and MAY succeed on retry; a 4xx means the server
+        # understood us and said no, and retrying that is a slower failure that
+        # hides a real rejection.
+        r = None
+        last: Exception | str | None = None
+        for attempt in range(1, _PUSH_ATTEMPTS + 1):
+            try:
+                r = requests.post(
+                    f"{base.rstrip('/')}/api/options/quotes-daily",
+                    json={"rows": rows},
+                    headers={"Authorization": f"Bearer {token}"} if token else {},
+                    timeout=60)
+            except requests.RequestException as exc:
+                last, r = exc, None
+            else:
+                if r.status_code == 200:
+                    break
+                if r.status_code < 500:
+                    log.warning("quote push REJECTED HTTP %s: %s — not retried, "
+                                "the server understood us and said no",
+                                r.status_code, r.text[:200])
+                    return 0
+                last, r = f"HTTP {r.status_code}", None
+            if attempt < _PUSH_ATTEMPTS:
+                wait = _PUSH_BACKOFF_S * (2 ** (attempt - 1))
+                log.warning("quote push attempt %d/%d failed (%s) — retrying in %ds",
+                            attempt, _PUSH_ATTEMPTS, str(last)[:90], wait)
+                time.sleep(wait)
+        if r is None:
+            log.warning("quote push failed after %d attempts (%s) — %d fetched "
+                        "legs are being discarded", _PUSH_ATTEMPTS,
+                        str(last)[:120], len(rows))
             return 0
         return int((r.json() or {}).get("upserted") or 0)
     except Exception as exc:  # noqa: BLE001

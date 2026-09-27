@@ -92,13 +92,38 @@ export function DeskHealthBanner() {
   // HEALTHY: render nothing. A permanent green bar is wallpaper.
   if (broken.length === 0 && warns.length === 0) return null;
 
-  const tone = broken.length ? "bad" : "warn";
+  // SAY WHAT THE CHECK SAID (27 Sep 2026).
+  //
+  // This counted broken checks and wrote its own headline: "1 lane BROKEN — do
+  // not trade from these boards until fixed". The check's own verdict at that
+  // moment read "BOARDS USABLE — but 1 supporting lane is broken (Job); THE
+  // SCREENS ARE FINE, THE PLUMBING IS NOT", and the broken lane was
+  // option-chain-capture failing on 2 strangle chains out of 91 symbols, with
+  // the wheel board's data complete.
+  //
+  // Two opposite instructions from one artifact, because desk_check.py computes
+  // a PROPORTIONATE verdict — boards vs execution vs supporting lanes — and the
+  // banner discarded it and re-derived a cruder one from a count. Same shape as
+  // every other bug this month: one idea, two places, one of them wrong.
+  //
+  // The published verdict is now the headline. "Do not trade from these boards"
+  // is reserved for when a BOARD is actually broken, because that sentence has
+  // to keep meaning something — a banner that shouts it at a failed chain
+  // capture is one the reader learns to scroll past.
+  const boardsBroken = broken.filter((c) => /^board/i.test(c.lane ?? ""));
+  const tone = boardsBroken.length ? "bad" : broken.length ? "warn" : "warn";
+  const headline =
+    (art.verdict as string | undefined)?.trim() ||
+    (boardsBroken.length
+      ? `${boardsBroken.length} board${boardsBroken.length > 1 ? "s" : ""} BROKEN — do not trade from these boards until fixed`
+      : broken.length
+        ? `${broken.length} supporting lane${broken.length > 1 ? "s" : ""} broken — the boards are fine, the plumbing is not`
+        : `${warns.length} lane${warns.length > 1 ? "s" : ""} degraded`);
+
   return (
     <Bar tone={tone}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>
-        {broken.length
-          ? `${broken.length} lane${broken.length > 1 ? "s" : ""} BROKEN — do not trade from these boards until fixed`
-          : `${warns.length} lane${warns.length > 1 ? "s" : ""} degraded`}
+        {headline}
         <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 8, fontSize: 12 }}>
           checked {ageH == null ? "?" : ageH < 1 ? "just now" : `${ageH.toFixed(0)}h ago`}
         </span>
