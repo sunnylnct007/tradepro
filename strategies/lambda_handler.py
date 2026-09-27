@@ -137,10 +137,7 @@ JOBS: dict[str, tuple[str, list[str]]] = {
          "--capital-usd", str(FUNDING_NAV_USD), "--interval", "1d",
          "--max-open-positions", "15", "--max-position-pct-of-capital", "5",
          "--placement-mode", "manual"]),
-    "paper_equity_dryrun": (
-        "tradepro_strategies.cli.paper_session",
-        ["--strategy-id", "ichimoku_equity", "--from-config",
-         "--placement-mode", "manual"]),
+    # paper_equity_dryrun — RETIRED 27 Sep 2026. See RETIRED_JOBS below.
 
     # ── The 21:15-22:15 evening block, off the laptop ───────────────────
     #
@@ -303,11 +300,40 @@ def _report_provenance(job: str) -> dict:
     return prov
 
 
+
+#: Jobs that were scheduled and are no longer wanted, kept as an explicit
+#: RETIREMENT rather than deleted.
+#:
+#: Deleting a job does not delete its EventBridge rule — the rule keeps firing
+#: and the handler answers "unknown job", so a retirement becomes a daily
+#: failure in the run log. This desk has spent the week removing exactly that
+#: shape of false alarm; creating one while tidying up would be poor.
+#:
+#: A retired job returns ok=True and says why. When the rule is finally removed
+#: this entry goes with it.
+RETIRED_JOBS: dict[str, str] = {
+    "paper_equity_dryrun": (
+        "Ichimoku is retired on this desk and its T212 account is being handed "
+        "to the momentum sleeve, which needs a book nothing else proposes into. "
+        "This job pushed ichimoku_equity intents in MANUAL mode — they could "
+        "only fill if a human approved them, and 12 did this week. Stopped at "
+        "the source so the approval is never offered. The EventBridge rule "
+        "should be removed; until it is, this returns cleanly rather than "
+        "failing every schedule."),
+}
+
 def _run(job: str) -> dict:
     import importlib
     import sys
+    if job in RETIRED_JOBS:
+        # ok=True on purpose: the schedule fired and was handled. A retirement
+        # is not a failure, and reporting it as one trains people to ignore
+        # failures.
+        return {"ok": True, "job": job, "retired": True,
+                "reason": RETIRED_JOBS[job]}
     if job not in JOBS:
-        return {"ok": False, "error": f"unknown job {job!r}", "known": sorted(JOBS)}
+        return {"ok": False, "error": f"unknown job {job!r}",
+                "known": sorted(JOBS), "retired": sorted(RETIRED_JOBS)}
     module, argv = JOBS[job]
     mod = importlib.import_module(module)
     old = sys.argv
