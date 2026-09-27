@@ -99,3 +99,80 @@ mirror and both sizing studies. Weight this prediction accordingly.
 - **V0 fails** → the grid is too thin. Report the cells and their n, draw no
   conclusion.
 - Nothing here changes either rule, regardless of outcome.
+
+## RESULT — run 27 Sep 2026. ALL GATES PASS, and the dimension that matters is not the one I predicted.
+
+22,254 swing trades falling in a labelled session, 2011-06 → 2026-09. SPY
+labelled 3,844 sessions; the window starts in 2011 because the trailing
+two-year tercile needs two years of history before it can label anything.
+
+| vol | trend | n | win% | mean/trade | worst |
+|---|---|---|---|---|---|
+| low | range | 3,418 | 68.9% | +0.57% | −25.3% |
+| low | neutral | 1,015 | 70.3% | +0.78% | −22.0% |
+| low | trend | 5,159 | 72.1% | +0.95% | −25.4% |
+| med | range | 1,948 | 67.7% | +0.27% | −18.9% |
+| med | neutral | 572 | 69.4% | +0.81% | −13.6% |
+| **med** | **trend** | **4,991** | **76.8%** | **+1.56%** | −32.5% |
+| high | range | 1,128 | 62.7% | **−0.15%** | −19.0% |
+| high | neutral | 225 | 59.1% | −0.36% | *(thin)* |
+| high | trend | 3,798 | 69.8% | +0.81% | −29.9% |
+
+    pooled +0.87%, 71.1% win, 1 s.e. = 0.035%
+
+    V0 PASS (8 of 9 cells) · G1 PASS (spread 1.71% vs 0.07%) ·
+    G2 PASS (holds in both halves) · G3 PASS (no symbol >1% of a cell)
+
+### My prediction was wrong twice over
+Recorded before the run: *"Swing: G1 passes, G2 fails... mean reversion looks
+clearly better in LOW volatility and worse in HIGH."*
+
+G1 passed. **G2 also passed** — the ordering holds in both halves and is not
+marginal: early +1.45% vs +0.01%, late +1.62% vs −0.28%. I expected the two
+halves to contain structurally different crises and wash the effect out. They
+did not.
+
+And the volatility story is not what I said. Low vol is *mediocre* (+0.57% to
++0.95%). The best cell is MEDIUM vol. That is the third time on this desk I
+have predicted the direction of a conditional effect and been wrong, which is
+now a pattern rather than three misses, and it is the reason the prediction is
+written down before the run rather than after.
+
+### What the data actually says: TREND is the dimension, not volatility
+Read the table by column and it is unambiguous — in **every** volatility
+bucket, trending beats ranging:
+
+    low     range +0.57   →  trend +0.95     (+0.38)
+    med     range +0.27   →  trend +1.56     (+1.29)
+    high    range −0.15   →  trend +0.81     (+0.96)
+
+**A mean-reversion rule does best when the market is TRENDING.** That reads
+backwards until you look at what the rule requires: a name 2.25σ below its
+20-day mean *while still above its 200-day average*. In a trending market that
+is a genuine pullback inside an intact advance, and it reverts. In a ranging
+market the same signal is a name going nowhere, and the 20-day mean it is
+reverting to is going nowhere either — the target barely moves, so the trade
+grinds to the timeout.
+
+The single negative cell, HIGH VOL + RANGING at −0.15%, is the shape that
+destroys this rule: violent, directionless, no advance for the dip to be a
+pullback within. It is 1,128 trades — 5% of the sample — and it is the only
+condition under which the rule loses money.
+
+### Consequence — publish as CONTEXT, do not gate on it
+Per the pre-stated consequence for a full pass: this ships as context on the
+board, "the rule does X in this regime", and NOTHING is conditioned on it here.
+
+A gate proposal is a separate pre-registration with its own prediction, and it
+would have to answer a question this study cannot: the worst cell still wins
+62.7% of the time and loses only 0.15% per trade. Refusing to trade it saves
+almost nothing and costs 5% of the sample. **The finding is real and the
+obvious action is not.** Recording that gap rather than papering over it is the
+point of the pre-stated consequence.
+
+### Momentum
+Not graded here. The same harness runs for it, but momentum's own gates were
+measured on 256 symbols and it fails G5 on the universe it trades
+([[MOMENTUM_GATES_V2]] amendment, 24 Sep) — conditioning a result whose
+headline tail is wrong would compound the error rather than illuminate it.
+Momentum gets this treatment once its own universe question is settled.
