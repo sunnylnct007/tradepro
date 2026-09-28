@@ -132,6 +132,17 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_swing_candidates())
 
     @mcp.tool()
+    @instrumented("get_symbol_outlook")
+    def get_symbol_outlook(symbols: list[str]) -> str:
+        """What the SWING rule HAS DONE on these names — a distribution, never a
+        forecast. Read `estimate_is_supported` FIRST: below 30 instances the
+        mean is WITHHELD on purpose and only the range is shown, because an
+        average of eleven trades is anecdote. A name with little history is not
+        a bad name — it is a name this rule has no record on. The pooled 21,948
+        trades are the evidence; one name is context."""
+        return _json(t.get_symbol_outlook(symbols))
+
+    @mcp.tool()
     @instrumented("get_strategy_rules")
     def get_strategy_rules(strategy: str = "") -> str:
         """THE RULE ITSELF — entry, exit and every constant, read from the LIVE
