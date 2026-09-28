@@ -43,10 +43,24 @@ export function DeskKpiStrip() {
   }, []);
   useEffect(() => { void load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
 
-  const by = (id: string) => rows.find((r) => r.strategyId === id);
-  const fx = by("ichimoku_fx_mr");
-  const intraday = by("intraday_flat");
-  const fxNet = fx ? (fx.realisedLtd ?? 0) + (fx.openPnl ?? 0) : null;
+  // THE HEADLINE NUMBERS ARE THE LIVE SLEEVES (28 Sep 2026).
+  //
+  // Two of the four chips were hardcoded to ichimoku_fx_mr and intraday_flat.
+  // Both are RETIRED: FX has not traded in 35 days and lost 29.89 over 161
+  // trades; intraday_flat is the largest realised loss on the desk at -3,019
+  // and its lane is unloaded. So the top of the portfolio screen led with two
+  // dead strategies while swing and momentum — the two actually placing orders
+  // — appeared nowhere.
+  //
+  // Now driven by ACTIVITY, the same ledger-derived field the P&L card uses:
+  // the sleeves that traded in the last 7 days get the chips, in order of how
+  // much they have on. A sleeve that stops trading drops out on its own, and a
+  // new one appears without anyone editing this file — which is the failure
+  // these two hardcoded ids were.
+  const live = rows
+    .filter((r) => (r as any).activity === "active")
+    .sort((a, b) => Math.abs((b.openPnl ?? 0)) - Math.abs((a.openPnl ?? 0)))
+    .slice(0, 2);
   const nlvVsStart = audit?.pnl?.total_pnl ?? null;
   const exitsOverdue = audit?.counts?.exit_overdue ?? null;
   const blind = audit?.counts?.blind ?? null;
@@ -60,10 +74,22 @@ export function DeskKpiStrip() {
       <Chip label="Exits overdue" value={exitsOverdue != null ? String(exitsOverdue) : "—"}
         tone={exitsOverdue ? "bad" : exitsOverdue === 0 ? "good" : undefined}
         sub={blind ? `${blind} blind` : undefined} />
-      <Chip label="FX net" value={money(fxNet, fx?.currency ?? "GBP")}
-        tone={fxNet != null && fxNet >= 0 ? "good" : fxNet != null ? "bad" : undefined} />
-      <Chip label="intraday_flat" value={money(intraday?.realisedLtd, intraday?.currency ?? "GBP")}
-        tone={(intraday?.realisedLtd ?? 0) < 0 ? "bad" : undefined} sub="realized" />
+      {live.map((r) => (
+        <Chip key={r.strategyId}
+          // The id, shortened — "swing" and "momentum" read faster than the
+          // full strategy id and there is no ambiguity with two sleeves.
+          label={r.strategyId.replace(/_ibkr$/, "").replace("mean_reversion_", "")}
+          value={money(r.openPnl, r.currency ?? "GBP")}
+          tone={(r.openPnl ?? 0) < 0 ? "bad" : (r.openPnl ?? 0) > 0 ? "good" : undefined}
+          sub="open" />
+      ))}
+      {live.length === 0 && (
+        // NOT a blank space. No live sleeve is a fact worth stating — it means
+        // nothing has traded in a week, which is either a quiet market or a
+        // stopped lane, and the reader needs to know which question to ask.
+        <Chip label="live sleeves" value="none"
+          sub="nothing traded in 7 days" tone="bad" />
+      )}
     </div>
   );
 }
