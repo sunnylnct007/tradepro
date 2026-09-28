@@ -3784,6 +3784,73 @@ def get_swing_candidates() -> dict:
     return _get("/api/today-setups/swing/latest")
 
 
+def get_symbol_outlook(symbols: list[str]) -> dict:
+    """What the SWING rule has historically done on THESE names — a
+    distribution, never a forecast.
+
+    Owner, 27 Sep 2026: *"what can we do to evaluate the simulation of p/l for
+    the selected symbol if we decide to trade"*.
+
+    READ `estimate_is_supported` FIRST. Most names have fewer than thirty
+    instances of their own signal, and a mean of eleven trades is anecdote
+    wearing a statistic's clothes. Below the threshold the MEAN IS WITHHELD and
+    the distribution is still shown — a range of twenty observations says what
+    can happen; an average of twenty does not.
+
+    Measured on the live store: AAPL 36 instances (estimate given), AES 26
+    (withheld), ABNB 7 with an 85.7% win rate (withheld — that is precisely the
+    number someone would act on).
+
+    A name with almost no history is NOT a name with a bad outlook. It is a
+    name this rule has no record on, and the two must not be confused.
+
+    The pooled edge across all names is the EVIDENCE (21,948 trades, 71% win).
+    A single name's record is CONTEXT.
+    """
+    import glob
+
+    from ..symbol_outlook import swing_outlook
+
+    base = str(_bar_cache_base()) if "_bar_cache_base" in globals() else None
+    out: dict[str, dict] = {}
+    missing: list[str] = []
+    for raw in symbols[:40]:
+        sym = str(raw).upper().strip()
+        pattern = (f"{base}/*/{sym}/1d/*.parquet" if base
+                   else f"{__import__('pathlib').Path.home()}/.tradepro/bar_cache/*/{sym}/1d/*.parquet")
+        files = sorted(glob.glob(pattern))
+        if not files:
+            missing.append(sym)
+            continue
+        try:
+            import pandas as pd
+            df = pd.concat([pd.read_parquet(f) for f in files]).sort_index()
+            df = df[~df.index.duplicated(keep="last")]
+            o = swing_outlook(
+                sym,
+                [float(x) for x in df["close"]], [float(x) for x in df["high"]],
+                [float(x) for x in df["low"]], [float(x) for x in df["open"]],
+                [str(x)[:10] for x in df.index])
+            out[sym] = o.as_dict()
+        except Exception as exc:  # noqa: BLE001 — a failure is NOT an empty record
+            out[sym] = {"symbol": sym, "error": str(exc)[:140],
+                        "note": "could not be computed — this is an ERROR, not "
+                                "a finding of no history"}
+    return {
+        "outlooks": out,
+        "no_bars_for": missing,
+        "how_to_read": (
+            "estimate_is_supported FIRST. When false the mean is withheld on "
+            "purpose and the range is still meaningful. A thin sample is not a "
+            "negative verdict."),
+        "pooled_evidence": {
+            "gates_file": "SWING_OUT_OF_SAMPLE_GATES_V1.md",
+            "trades": 21948, "win_rate_pct": 71.0,
+            "mean_per_trade_pct": 0.90, "worst_trade_pct": -32.6,
+            "note": "the pooled result is the evidence; a single name is context"},
+    }
+
+
 def get_strategy_rules(strategy: str | None = None) -> dict:
     """THE RULE ITSELF — entry, exit and every constant, READ FROM THE LIVE CODE.
 
