@@ -36,10 +36,27 @@ def main() -> int:
     cred_base, token = load_credentials()
     base = (args.api_base or cred_base).rstrip("/")
     try:
+        # A READ TIMEOUT IS NOT A DROPPED CONNECTION (28 Sep 2026).
+        #
+        # This died nightly from 20 Sep with "Read timed out (read timeout=120)"
+        # against /api/earnings-calendar/harvest, and the calendar went 62 hours
+        # stale. That matters more than it looks: the earnings gate is what
+        # stops the wheel screen selling premium across a print.
+        #
+        # The distinction from every other retry on this desk: a ConnectionError
+        # means the work never started and retrying is free. A READ timeout
+        # means the server IS working and we gave up on it — retrying restarts
+        # the same slow job and burns the same two minutes. So this does NOT
+        # retry; it WAITS LONGER.
+        #
+        # 120s was never sized against the work: the server makes one Finnhub
+        # call per symbol across ~5,600 symbols over a 59-day window. Ten
+        # minutes is not generous, it is the first value chosen by looking at
+        # what the job does rather than at what felt round.
         resp = requests.post(
             f"{base}/api/earnings-calendar/harvest",
             params={"back": args.back, "ahead": args.ahead},
-            timeout=120,
+            timeout=(30, 600),   # (connect, read) — a dead host still fails fast
         )
         resp.raise_for_status()
         data = resp.json() or {}
