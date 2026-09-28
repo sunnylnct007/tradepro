@@ -75,7 +75,30 @@ public static class StrategyHealthEndpoints
             // panel (+ pnl-by-strategy, which reads the same table) pick the
             // strategy up automatically — onboarding is a config row, not a code edit.
             var configured = (await conn.QueryAsync<(string Id, string Broker)>(
-                "SELECT strategy_id AS Id, broker AS Broker FROM strategy_broker_map ORDER BY strategy_id")).ToList();
+                // DERIVE FROM THE LEDGER, NOT FROM A LIST (28 Sep 2026).
+                //
+                // strategy_broker_map is hand-maintained, and this is the THIRD
+                // surface it has silently misdescribed. The P&L split showed
+                // five retired sleeves and omitted mean_reversion_swing_ibkr
+                // entirely — 194 orders, invisible, because nobody INSERTed a
+                // row. This panel had the same blind spot: five dots, all
+                // stale, none of them a sleeve that traded today.
+                //
+                // The map stays authoritative for the BROKER of a mapped
+                // sleeve (routing is a decision orders cannot express). It is
+                // not authoritative for EXISTENCE. Anything that has placed an
+                // order exists, and oms_orders already carries the broker.
+                @"SELECT strategy_id AS Id, broker AS Broker FROM strategy_broker_map
+                  UNION
+                  SELECT DISTINCT o.strategy_id, o.broker
+                    FROM oms_orders o
+                   WHERE o.strategy_id IS NOT NULL
+                     AND o.broker IS NOT NULL
+                     AND o.deleted_at IS NULL
+                     AND o.created_at_utc > NOW() - INTERVAL '30 days'
+                     AND NOT EXISTS (SELECT 1 FROM strategy_broker_map m
+                                      WHERE m.strategy_id = o.strategy_id)
+                   ORDER BY 1")).ToList();
             var configuredIds = configured.Select(c => c.Id).ToHashSet();
 
             // Aggregate by group (configured strategies = themselves; per-symbol ids collapsed).
