@@ -351,7 +351,16 @@ class MeanReversionSwingStrategy(Strategy):
         `_fill_price` / `_entry_bar` are built by `_seed_from_oms` from OMS
         fills filtered to our own strategy_id, so a name absent from both is a
         name we have no fill for. The IBKR paper account carried DIS, ABBV and
-        COP from the Ichimoku clone that ran here until 22 Aug 2026.
+        COP from `ichimoku_equity_ibkr`, the dormant clone that ran in this
+        account until 20 Aug 2026 (39 orders, all IBKR_PAPER, none since).
+
+        NAME THE CLONE, NOT THE LIVE SLEEVE. `ichimoku_equity` is a DIFFERENT
+        strategy — 74 orders, all T212_DEMO, still trading — and those three
+        tickers appear under BOTH ids because both sleeves held them in their
+        own accounts. Attributing this account's leftovers to the live sleeve
+        was got wrong twice on 24 Sep, by two different readers, because an
+        attribution query that does not filter on BROKER returns whichever id
+        it happens to hit first. The `_ibkr` suffix is the whole distinction.
 
         ONE DEFINITION, TWO USES. `on_bar` uses it to leave such a position
         alone, and `managed_positions` uses it to keep the position off our
