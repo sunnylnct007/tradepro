@@ -29,7 +29,19 @@ public static class RunLogEndpoints
     private static readonly (string Process, double MaxAgeHours)[] _expected = new[]
     {
         ("bar-cache-harvest", 30.0),
-        ("live-portfolio", 30.0),   // the uploader that was dead 5 weeks — now watched
+        // live-portfolio REMOVED 28 Sep 2026. It has no launchd lane and it
+        // cannot run on Lambda either — the job exceeds the 900s limit, which
+        // is why it was cut. Watching a lane that CANNOT run produces a
+        // permanent "Dead / stale process" banner, and the owner read it for
+        // five days as a live fault.
+        //
+        // A cut lane must not leave an alarm behind. The same rule applied to
+        // the retired Lambda job earlier today: a retirement that keeps firing
+        // is worse than no retirement, because it teaches the reader to scroll
+        // past the banner that will one day be real.
+        //
+        // If live-portfolio is ever restored, add it back here AND give it a
+        // runner — the entry without the lane is what caused this.
         ("signal-audit", 30.0),
         ("today-setups", 30.0),
         // TODO: add the paper-* session daemons once they write run_log heartbeats.
