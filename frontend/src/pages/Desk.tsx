@@ -157,7 +157,19 @@ export function Desk() {
               was the SEVENTH down, behind KPIs, health, P&L, audit, broker
               book, equity tracking and fill replay — all true, none of them an
               instruction. Those all still render; they render BELOW. */}
-          <ActionBoard />
+          {/* THE ACTION BOARD LIVES ON CANDIDATES, NOT HERE (28 Sep 2026).
+              Owner: "portfolio screen showing seems verbose as we already have
+              candidate screen".
+
+              It was put here on 24 Sep because the portfolio page buried the
+              action seven cards down. That was true then and there was no
+              Candidates screen competing for the job. There is now, and showing
+              20 buys and 6 puts above the holdings made Portfolio answer the
+              question Candidates already answers — while pushing what you
+              actually OWN below the fold.
+
+              One screen, one question: Candidates = what to do. Portfolio =
+              what you hold and how it is doing. */}
           <DeskKpiStrip />
           <StrategyHealthPanel />
 
@@ -265,7 +277,14 @@ export function Desk() {
       {view === "risk"       && <RiskPage />}
       {view === "harvest"    && <HarvestView />}
       {view === "research"   && <ResearchView />}
-      {view === "candidates" && <CandidatesView onOpenSymbol={onSearchSelectSymbol} />}
+      {view === "candidates" && (
+        <>
+          {/* Distilled first — verb, symbol, level — then the full table with
+              every strategy, its freshness and its gate trace below it. */}
+          <ActionBoard />
+          <CandidatesView onOpenSymbol={onSearchSelectSymbol} />
+        </>
+      )}
       {view === "swing"      && <SwingView onOpenSymbol={onSearchSelectSymbol} />}
       {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
