@@ -104,12 +104,20 @@ export function PositionsByStrategy({
       const msgs: string[] = [];
       const out: InternalRow[] = [];
 
-      // Configured desks (strategy_broker_map) — attribute ONLY to these so the
-      // intraday-engine's per-symbol shadow rows (intraday-<algo>-<SYM>) can't
-      // hijack a configured desk's symbol on the shared T212_DEMO account.
-      // Config-driven: no hardcoded strategy names.
-      const cfg = await api.strategyBrokerMap().catch(() => null);
-      const configured = new Set((cfg?.mappings ?? []).map((m) => m.strategy_id));
+      // The OMS ledger already records which strategy placed each position, so
+      // that is what we attribute from. We do NOT gate it on
+      // strategy_broker_map: that list is hand-maintained and describes the
+      // past. On 29 Sep it held five retired sleeves and NEITHER live one, so
+      // gating on it silently deleted every swing and momentum attribution and
+      // dropped all 17 IBKR holdings into one accidental group.
+      //
+      // The guard this replaces had one real job — stop the intraday engine's
+      // per-symbol shadow rows (intraday-<algo>-<SYM>) hijacking a real desk's
+      // symbol on the shared T212_DEMO account. That is a property of the id
+      // itself, so test for it directly instead of requiring list membership.
+      // Note the hyphen: the configured `intraday_flat` desk is underscored and
+      // is deliberately NOT matched here.
+      const isShadowRow = (sid: string) => /^intraday-/.test(sid);
 
       // Strategy attribution from OMS positions (family+mode keyed).
       const attribution = new Map<string, string>();
@@ -120,7 +128,7 @@ export function PositionsByStrategy({
       if (oms?.positions) {
         for (const p of oms.positions) {
           if (!p.strategyId || p.quantity === 0) continue;
-          if (configured.size > 0 && !configured.has(p.strategyId)) continue;
+          if (isShadowRow(p.strategyId)) continue;
           attribution.set(
             attrKey(brokerFamily(p.broker), brokerModeOf(p.broker), p.symbol),
             p.strategyId);
@@ -202,10 +210,14 @@ export function PositionsByStrategy({
       // P&L per position. Falls back to OMS qty-only if no push has landed yet.
       const acctState = await api.accountState().catch(() => null);
       const paper = acctState?.accounts.find((a) => a.broker === "IBKR_PAPER");
-      // The clone's desk id, from its OMS rows (config desk ichimoku_equity_ibkr).
-      const ibkrDemoStrat =
-        (oms?.positions ?? []).find((p) => (p.broker || "") === "IBKR_PAPER")?.strategyId
-        ?? "ichimoku_equity_ibkr";
+      // Each holding is attributed to the strategy that actually placed it,
+      // via the same per-symbol map T212 and IG use. The previous code took the
+      // FIRST OMS IBKR_PAPER row's strategyId and stamped it on every position
+      // — fine when one sleeve traded this account, wrong the moment a second
+      // did. Two sleeves run here now (swing + momentum), and on 29 Sep that
+      // showed all 17 holdings as swing's purely because swing sorted first.
+      // Anything the ledger cannot place stays UNATTRIBUTED rather than being
+      // assigned to a retired sleeve, which is the honest answer.
       if (paper?.positions?.length) {
         for (const p of paper.positions) {
           if (!p.qty) continue;
@@ -223,7 +235,7 @@ export function PositionsByStrategy({
             ccy: p.currency ?? "USD",
             chartSymbol: chartSymbolFor(p.symbol, "IBKR"),
             mode: accountMode("IBKR", "demo") as AccountMode,
-            strategyId: ibkrDemoStrat,
+            strategyId: attribution.get(attrKey("ibkr", accountMode("IBKR", "demo") as AccountMode, p.symbol)) ?? null,
             series: null,
             avgPrice: p.avgCost,
           });
