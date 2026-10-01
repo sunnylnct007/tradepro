@@ -3338,7 +3338,11 @@ def get_ibkr_positions() -> dict:
     """Live IBKR account positions (the golden source): symbol, quantity
     (negative = short), average cost, current price, unrealised P&L, currency.
     Use for 'what do I hold at IBKR?', 'am I short anything?', 'IBKR P&L'."""
-    return _ibkr_passthrough("get_ibkr_positions", "/api/integrations/ibkr/positions")
+    # fresh=true: this is the tool an agent uses to CROSS-CHECK the desk, so it
+    # must not be answered from the same cache that misled the desk (1 Oct:
+    # cached "ESNT 118" vs real -2,596).
+    return _ibkr_passthrough("get_ibkr_positions",
+                             "/api/integrations/ibkr/positions?fresh=true")
 
 
 def get_ibkr_orders(limit: int = 100) -> dict:
