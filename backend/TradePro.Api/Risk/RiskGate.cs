@@ -216,6 +216,54 @@ public sealed class RiskGate
                     $"T212 cannot trade FX ({order.Symbol}) — its API is equity-only; route FX to IG"));
             }
 
+            // Gate 3d: OVERSELL GUARD — you may not sell what you do not hold.
+            //
+            // THE INCIDENT, 1 Oct 2026. mean_reversion_swing_ibkr sold ESNT
+            // twenty-three times between 00:15 and 06:43, 118 shares each
+            // time, turning a +118 long into a -2,596 SHORT. momentum_pullback
+            // did the same to CLF nine times: +261 -> -2,088. Both sleeves are
+            // long-only; neither can hold a short by design.
+            //
+            // The cause was not the exit rule. Fill recording had been broken
+            // since 29 Sep, so the OMS never learned the sells had filled, the
+            // strategy kept reading "ESNT 118 open", and it re-sold the full
+            // size every cycle. Every order logged qty=118 held=2, identical,
+            // all night.
+            //
+            // Gate 3b-ii above already predicted this exact hole:
+            //   "SELL counts as an exit because every sleeve routed here is
+            //    long-only. If a shorting strategy is ever added, a SELL could
+            //    OPEN a position and this must consult the book instead."
+            // No shorting strategy was added. A broken feedback loop was
+            // enough to make a long-only sleeve behave like one.
+            //
+            // WHY THE LEDGER AND NOT THE BROKER. The obvious check is "ask the
+            // broker what we hold", but the broker snapshot is pushed by the
+            // very daemon whose failure caused this — a guard that depends on
+            // the thing that broke is not a guard. oms_orders is local, is
+            // written before dispatch, and recorded all twenty-three. Measured
+            // 1 Oct, the ledger net and the broker agreed exactly:
+            //     ESNT  ledger -2596   broker -2596
+            //     CLF   ledger -2088   broker -2088
+            // So the cheap, dependency-free source is also the accurate one.
+            //
+            // This is a BACKSTOP, not the fix. The exit path should still read
+            // the broker and fill recording still has to work. But those are
+            // call sites, and this desk's recurring failure is a rule applied
+            // at one call site and missed at the next. Every order passes
+            // through here, so this cannot be bypassed by a new strategy, a
+            // replayed bar, or a manual curl.
+            if (string.Equals(order.Side, "SELL", StringComparison.OrdinalIgnoreCase))
+            {
+                var held = await LedgerNetPositionAsync(
+                    order.Broker, order.StrategyId, order.Symbol, order.Id);
+                context["ledger_net_position"] = held;
+
+                var verdict = OversellVerdict(
+                    order.Qty, held, order.Symbol, order.StrategyId, order.Broker);
+                if (verdict is not null) failures.Add(verdict);
+            }
+
             // Gate 4a: sentiment veto on BUYs. Reads the latest score
             // from sentiment_scores; vetoes new entries when the LLM
             // says the recent news is materially negative. Never blocks
@@ -484,6 +532,76 @@ public sealed class RiskGate
               AND side = 'BUY'
               AND state IN ('PENDING_APPROVAL', 'SUBMITTED', 'WORKING', 'PARTIALLY_FILLED');",
             new { strategyId, excludeId });
+    }
+
+    /// <summary>
+    /// The oversell decision, as a pure function of (qty, ledger net).
+    ///
+    /// Deliberately separated from the database read so it can be tested as
+    /// BEHAVIOUR rather than as source text. The sibling market-hours gate is
+    /// covered by a source-slice test, and this desk has already been bitten
+    /// by exactly that: a retry made placement unreachable for two sessions
+    /// while every source-slice assertion still passed. A test that reads code
+    /// cannot see a branch that never runs.
+    ///
+    /// Returns null to allow, or the RiskFailure that refuses.
+    /// </summary>
+    public static RiskFailure? OversellVerdict(
+        decimal qty, decimal ledgerNet,
+        string symbol, string? strategyId, string broker)
+    {
+        if (ledgerNet <= 0m)
+            return new RiskFailure(
+                "oversell",
+                $"REFUSING to sell {qty} {symbol}: the order ledger shows a net "
+                + $"position of {ledgerNet} for {strategyId} on {broker}. Selling "
+                + "now OPENS a short, and every sleeve routed here is long-only. "
+                + "If the position really is open, the fill feed is broken — fix "
+                + "that rather than relaxing this.");
+
+        if (qty > ledgerNet)
+            return new RiskFailure(
+                "oversell",
+                $"REFUSING to sell {qty} {symbol}: the ledger shows only "
+                + $"{ledgerNet} held by {strategyId} on {broker}. Sell the held "
+                + "size or less.");
+
+        return null;
+    }
+
+    /// <summary>
+    /// Net position for (broker, strategy, symbol) derived from the order
+    /// ledger: BUYs minus SELLs over every order that actually reached a
+    /// broker, or is still in flight toward one.
+    ///
+    /// Counted: SUBMITTED, WORKING, PARTIALLY_FILLED, FILLED. An in-flight
+    /// order MUST count — the 1 Oct runaway fired every ~17 minutes, far
+    /// faster than fills were being confirmed, so a check that waited for
+    /// FILLED would have let the whole flood through.
+    ///
+    /// Not counted: PENDING_APPROVAL (not dispatched), CANCELLED, REJECTED,
+    /// EXPIRED (never reached the market), and anything soft-deleted — an
+    /// OMS reset stamps deleted_at, and those orders no longer describe the
+    /// book.
+    ///
+    /// The order being evaluated is excluded by id so it cannot count itself.
+    /// </summary>
+    private async Task<decimal> LedgerNetPositionAsync(
+        string broker, string? strategyId, string symbol, Guid excludeId)
+    {
+        await using var conn = await _db.OpenConnectionAsync();
+        return await conn.ExecuteScalarAsync<decimal>(@"
+            SELECT COALESCE(SUM(
+                       CASE WHEN side = 'BUY' THEN qty ELSE -qty END), 0)
+            FROM oms_orders
+            WHERE broker = @broker
+              AND symbol = @symbol
+              AND id <> @excludeId
+              AND deleted_at IS NULL
+              AND (strategy_id = @strategyId
+                   OR (@strategyId IS NULL AND strategy_id IS NULL))
+              AND state IN ('SUBMITTED', 'WORKING', 'PARTIALLY_FILLED', 'FILLED');",
+            new { broker, symbol, strategyId, excludeId });
     }
 
     private async Task<RiskSettings> ReadSettingsAsync()
