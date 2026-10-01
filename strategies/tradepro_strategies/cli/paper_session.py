@@ -854,7 +854,19 @@ _REAL_BROKER_POSITION_PATHS = {
     # to the running strategy's asset class (see _held_for_strategy_asset_class) or
     # a strategy will pull the OTHER's instruments into its book (the FX-sold-META
     # bug: the FX sweep saw the equity clone's META and emitted SELL META).
-    "ibkr": "/api/integrations/ibkr/positions",
+    # ?fresh=true IS LOAD-BEARING, NOT A TUNING KNOB. Without it this endpoint
+    # serves IBKR's CACHED book. On 1 Oct 2026 every seed read through the night
+    # returned "ESNTx118" while sells were filling against it, so the strategy
+    # re-sold the full 118 twenty-three times and drove a +118 long to -2,596
+    # SHORT. momentum did the same to CLF: +261 -> -2,088. The strategy was
+    # reading the golden source correctly; the golden source was stale.
+    #
+    # IBKRClient.GetPositionsAsync says the rule in its own docstring -- "pass
+    # forceFresh after anything that MUTATES the book" -- and the seed is the
+    # most important caller of all, because it runs immediately after the
+    # previous cycle placed orders. Three other callers in this repo already
+    # pass it; this one, the one that decides whether to sell, did not.
+    "ibkr": "/api/integrations/ibkr/positions?fresh=true",
 }
 
 # ISO currency codes the FX clone trades. A bare held ticker is an FX PAIR when it
@@ -1186,7 +1198,10 @@ def _fetch_ibkr_rows_via_webapi() -> list[dict] | None:
         return None
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
-    rp = requests.get(f"{base}/api/integrations/ibkr/positions", headers=headers, timeout=15)
+    # fresh=true for the same reason as _REAL_BROKER_POSITION_PATHS above: a
+    # cached book is what let a long-only sleeve sell itself short on 1 Oct.
+    rp = requests.get(f"{base}/api/integrations/ibkr/positions",
+                      params={"fresh": "true"}, headers=headers, timeout=30)
     rp.raise_for_status()
     pj = rp.json()
     if not pj.get("enabled", True):

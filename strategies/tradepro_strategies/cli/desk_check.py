@@ -453,7 +453,14 @@ def check_broker_agrees(base: str, token: str | None) -> list[Check]:
         orders = _get(base, token, "/api/oms/orders?limit=500", timeout=45)
         if isinstance(orders, dict):
             orders = orders.get("orders") or orders.get("items") or []
-        raw = _get(base, token, "/api/integrations/ibkr/positions", timeout=45)
+        # fresh=true, or this check grades a CACHED book and reports agreement
+        # it has not actually verified. On 1 Oct the cached read returned
+        # "ESNT 118" all night while the real position fell to -2,596 short;
+        # a reconciliation against that would have said "all positions agree"
+        # at the exact moment the desk was most broken. A health check that
+        # can emit a false all-clear is worse than no health check.
+        raw = _get(base, token,
+                   "/api/integrations/ibkr/positions?fresh=true", timeout=60)
         rows = raw if isinstance(raw, list) else (raw.get("positions") or [])
     except Exception as exc:  # noqa: BLE001
         return [Check("Broker vs OMS", UNKNOWN,
