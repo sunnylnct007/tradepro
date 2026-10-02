@@ -527,11 +527,42 @@ def main() -> int:
               "incomplete, not as thin option markets.", flush=True)
         return 1
     if ok and (sym_with_oi / ok) < MIN_OI_COVERAGE:
+        # NAME THE REAL CAUSE. IBKR serves open interest only while the US
+        # session is live, so a run outside it reports 0% coverage and the
+        # message above blamed the DATA. Measured 2 Oct 2026:
+        #
+        #     30 Sep 17:00Z (session open)   OI on 89/89
+        #     2  Oct 07:15Z (session shut)   OI on  0/87
+        #
+        # That run was a launchd catch-up after the Mac slept through its
+        # 21:15Z slot — a slot that is itself AFTER the 20:00Z close, so every
+        # on-time run was doomed and only the deferred ones ever succeeded.
+        #
+        # Still exits 1: the snapshot genuinely cannot support the liquidity
+        # gate either way, and a refusal WITH a reason must not be graded as
+        # fine. But it must say SCHEDULING, not "thin option markets", or the
+        # next person reads a healthy market as illiquid.
+        try:
+            from ..paper import market_hours
+            was_open = market_hours.is_open(
+                "us_equity", _dt.datetime.now(_dt.timezone.utc))
+        except Exception:  # noqa: BLE001 — never let the diagnosis crash the run
+            was_open = None
+        if was_open is False:
+            print(f"\nFAILED (SCHEDULING, not data): open interest on "
+                  f"{sym_with_oi}/{ok} symbols because this run happened at "
+                  f"{_dt.datetime.now(_dt.timezone.utc):%H:%MZ}, OUTSIDE the US "
+                  "session. IBKR does not serve OI when the market is shut, so "
+                  "this says nothing about liquidity. Re-run inside the session "
+                  "(14:30-20:00Z). Do NOT treat the board's OI rejections as "
+                  "illiquidity — treat them as UNKNOWN.", flush=True)
+            return 1
         print(f"\nFAILED: open interest present on only {sym_with_oi}/{ok} symbols "
-              f"({sym_with_oi / ok:.0%} < {MIN_OI_COVERAGE:.0%}). This snapshot cannot "
-              "support the wheel screen's liquidity gate. Treat the board's OI "
-              "rejections as UNKNOWN, not as illiquidity, until a healthy capture lands.",
-              flush=True)
+              f"({sym_with_oi / ok:.0%} < {MIN_OI_COVERAGE:.0%}). The US session was "
+              "OPEN, so this is a real data fault, not a scheduling one. This "
+              "snapshot cannot support the wheel screen's liquidity gate. Treat "
+              "the board's OI rejections as UNKNOWN, not as illiquidity, until a "
+              "healthy capture lands.", flush=True)
         return 1
     return 0
 
