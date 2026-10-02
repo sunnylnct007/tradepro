@@ -176,6 +176,9 @@ def fetch_holdings(api_base: str, token: str | None) -> tuple[list[dict], str | 
     try:
         resp = requests.get(
             f"{base}/api/integrations/trading212/positions",
+            # fresh=true: a digest that reports holdings we have already sold
+            # is a report of a book that does not exist.
+            params={"fresh": "true"},
             headers=headers,
             timeout=10,
         )

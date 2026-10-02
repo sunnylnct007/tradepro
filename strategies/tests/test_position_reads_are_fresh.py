@@ -35,7 +35,19 @@ import pathlib
 
 import pytest
 
-ENDPOINT = "integrations/ibkr/positions"
+#: Every BROKER position endpoint, not just the one that burned us. T212 had
+#: the identical fault with no escape hatch at all — its endpoint exposed no
+#: bypass, so a lane could not get an uncached book even if it knew to ask
+#: (fixed alongside this).
+#:
+#: IG is DELIBERATELY ABSENT. It has no positions cache at any layer —
+#: IGClient.GetPositionsAsync calls IG on every request — so there is nothing
+#: to bypass and ?fresh=true would be a parameter the server ignores. Add it
+#: here the moment an IG positions cache appears.
+ENDPOINTS = (
+    "integrations/ibkr/positions",
+    "integrations/trading212/positions",
+)
 #: The call may span several lines (requests.get(url, params={...})), so the
 #: parameter can legitimately appear a little after the URL itself.
 WINDOW = 4
@@ -48,7 +60,15 @@ def _call_sites() -> list[tuple[pathlib.Path, int, str, bool]]:
     for path in sorted(_ROOT.rglob("*.py")):
         lines = path.read_text().splitlines()
         for i, line in enumerate(lines):
-            if ENDPOINT not in line or line.lstrip().startswith("#"):
+            if line.lstrip().startswith("#"):
+                continue
+            if not any(e in line for e in ENDPOINTS):
+                continue
+            # An explicit, reasoned opt-out for lines that NAME the endpoint
+            # without calling it (provenance labels, docs). It must say why,
+            # and it is deliberately ugly so it cannot be sprinkled quietly.
+            prev = lines[i - 1] if i else ""
+            if "fresh-exempt:" in prev or "fresh-exempt:" in line:
                 continue
             window = " ".join(lines[i:i + WINDOW])
             out.append((path, i + 1, line.strip(), "fresh" in window))
@@ -58,7 +78,7 @@ def _call_sites() -> list[tuple[pathlib.Path, int, str, bool]]:
 def test_there_are_call_sites_to_check():
     """If this fails the scan is broken, not the code — re-point it."""
     assert _call_sites(), (
-        f"no call sites matched {ENDPOINT!r}; the endpoint was probably "
+        f"no call sites matched any of {ENDPOINTS}; an endpoint was probably "
         "renamed. Re-point this test rather than deleting it: it guards the "
         "1 Oct runaway that sold a long-only sleeve 2,596 short."
     )

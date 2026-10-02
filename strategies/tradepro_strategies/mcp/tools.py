@@ -565,7 +565,10 @@ def get_portfolio() -> dict:
     same symbol via get_compare or evaluate_symbols.
     """
     try:
-        data = _get("/api/integrations/trading212/positions")
+        # fresh=true: an agent cross-checking the desk must not be answered
+        # from the same cache the desk itself reads.
+        data = _get("/api/integrations/trading212/positions",
+                    params={"fresh": "true"})
     except ApiUnreachable as e:
         return _unreachable_envelope("get_portfolio", e)
     except Exception as e:  # noqa: BLE001
@@ -573,6 +576,7 @@ def get_portfolio() -> dict:
     enabled = bool(data.get("enabled"))
     positions = data.get("positions") or []
     return {
+        # fresh-exempt: provenance label, not a request.
         "_source": f"{_api_base()}/api/integrations/trading212/positions",
         "fetched_at": _now_iso(),
         "ok": True,
@@ -3490,7 +3494,8 @@ def get_current_positions(account: str = "demo") -> dict:
     try:
         return _systematic_envelope(
             "get_current_positions",
-            _get("/api/integrations/trading212/positions", params={"account": account}),
+            _get("/api/integrations/trading212/positions",
+                     params={"account": account, "fresh": "true"}),
             broker=f"t212_{account}",
         )
     except ApiUnreachable as e:

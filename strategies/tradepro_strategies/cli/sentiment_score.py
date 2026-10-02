@@ -141,7 +141,9 @@ def _resolve_symbols_from_api(base: str, token: str) -> list[str]:
     # Held T212 demo positions
     try:
         r = requests.get(
-            f"{base.rstrip('/')}/api/integrations/trading212/positions?account=demo",
+            # fresh=true — scoring sentiment on a holding we already sold is noise.
+                f"{base.rstrip('/')}/api/integrations/trading212/positions"
+                f"?account=demo&fresh=true",
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,
         )
