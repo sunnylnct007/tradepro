@@ -397,6 +397,7 @@ def _fetch_initial_positions_for_symbol(symbol: str) -> dict[str, int]:
     so the strategy starts position-aware. Returns {symbol: signed_qty}
     or {} on any failure (no network, T212 disabled, symbol not held).
 
+    fresh-exempt: prose, not a call.
     Currently queries the .NET API's /api/integrations/trading212/positions
     endpoint with account=demo — the equity strategy's primary venue.
     Future: extend to merge IG positions for FX strategies."""
@@ -411,7 +412,10 @@ def _fetch_initial_positions_for_symbol(symbol: str) -> dict[str, int]:
     try:
         resp = requests.get(
             f"{api_base.rstrip('/')}/api/integrations/trading212/positions",
-            params={"account": "demo"}, timeout=5,
+            # fresh=true: this is a position SEED ("so the strategy starts
+            # position-aware"), the same role as the swing seed that read a
+            # cached book all night on 1 Oct and sold a long-only sleeve short.
+            params={"account": "demo", "fresh": "true"}, timeout=10,
         )
         if resp.status_code != 200:
             return {}

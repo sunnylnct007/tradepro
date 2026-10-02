@@ -846,7 +846,11 @@ _SIM_BROKERS = frozenset({"paper", "replay", "yfinance", "stub_live"})
 # position, so we must not trade. Wire a new broker's endpoint here when
 # it gains live execution.
 _REAL_BROKER_POSITION_PATHS = {
-    "t212": "/api/integrations/trading212/positions?account=demo",
+    # &fresh=true for the same reason as the ibkr entry below: this is the
+    # SEED, and a seed that decides whether to sell must not read a cached
+    # book. T212's cache TTL runs to 600s against a lane that ticks every
+    # 900s, so a stale seed here is squarely in range.
+    "t212": "/api/integrations/trading212/positions?account=demo&fresh=true",
     "ig":   "/api/integrations/ig/positions",
     # IBKR paper account (DUP656969). WARNING: this account is SHARED between the
     # equity clone (ichimoku_equity_ibkr) AND the FX clone (ichimoku_fx_mr_ibkr),

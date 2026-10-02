@@ -1781,6 +1781,11 @@ public static class IntegrationsEndpoints
                 });
             });
 
+        // ?fresh=true bypasses the TTL — mirrors /integrations/ibkr/positions.
+        // A caller DECIDING A TRADE must be able to get an uncached book; this
+        // endpoint previously offered no way to, so a T212 lane could seed from
+        // a book up to 600s old. See the cache class for the 1 Oct incident
+        // this mirrors.
         app.MapGet("/integrations/trading212/positions",
             async (
                 string? account,
@@ -1788,7 +1793,8 @@ public static class IntegrationsEndpoints
                 Trading212DemoClient demoClient,
                 Trading212PositionsCache liveCache,
                 Trading212DemoPositionsCache demoCache,
-                CancellationToken ct) =>
+                CancellationToken ct,
+                bool fresh = false) =>
             {
                 // ?account=live|demo. Demo is the default because that's
                 // what every operator looks at unless they explicitly
@@ -1816,8 +1822,8 @@ public static class IntegrationsEndpoints
                 // producing 429s on the trader's screen. Same TTL
                 // contract for both modes via parallel cache services.
                 var result = useDemo
-                    ? await demoCache.GetAsync(ct)
-                    : await liveCache.GetAsync(ct);
+                    ? await demoCache.GetAsync(ct, forceFresh: fresh)
+                    : await liveCache.GetAsync(ct, forceFresh: fresh);
                 var rows = result.Positions.Select(p =>
                 {
                     decimal? unrealisedPct = null;

@@ -136,7 +136,10 @@ def _fetch_book(base: str, headers: dict, cfg: dict) -> tuple[list[dict], dict]:
     import requests
 
     if cfg["source"] == "t212":
+        # fresh=true: this AUDITS signals against what we actually hold, and
+        # an audit of a cached book grades the wrong book.
         pj = requests.get(f"{base}/api/integrations/trading212/positions",
+                          params={"fresh": "true"},
                           headers=headers, timeout=25).json()
         cj = requests.get(f"{base}/api/integrations/trading212/cash",
                           headers=headers, timeout=25).json()
