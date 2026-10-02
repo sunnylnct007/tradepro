@@ -18,6 +18,7 @@ fabricating data. It was not: the number was real, and it was the WEEKLY's.
 """
 from __future__ import annotations
 
+import datetime as _dt
 from unittest.mock import patch
 
 from tradepro_strategies.quant_engine.options import chains_g3
@@ -50,6 +51,18 @@ def _run(chain_payload, months=("OCT26", "NOV26"), **kw):
     return out, seen
 
 
+
+def _is_third_friday(yyyymmdd: str) -> bool:
+    """True when the date is the third Friday of its month — the monthly.
+
+    Checked rather than hardcoded so this test keeps working as months roll.
+    """
+    d = _dt.datetime.strptime(yyyymmdd, "%Y%m%d").date()
+    if d.weekday() != 4:                      # 4 = Friday
+        return False
+    return 15 <= d.day <= 21                  # the third Friday, always
+
+
 def _legs(n, oi):
     return [{"strike": 100 + i, "right": "P", "bid": 1.0, "ask": 1.2,
              "openInterest": oi, "maturityDate": "20261016"} for i in range(n)]
@@ -62,7 +75,19 @@ def test_monthly_expiry_is_requested_by_date_not_by_target_dte():
     assert "expiry" in chain_call["params"], (
         "chain requested without an explicit expiry — the server will re-pick "
         "the nearest listed expiry, which is a weekly")
-    assert chain_call["params"]["expiry"] == "20261016", chain_call["params"]
+    # Assert the PROPERTY, not a literal date. This line used to read
+    # == "20261016", which was true only while the October monthly happened
+    # to sit near the 35-DTE target. From 2 Oct 2026 the November monthly is
+    # genuinely nearer 35 days (49 vs 14), so the code was right and the test
+    # was a time bomb that would fail every month on a correct selector.
+    #
+    # What actually needs guarding is that we ask for a MONTHLY by date —
+    # a third Friday — rather than letting the server pick the nearest listed
+    # expiry, which is a weekly. That holds in every month.
+    got = chain_call["params"]["expiry"]
+    assert _is_third_friday(got), (
+        f"expiry {got} is not a third Friday — a weekly was selected, which "
+        "is the exact bug this test exists to catch")
     assert "targetDte" not in chain_call["params"]
 
 
