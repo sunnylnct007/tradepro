@@ -104,10 +104,40 @@ def _sessions_between(a: dt.date, b: dt.date) -> int:
 def reconcile(*, base_dir: Path, asset: str, resolution: str, api_base: str,
               token: str | None, max_lag: int) -> dict:
     chart = chart_store_last_bars(api_base, token, resolution)
-    symbols = sorted(
+    on_disk = sorted(
         p.name for p in (base_dir / asset).iterdir()
         if p.is_dir() and (p / resolution).is_dir()
     ) if (base_dir / asset).is_dir() else []
+
+    # COMPARE ONLY WHAT WE STILL HARVEST.
+    #
+    # The golden store is append-only history: it holds every symbol ever
+    # harvested (1,006 on 2 Oct 2026), while the chart store receives the
+    # ACTIVE universe (969). The 37-symbol difference is retired names, not
+    # drift — 12 of them are Yahoo futures tickers (BZ=F, CL=F, GC=F …) that
+    # left the universe long ago and were never pushed to a store keyed on
+    # IBKR symbols.
+    #
+    # Comparing against everything on disk reported those 12 as MISSING every
+    # single night, the repair pushed 0 rows because there is nothing current
+    # to push, and the harvest exited 1. A job that is red every day is worse
+    # than no job: it is how a REAL divergence gets ignored. This check exists
+    # to prove the charts show what the strategies read, and a symbol no
+    # strategy reads cannot violate that.
+    #
+    # Retired names are COUNTED AND NAMED, never silently dropped — the whole
+    # point of this tool is that a copy nobody checks is a second source.
+    try:
+        from ..universe import universe_symbols
+        active = {u.upper() for u in universe_symbols(strict=False)}
+    except Exception:  # noqa: BLE001 — universe unreadable: check everything
+        active = set()
+
+    if active:
+        symbols = [s for s in on_disk if s.upper() in active]
+        retired = [s for s in on_disk if s.upper() not in active]
+    else:
+        symbols, retired = on_disk, []
 
     behind, missing, unchecked, agree = [], [], [], 0
     for sym in symbols:
@@ -125,7 +155,7 @@ def reconcile(*, base_dir: Path, asset: str, resolution: str, api_base: str,
         else:
             agree += 1
     return {"symbols": len(symbols), "agree": agree, "behind": behind,
-            "missing": missing, "unchecked": unchecked}
+            "missing": missing, "unchecked": unchecked, "retired": retired}
 
 
 def _credentials() -> tuple[str | None, str | None]:
@@ -160,6 +190,10 @@ def main() -> int:
 
     print(f"\nGOLDEN vs CHART STORE — {args.asset} {args.resolution}")
     print(f"  symbols in the golden store : {r['symbols']}")
+    if r.get("retired"):
+        names = ", ".join(r["retired"][:10])
+        more = f" (+{len(r['retired']) - 10} more)" if len(r["retired"]) > 10 else ""
+        print(f"  retired, NOT compared       : {len(r['retired'])}  {names}{more}")
     print(f"  up to date                  : {r['agree']}")
     print(f"  BEHIND                      : {len(r['behind'])}")
     print(f"  MISSING from the chart store: {len(r['missing'])}")
