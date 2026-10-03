@@ -197,6 +197,19 @@ builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRDailyBackfillS
 builder.Services
     .AddOptions<TradePro.Api.Providers.IBKR.IBKROptions>()
     .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKROptions.SectionName));
+
+// IBKR Flex Web Service — positions + executions as a scheduled report.
+// Separate token, separate transport, and crucially NOT the one market-data
+// session per account that goes dark on 57% of non-closed health probes. It
+// is the second witness for the two reads whose single-sourcing has cost most:
+// the cached positions read that sold ESNT 23 times on 1 Oct, and the fill
+// blotter that answers snapshot:false on 18% of probes. Carries no option
+// chains or quotes — it does not fix the wheel or the strangle.
+builder.Services
+    .AddOptions<TradePro.Api.Providers.IBKR.IBKRFlexOptions>()
+    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRFlexOptions.SectionName));
+builder.Services.AddHttpClient("ibkr-flex");
+builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRFlexClient>();
 // Dependency verdict + the startup preflight that populates it. /health used to
 // return a hardcoded "ok" that could not fail while the process was alive; on
 // 16 Sep 2026 it said ok all afternoon while IBKR was entirely disabled by an
@@ -391,6 +404,7 @@ api.MapSettingsEndpoints();
 api.MapDocumentEndpoints();
 api.MapSymbolAnalysisEndpoints();
 api.MapIntegrationsEndpoints();
+api.MapIBKRFlexEndpoints();
 api.MapInstrumentEndpoints();
 api.MapPaperBacktestEndpoints();
 api.MapScreenerEndpoints();
