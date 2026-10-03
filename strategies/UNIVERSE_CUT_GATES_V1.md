@@ -96,4 +96,57 @@ absent — this flatters both engines equally and does not change a
 WITHIN-universe comparison (cut vs uncut on the same list), which is what the
 gates grade. Absolute levels inherit the same bias the original studies had.
 
-## RESULT — (to be filled by the run, verbatim)
+## RESULT — run 3 Oct 2026 (script: backtests/studies/universe_cut_v1.py)
+
+    Q1 MOMENTUM   uncut   n=41,229  win 45.3%  mean +1.42%  worst −36.7%  (G5 FAIL, as published)
+                  C1 cut  n=29,982  win 44.5%  mean +1.21%  worst −36.7%  (G1 AND G5 FAIL)
+
+    Q2 SWING      uncut   n=26,773  win 71.0%  mean +0.88%  worst −32.6%
+                  C1 cut  n=19,918  win 70.7%  mean +0.86%  worst −32.6%
+
+    Q3 EXTENSION  Q1 freshest +1.54% · Q2 +1.44% · Q3 +1.28% · Q4 most-extended +1.42%
+                  spread 0.27% — BELOW the 0.50% actionability bar, and not monotonic
+
+    Q4 DELAY      momentum  d1 −0.01%/trade   d2 −0.04%/trade
+                  swing     d1 −0.23%/trade   d2 −0.29%/trade
+
+### Q1 — the cut FAILS, more thoroughly than predicted
+
+The worst trade is **unchanged at −36.7%**: the monster gap lives in a name
+that passes any liquidity floor. And the cut is not neutral — it REMOVED
+profitable trades: mean falls +1.42% → +1.21% and win rate drops below the
+G1 bar. The "junk" names were net contributors. Per the pre-stated
+consequence: the tail is NOT a junk-name artifact, sizing (2%×20) remains the
+only tail control, and C1 is NOT adopted for momentum — not merely "without
+claiming badge repair" but because it measurably costs money.
+
+The owner's operational complaint (too many symbols, too much noise) is real
+but it is a PRESENTATION problem — rank and cap what the board SHOWS — not a
+signal-generation problem. Deleting signals that make money to quieten a
+screen is the wrong trade.
+
+### Q3 — "already run too deep" is RETIRED as a reason to skip
+
+0.27% spread, non-monotonic (the most-extended quartile out-earns two fresher
+ones; it wins less often and wins bigger — the rule's published character).
+Per the pre-stated consequence the board stays silent about extension.
+Prediction: right.
+
+### Q4 — the practical rule for trading paper signals live
+
+**Momentum signals travel. Swing signals decay.**
+
+    momentum: entering 1 day late costs 0.01%/trade — FREE. Two days: 0.04%.
+    swing:    entering 1 day late costs 0.23%/trade — a quarter of the edge.
+
+"Paper entered DELL yesterday — can I enter live today?" For momentum: YES,
+at essentially no cost. For swing: same-day or accept ~74% of the edge.
+Prediction: momentum right (≤0.25%); swing overshot (predicted 0.3–0.6%,
+measured 0.23%) — the decay is real but slightly gentler than the
+confirmation study implied.
+
+### Predictions, scored
+Q1 right to be skeptical (gave G5-pass only 45%; it failed and G1 failed
+too, which I did not predict). Q2 right. Q3 right. Q4 momentum right, swing
+magnitude overshot. The frozen verdicts stand; no re-runs.
+
