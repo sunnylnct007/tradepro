@@ -46,6 +46,15 @@ public sealed class IBKRMarketDataLines
     private int _inUse;
     private long _grantedTotal;
     private long _queuedTotal;
+    // HIGH-WATER MARK. _inUse is useless after the fact: by the time anyone
+    // asks "were we saturated when the snapshot went dark at 17:08?" the
+    // leases have drained and it reads 0. Measured 2 Oct 2026, 13% of health
+    // probes reported "auth VALID but snapshot DARK" and NOTHING recorded
+    // whether we had exhausted our own budget doing it to ourselves. Over the
+    // cap IBKR stops erroring and starts serving empty fields, which is
+    // indistinguishable from a session we lost to someone else.
+    private int _peakInUse;
+    private DateTimeOffset? _peakAtUtc;
 
     private sealed record Waiter(int Count, TaskCompletionSource<bool> Signal);
 
@@ -74,6 +83,17 @@ public sealed class IBKRMarketDataLines
     /// <summary>Callers waiting for capacity right now.</summary>
     public int Waiting { get { lock (_gate) return _waiters.Count; } }
 
+    /// <summary>The most lines ever leased at once, and when. Survives the
+    /// drain, so a dark snapshot can be checked against it afterwards.</summary>
+    public (int Peak, DateTimeOffset? AtUtc) HighWater
+    {
+        get { lock (_gate) return (_peakInUse, _peakAtUtc); }
+    }
+
+    /// <summary>Peak as a share of the ceiling. At 1.0 we were saturated and
+    /// IBKR may have been serving us blanks of our own making.</summary>
+    public double PeakUtilisation => _max <= 0 ? 0 : (double)HighWater.Peak / _max;
+
     /// <summary>
     /// Leases granted, and how many of those had to QUEUE first. A rising
     /// queued share is the desk telling us the budget is too small for the
@@ -83,6 +103,17 @@ public sealed class IBKRMarketDataLines
     public (long Granted, long Queued) Stats
     {
         get { lock (_gate) return (_grantedTotal, _queuedTotal); }
+    }
+
+    /// <summary>Record a new high-water mark. MUST be called from inside the
+    /// lock, at EVERY site that raises _inUse — there are two (a direct grant
+    /// and a queued waiter being released), and recording only the first would
+    /// under-report exactly the saturated case this exists to catch.</summary>
+    private void NotePeak()
+    {
+        if (_inUse <= _peakInUse) return;
+        _peakInUse = _inUse;
+        _peakAtUtc = DateTimeOffset.UtcNow;
     }
 
     /// <summary>
@@ -105,6 +136,7 @@ public sealed class IBKRMarketDataLines
             if (_waiters.Count == 0 && _inUse + want <= _max)
             {
                 _inUse += want;
+                NotePeak();
                 _grantedTotal++;
                 return;
             }
@@ -171,6 +203,7 @@ public sealed class IBKRMarketDataLines
             if (_inUse + next.Count > _max) break;
             _waiters.Dequeue();
             _inUse += next.Count;
+            NotePeak();
             _grantedTotal++;
             // TrySet: the waiter may already have cancelled, in which case its
             // cancellation path returns these lines.
