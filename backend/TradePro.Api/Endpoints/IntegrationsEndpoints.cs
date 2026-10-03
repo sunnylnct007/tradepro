@@ -1373,6 +1373,7 @@ public static class IntegrationsEndpoints
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
+            TradePro.Api.Providers.IBKR.IBKRMarketDataLines lines,
             CancellationToken ct) =>
         {
             var o = opts.Value;
@@ -1462,6 +1463,33 @@ public static class IntegrationsEndpoints
                 ipSource = status.IpSource,
                 useX5c = o.UseX5c,
                 certificatePresent = !string.IsNullOrWhiteSpace(o.Certificate),
+                // MARKET-DATA LINE BUDGET. /iserver/marketdata/snapshot
+                // SUBSCRIBES — it does not read — and over the cap IBKR stops
+                // erroring and starts serving EMPTY FIELDS, which looks
+                // identical to a session someone else took. 13% of health
+                // probes report "auth VALID but snapshot DARK" and until now
+                // nothing recorded whether we had exhausted our own budget
+                // doing it to ourselves.
+                //
+                // peakInUse SURVIVES THE DRAIN, which is the whole point:
+                // asking "were we saturated at 17:08?" after the leases have
+                // returned reads 0 from inUse and tells you nothing.
+                // queued > 0 means callers had to wait — the schedule is
+                // asking for more than the ceiling allows, and the honest fix
+                // is to stagger the jobs, NOT to raise the ceiling until IBKR
+                // starts serving blanks again.
+                marketDataLines = new
+                {
+                    inUse = lines.InUse,
+                    max = lines.Max,
+                    waiting = lines.Waiting,
+                    peakInUse = lines.HighWater.Peak,
+                    peakAtUtc = lines.HighWater.AtUtc,
+                    peakUtilisation = Math.Round(lines.PeakUtilisation, 3),
+                    granted = lines.Stats.Granted,
+                    queued = lines.Stats.Queued,
+                    saturated = lines.PeakUtilisation >= 1.0,
+                },
                 error = status.Error,
             });
         });
