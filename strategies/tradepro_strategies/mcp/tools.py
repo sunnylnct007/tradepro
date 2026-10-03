@@ -3860,6 +3860,29 @@ def get_symbol_outlook(symbols: list[str]) -> dict:
     }
 
 
+def simulate_signals(strategy: str = "all", days: int | None = None) -> dict:
+    """Replay the ARCHIVED signals through the strategy's own exit rules.
+
+    The owner's question as a tool: "we should be able to validate if we
+    would have made money or not." Reads the signal archive + the golden bar
+    store; never the broker (the broker book has been corrupted twice).
+    First-appearance-only, unmeasured signals named not dropped, open marks
+    never blended into realised P&L.
+    """
+    from .. import signal_replay as R
+    token = os.environ.get("TRADEPRO_API_TOKEN")
+    names = sorted(R.STRATEGY_MODULES) if strategy in ("", "all") else [strategy]
+    out = []
+    for n in names:
+        try:
+            out.append(R.run(n, _api_base(), token, days=days))
+        except Exception as exc:  # noqa: BLE001
+            out.append({"strategy": n, "error": str(exc)})
+    return {"results": out,
+            "note": "entry = signal-bar close, no slippage/commission; "
+                    "realised numbers are a ceiling. OPEN rows are marks."}
+
+
 def get_strategy_rules(strategy: str | None = None) -> dict:
     """THE RULE ITSELF — entry, exit and every constant, READ FROM THE LIVE CODE.
 

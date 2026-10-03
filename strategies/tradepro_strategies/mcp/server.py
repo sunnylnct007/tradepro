@@ -143,6 +143,16 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_symbol_outlook(symbols))
 
     @mcp.tool()
+    @instrumented("simulate_signals")
+    def simulate_signals(strategy: str = "all", days: int = 0) -> str:
+        """WOULD THE PUBLISHED SIGNALS HAVE MADE MONEY? Replays the signal
+        archive through each strategy's OWN exit rules against the golden bar
+        store — never the broker, whose book has been corrupted twice. Closed
+        trades, open marks and unmeasured signals are reported separately;
+        re-derivable by anyone, which is what makes it trustworthy."""
+        return _json(t.simulate_signals(strategy or "all", days or None))
+
+    @mcp.tool()
     @instrumented("get_strategy_rules")
     def get_strategy_rules(strategy: str = "") -> str:
         """THE RULE ITSELF — entry, exit and every constant, read from the LIVE
