@@ -185,3 +185,135 @@ real and is not a filter we can write today.
 - Q3 "monotonic but mild, tail worsens faster than the mean improves" — **right**.
 - Q2 "catalyst adds nothing (~70%)" — **not reached**.
 
+
+---
+
+# AMENDMENT V2 — does a MARKET-REGIME gate rescue it? Frozen 4 Oct 2026, BEFORE the run.
+
+V1 failed G1 (+0.91% excess) and G4 (−78.0% worst). Inspecting the tail
+afterwards showed the disasters are NOT weak companies:
+
+    -78.0 GME 2021-02-01   -73.6 GME 2021-01-28   -63.0 CAR 2026-04-22
+    -62.1 FCX 2010-01-21   -50.0 RCL 2020-02-24   -44.3 AAL 2008-11-06
+
+GME through the squeeze unwind; RCL and AAL as travel collapsed in COVID and
+the GFC. Royal Caribbean in January 2020 was a sound business until the world
+stopped — no fundamentals screen excludes it. A size floor does not help
+either: at ≥$500M median dollar volume the worst case is still −63.0%.
+
+**THIS AMENDMENT IS WRITTEN AFTER SEEING THAT TABLE, which is exactly when
+pre-registration matters most.** The hypothesis it tests is the obvious one
+the table suggests, and the obvious one is also the easiest to curve-fit to
+two crises. Hence: frozen here, thresholds unchanged from V1, and a
+pre-stated kill condition.
+
+## The change (S2)
+
+S1, plus one condition evaluated on the SHOCK DATE:
+
+    SPY close > SPY 200-day SMA        (the market itself is not broken)
+
+Nothing else moves. Same drop threshold, same liquidity floor, same horizons,
+same matched control, same gates. No fundamentals — none are needed and none
+are available point-in-time.
+
+## Gates — UNCHANGED from V1, deliberately
+
+V0 n≥1,000 · G1 +10d excess ≥ +1.50% · G2 both halves positive ·
+G3 median excess > 0 · G4 worst +10d ≥ −35%
+
+Loosening a gate to let a favoured idea through is how a desk lies to itself.
+If S2 needs an easier bar than S1 was held to, it has not earned anything.
+
+## The kill condition (pre-stated, and the point of this amendment)
+
+A regime gate is suspicious precisely because it removes 2008 and 2020 — the
+periods containing the losses. So S2 is adopted ONLY if it passes the gates
+**and** survives this check:
+
+**K1 — the gate must do more than delete two crises.** Excluding 2008-2009 and
+2020 entirely from the V1 population must NOT, on its own, already clear G4.
+If removing those two windows gets V1 to a worst case ≥ −35% without any SPY
+condition, then S2's apparent power is just "the crises are gone", the rule
+has learned nothing transferable, and it is REJECTED however good the headline
+looks.
+
+## Predictions (recorded before the run)
+
+- **G4 clears, around −40% to −50% worst case — so still FAILS.** The SPY
+  filter removes the GFC and COVID clusters but GME 2021 happened with SPY
+  comfortably above its 200-SMA, and that is the −78% event. I give S2 passing
+  all gates about **25%**.
+- **G1 improves to roughly +1.2–1.6%** — borderline on the +1.50% bar.
+- **K1 is the real risk and I expect it to BITE.** My honest expectation is
+  that crude 2008/2020 exclusion gets most of the way to the same place, which
+  would mean the SPY gate is a proxy for "skip the crises" rather than a
+  mechanism. If so: rejected.
+- Net: I expect this amendment to FAIL, and I am running it because the
+  owner's objection deserves a measurement rather than my opinion.
+
+## Consequences, pre-stated
+
+- Passes gates AND survives K1 → a genuinely conditioned rule; proceed to a
+  separate sizing/alert study. Still never an auto-placed order.
+- Passes gates but fails K1 → REJECTED and recorded as curve-fitting.
+- Fails any gate → V1's verdict stands unchanged; the phenomenon stays a
+  manual judgement call and the file is closed for good.
+
+## RESULT V2 — run 4 Oct 2026. FAILS, and worse than V1 on the measure that mattered.
+
+                                     n     excess  median    worst   halves
+    V1 (all)                       3,377   +0.91%  +0.19%   -78.0%  +0.56/+1.25
+    S2: SPY > its own 200-SMA      2,514   +0.85%  +0.06%   -78.0%  +0.76/+0.94
+    K1: V1 minus 2008-09 & 2020H1  2,946   +1.21%  +0.24%   -78.0%  +0.83/+1.58
+
+    G1 FAIL (+0.85% vs +1.50%) · G4 FAIL (-78.0% vs -35%) · G3 marginal (+0.06%)
+
+    VERDICT: FAILS. The file is closed.
+
+### The regime gate made it WORSE
+
+I predicted G1 would improve to +1.2-1.6%. It fell: **+0.91% -> +0.85%**, and
+the median excess collapsed to **+0.06%** — the typical event became an exact
+coin flip. Removing 863 events removed good ones too. The SPY filter is not
+selecting for survivable shocks; it is just selecting for calm markets, where
+the bounce is smaller because the fear that creates it is absent.
+
+### G4 did not move AT ALL, under either treatment
+
+Worst case stayed **-78.0%** in V1, in S2, and in K1. That is GME on
+2021-02-01 — with SPY comfortably above its 200-SMA, in no crisis, in a
+liquid mega-volume name. Exactly the event I named in the prediction as the
+reason the gate could not work. **No market-regime condition can exclude it,
+because the market was fine; the stock was not.**
+
+### K1 — the kill condition, and what it reveals
+
+Crude deletion of 2008-09 and 2020H1 produced a BETTER headline (+1.21%) than
+the principled SPY gate (+0.85%). So the only thing that improves this rule is
+removing specific historical periods after the fact — which is curve-fitting
+by definition, and which is what K1 existed to catch. Per the pre-stated
+consequence, that is a rejection regardless of the number.
+
+Note it still did not clear G4 either: -78.0%. Even the curve-fit does not
+make the trade safe.
+
+### Predictions, scored
+- "G4 clears to -40/-50%, still fails" — **WRONG**: G4 did not move at all.
+- "G1 improves to +1.2-1.6%" — **WRONG**: it got worse (+0.85%).
+- "~25% chance of passing all gates" — right to be pessimistic, for the wrong
+  reason: I expected partial improvement, and got none.
+- "K1 will bite" — **RIGHT**, and it bit harder than expected: crude deletion
+  beat the principled gate outright.
+
+### Consequence (pre-stated, applied)
+
+**V1's verdict stands. The file is CLOSED for good.** The news-shock bounce is
+not a mechanical edge at the size we would trade it, in any market regime, at
+any liquidity floor, with or without the crises.
+
+What survives is the owner's original framing, unchanged by three attempts to
+systematise it: this needs a human judging whether a particular business is
+broken or merely bruised. The desk will not alert on it, and the catalyst feed
+remains context on existing boards rather than a signal.
+
