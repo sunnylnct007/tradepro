@@ -260,4 +260,60 @@ looks.
 - Fails any gate → V1's verdict stands unchanged; the phenomenon stays a
   manual judgement call and the file is closed for good.
 
-## RESULT V2 — (to be filled by the run, verbatim)
+## RESULT V2 — run 4 Oct 2026. FAILS, and worse than V1 on the measure that mattered.
+
+                                     n     excess  median    worst   halves
+    V1 (all)                       3,377   +0.91%  +0.19%   -78.0%  +0.56/+1.25
+    S2: SPY > its own 200-SMA      2,514   +0.85%  +0.06%   -78.0%  +0.76/+0.94
+    K1: V1 minus 2008-09 & 2020H1  2,946   +1.21%  +0.24%   -78.0%  +0.83/+1.58
+
+    G1 FAIL (+0.85% vs +1.50%) · G4 FAIL (-78.0% vs -35%) · G3 marginal (+0.06%)
+
+    VERDICT: FAILS. The file is closed.
+
+### The regime gate made it WORSE
+
+I predicted G1 would improve to +1.2-1.6%. It fell: **+0.91% -> +0.85%**, and
+the median excess collapsed to **+0.06%** — the typical event became an exact
+coin flip. Removing 863 events removed good ones too. The SPY filter is not
+selecting for survivable shocks; it is just selecting for calm markets, where
+the bounce is smaller because the fear that creates it is absent.
+
+### G4 did not move AT ALL, under either treatment
+
+Worst case stayed **-78.0%** in V1, in S2, and in K1. That is GME on
+2021-02-01 — with SPY comfortably above its 200-SMA, in no crisis, in a
+liquid mega-volume name. Exactly the event I named in the prediction as the
+reason the gate could not work. **No market-regime condition can exclude it,
+because the market was fine; the stock was not.**
+
+### K1 — the kill condition, and what it reveals
+
+Crude deletion of 2008-09 and 2020H1 produced a BETTER headline (+1.21%) than
+the principled SPY gate (+0.85%). So the only thing that improves this rule is
+removing specific historical periods after the fact — which is curve-fitting
+by definition, and which is what K1 existed to catch. Per the pre-stated
+consequence, that is a rejection regardless of the number.
+
+Note it still did not clear G4 either: -78.0%. Even the curve-fit does not
+make the trade safe.
+
+### Predictions, scored
+- "G4 clears to -40/-50%, still fails" — **WRONG**: G4 did not move at all.
+- "G1 improves to +1.2-1.6%" — **WRONG**: it got worse (+0.85%).
+- "~25% chance of passing all gates" — right to be pessimistic, for the wrong
+  reason: I expected partial improvement, and got none.
+- "K1 will bite" — **RIGHT**, and it bit harder than expected: crude deletion
+  beat the principled gate outright.
+
+### Consequence (pre-stated, applied)
+
+**V1's verdict stands. The file is CLOSED for good.** The news-shock bounce is
+not a mechanical edge at the size we would trade it, in any market regime, at
+any liquidity floor, with or without the crises.
+
+What survives is the owner's original framing, unchanged by three attempts to
+systematise it: this needs a human judging whether a particular business is
+broken or merely bruised. The desk will not alert on it, and the catalyst feed
+remains context on existing boards rather than a signal.
+
