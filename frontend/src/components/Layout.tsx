@@ -51,16 +51,46 @@ type NavSection = { label: string; items: NavItem[] };
 // strategy/paper detail views the cockpit now covers. Every route still EXISTS
 // and is reachable by URL — a decluttered nav, not a code deletion. Anything
 // that clears its gates comes back; that is what the Research surface is for.
+// ── ONE VOCABULARY (4 Oct 2026) ───────────────────────────────────────
+//
+// Owner, twice: "i still see old style navigation hanging around", and the
+// standing requirement "anyone looking at our screen should know what it is".
+//
+// The desk rail and this one named the SAME surfaces differently — "Cockpit"
+// here vs "Candidates / Swing / Momentum …" there, "OMS" here vs "Orders"
+// there. Clicking Settings on the desk dropped you into a sidebar with a
+// different vocabulary and no way back to the surface you came from, which
+// reads as two half-finished apps rather than one.
+//
+// These now MIRROR the desk rail exactly (DeskShell NAV) and link back into
+// it by view. Routes are untouched — this is a labelling fix, not a
+// restructure. If a surface is renamed on the desk, rename it here too; the
+// duplication is deliberate and small, and the alternative (hoisting the
+// rail out of DeskShell, which owns desk view state) is a refactor that does
+// not belong the night before a trading day.
 const marketNav: NavItem[] = [
-  { to: "/desk",      label: "Cockpit"   },  // the 6-surface desk
-  { to: "/portfolio", label: "Portfolio" },  // raw truth: actual positions
-  { to: "/oms",       label: "OMS"       },  // raw truth: actual orders
+  { to: "/desk?view=candidates", label: "Candidates" },
+  { to: "/desk?view=swing",      label: "Swing"      },
+  { to: "/desk?view=momentum",   label: "Momentum"   },
+  { to: "/desk?view=portfolio",  label: "Portfolio"  },
+  { to: "/desk?view=oms",        label: "Orders"     },
+  { to: "/desk?view=research",   label: "Research"   },
+  { to: "/desk?view=harvest",    label: "Data"       },
+];
+
+// The desk marks these UNPROVEN (no passed gates). Same labels, same order,
+// so the tiering reads identically on both shells.
+const unprovenNav: NavItem[] = [
+  { to: "/desk?view=post-earnings-puts", label: "Puts"     },
+  { to: "/desk?view=strangle-decisions", label: "Strangle" },
+  { to: "/desk?view=options",            label: "Wheel"    },
 ];
 
 // Operational surfaces the platform needs to RUN — deliberately not signal
 // surfaces. Health/IT Data matter more than usual right now because a second
 // developer owns the harvest + connectivity work.
 const moreSections: NavSection[] = [
+  { label: "Unproven — no passed gates", items: unprovenNav },
   { label: "System", items: [
     { to: "/settings",           label: "Settings"  },
     { to: "/health",             label: "Health"    },

@@ -202,6 +202,85 @@ def _get(base: str, token: str | None, path: str, timeout: int = 30):
 
 
 # ── the checks ────────────────────────────────────────────────────────────
+def check_idle_machinery(base: str, token: str | None) -> list[Check]:
+    """Things that are ENABLED, consuming budget, and producing nothing.
+
+    Measured 4 Oct 2026: the IBKR bar harvester was enabled on 169 symbols,
+    looping every 300s through every US session, with lastTickAtUtc=null and
+    0 bars written — EVER. It exists to feed `orb`, a strategy that failed
+    its pre-registered gates (3 of 5) and does not run.
+
+    Nothing was wrong enough to alarm: no error, no failure, no red job. It
+    simply did nothing, expensively, in silence. That is the hardest class of
+    waste to notice and the easiest to leave running for months — so it gets
+    its own check rather than relying on anyone reading a status panel.
+    """
+    try:
+        h = _get(base, token, "/api/integrations/ibkr/harvester-status", timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Idle machinery", UNKNOWN,
+                      f"could not read harvester status ({str(exc)[:60]})",
+                      "an unverified job is not a working one")]
+    if not isinstance(h, dict):
+        return [Check("Idle machinery", UNKNOWN, "harvester status was not an object")]
+
+    if not h.get("enabled"):
+        return [Check("Idle machinery", OK, "IBKR bar harvester is disabled — nothing idling")]
+
+    syms = h.get("configuredSymbolCount") or 0
+    secs = h.get("intervalSeconds") or 0
+    res = h.get("resolution") or "?"
+    if h.get("lastTickAtUtc") is None:
+        return [Check(
+            "Idle machinery", WARN,
+            f"IBKR bar harvester ENABLED on {syms} symbol(s) at {res} every {secs}s "
+            f"and has NEVER ticked (lastTickAtUtc is null, 0 bars written). "
+            f"{res} is read only by `orb`, which failed its gates and does not run.",
+            "disable it (IBKR:Harvester:Enabled=false) or give it a consumer")]
+
+    if (h.get("lastTickBarsWritten") or 0) == 0 and (h.get("backfilledSymbols") or 0) == 0:
+        return [Check(
+            "Idle machinery", WARN,
+            f"IBKR bar harvester ticked but wrote 0 bars and has backfilled "
+            f"0/{syms} symbol(s) at {res}",
+            "it is running and achieving nothing — disable it or fix the fetch")]
+
+    return [Check("Idle machinery", OK,
+                  f"IBKR bar harvester: {h.get('backfilledSymbols')}/{syms} backfilled, "
+                  f"last tick wrote {h.get('lastTickBarsWritten')} bar(s)")]
+
+
+def check_code_version() -> list[Check]:
+    """Is the Mac running the code that is on main?
+
+    The lanes and every scheduled job execute from /Users/skumar/tradepro-deploy,
+    synced by mac-deploy-sync every 600s. A MERGE DOES NOT UPDATE A LANE, and
+    nothing has ever reported the gap — on 2 Oct a fix sat merged-but-not-running
+    until it was noticed by hand. Jobs were checked for their exit code and never
+    for which code produced it.
+    """
+    import subprocess
+    try:
+        local = subprocess.run(
+            ["git", "-C", "/Users/skumar/tradepro-deploy", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=20).stdout.strip()[:8]
+        remote = subprocess.run(
+            ["git", "-C", "/Users/skumar/tradepro-deploy", "ls-remote", "origin", "main"],
+            capture_output=True, text=True, timeout=45).stdout.split()[0][:8]
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Code version", UNKNOWN,
+                      f"could not compare the deploy checkout to main ({str(exc)[:60]})",
+                      "unverified code version — a lane may be running anything")]
+    if not local or not remote:
+        return [Check("Code version", UNKNOWN, "empty SHA from the deploy checkout")]
+    if local == remote:
+        return [Check("Code version", OK, f"Mac lanes run {local} — same as origin/main")]
+    return [Check("Code version", WARN,
+                  f"Mac deploy checkout is {local} but origin/main is {remote} — "
+                  "the lanes and jobs are running code that is NOT on main",
+                  "launchctl start com.tradepro.mac-deploy-sync (runs every 600s anyway)")]
+
+
 def check_data(base: str, token: str | None) -> list[Check]:
     """The platform's own readiness report, promoted to a verdict.
 
@@ -662,7 +741,9 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                check_jobs,
                lambda: check_broker_agrees(base, token),
                lambda: check_round_trips(base, token),
-               lambda: check_option_legs_vs_book(base, token)):
+               lambda: check_option_legs_vs_book(base, token),
+               lambda: check_idle_machinery(base, token),
+               check_code_version):
         try:
             checks.extend(fn())
         except Exception as exc:  # noqa: BLE001
