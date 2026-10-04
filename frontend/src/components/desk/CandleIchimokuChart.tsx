@@ -108,6 +108,12 @@ type Props = {
    *  timeline, each labelled with its fill price, so a closed round-trip
    *  (entered here at X, exited here at Y) is visible directly on the chart. */
   fills?: { side: "BUY" | "SELL"; price: number | null; atUtc: string }[];
+  /** The strategy that OWNS this position. Entry timing is graded against
+   *  THAT rule's onset — grading a momentum position against an Ichimoku
+   *  cloud-cross reported ABBV as "11 bars LATE" when the momentum rule had
+   *  fired one bar earlier (3 Oct 2026). Unknown/absent => no timing strip,
+   *  because a verdict from the wrong rule is worse than no verdict. */
+  strategyId?: string | null;
 };
 
 type IchiPoint = { time: UTCTimestamp; value: number };
@@ -125,7 +131,7 @@ type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; 
 const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false, ich: false, obv: false };
 const IND_KEY = "tp-chart-indicators";
 
-export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills }: Props) {
+export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills, strategyId }: Props) {
   const [ind, setInd] = useState<IndState>(() => {
     try { return { ...IND_DEFAULTS, ...JSON.parse(localStorage.getItem(IND_KEY) ?? "{}") }; }
     catch { return IND_DEFAULTS; }
@@ -595,11 +601,19 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     // Ichimoku, computed on the FULL padded series.
     const ich = computeIchimoku(candles);
 
-    // IDEAL ENTRY (signal onset): the strategy's raw long rule turning true —
-    // close > cloud_high AND tenkan > kijun at 5/32/50. cloud_high[i] =
-    // max(spanA,spanB) LANDING on bar i (the displaced cloud). We pair the LATEST
-    // actual BUY with the onset at/before it → "signal fired here, you entered N
-    // bars later, X% more extended" = the did-we-chase-the-top check.
+    // IDEAL ENTRY (signal onset) — GRADED AGAINST THE OWNING STRATEGY'S RULE.
+    //
+    // This used to compute the onset from an Ichimoku cloud-cross for EVERY
+    // position, whatever strategy opened it. ichimoku_equity is RETIRED, so on
+    // 3 Oct 2026 a perfectly good momentum entry in ABBV was reported as
+    // "signal 2026-09-14 -> 11 bars LATE": the momentum rule never fired on
+    // 14 Sep (it fired on the 25th, and the fill was ONE bar later, which the
+    // delayed-entry study measured as costing 0.01%/trade). A late-entry
+    // warning computed from a rule we do not run is a false alarm that makes a
+    // correct trade look like a chase.
+    //
+    // Each live rule now grades itself. An unrecognised strategy yields NO
+    // onsets and the strip is hidden — no verdict beats a wrong verdict.
     {
       const spanAAt = new Map(ich.spanA.map((p) => [p.time as number, p.value]));
       const spanBAt = new Map(ich.spanB.map((p) => [p.time as number, p.value]));
@@ -607,14 +621,50 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       const kjAt = new Map(ich.kijun.map((p) => [p.time as number, p.value]));
       const onsets: { t: number; price: number; idx: number }[] = [];
       let wasLong = false;
+      const sid = (strategyId || "").toLowerCase();
+      const closes = candles.map((c) => c.close);
+      const sma = (i: number, n: number) =>
+        i + 1 < n ? null
+          : closes.slice(i - n + 1, i + 1).reduce((a, b) => a + b, 0) / n;
+
+      // momentum_pullback: a pullback to the 10-SMA inside an established
+      // uptrend. Mirrors cli/momentum_candidates._entry_signal.
+      const momentumLong = (idx: number) => {
+        const c0 = closes[idx];
+        const s200 = sma(idx, 200), s50 = sma(idx, 50);
+        const s20 = sma(idx, 20), s10 = sma(idx, 10), p10 = sma(idx - 1, 10);
+        if (s200 === null || s50 === null || s20 === null || s10 === null || p10 === null) return false;
+        return c0 > s200 && s20 > s50 && c0 > s20
+          && c0 <= s10 * 1.005 && closes[idx - 1] > p10;
+      };
+
+      // mean_reversion_swing: >= 2.25 sigma below the 20-day mean while above
+      // the 200-day. Mirrors signals/mean_reversion.entry_signal.
+      const swingLong = (idx: number) => {
+        const s200 = sma(idx, 200), m = sma(idx, 20);
+        if (s200 === null || m === null) return false;
+        const win = closes.slice(idx - 19, idx + 1);
+        const sd = Math.sqrt(win.reduce((a, x) => a + (x - m) ** 2, 0) / win.length);
+        return sd > 0 && closes[idx] > s200 && (closes[idx] - m) / sd <= -2.25;
+      };
+
       candles.forEach((c, idx) => {
         const ti = toTime(c.timestamp) as number;
-        const sa = spanAAt.get(ti);
-        const sb = spanBAt.get(ti);
-        const tk = tkAt.get(ti);
-        const kj = kjAt.get(ti);
-        if (sa === undefined || sb === undefined || tk === undefined || kj === undefined) return;
-        const isLong = c.close > Math.max(sa, sb) && tk > kj;
+        let isLong: boolean;
+        if (sid.startsWith("momentum")) {
+          isLong = momentumLong(idx);
+        } else if (sid.startsWith("mean_reversion") || sid.startsWith("swing")) {
+          isLong = swingLong(idx);
+        } else if (sid.startsWith("ichimoku")) {
+          const sa = spanAAt.get(ti);
+          const sb = spanBAt.get(ti);
+          const tk = tkAt.get(ti);
+          const kj = kjAt.get(ti);
+          if (sa === undefined || sb === undefined || tk === undefined || kj === undefined) return;
+          isLong = c.close > Math.max(sa, sb) && tk > kj;
+        } else {
+          return;   // unknown owner -> no onsets -> strip hidden
+        }
         if (isLong && !wasLong) onsets.push({ t: ti, price: c.close, idx });
         wasLong = isLong;
       });
@@ -1127,11 +1177,11 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
             flexWrap: "wrap",
             alignItems: "baseline",
           }}
-          title="Latest entry vs the ideal signal onset (first 5/32/50 cloud-cross before it)"
+          title={"Latest entry vs the " + (strategyId || "owning strategy") + " rule's own signal onset before it"}
         >
           <span style={{ color: "#4f8cff", fontWeight: 700 }}>Entry timing</span>
           <span>
-            signal {entryTiming.signalDate} @{entryTiming.signalPrice.toFixed(2)} → entered{" "}
+            {strategyId ? `${strategyId} ` : ""}signal {entryTiming.signalDate} @{entryTiming.signalPrice.toFixed(2)} → entered{" "}
             {entryTiming.entryDate} @{entryTiming.entryPrice.toFixed(2)}
           </span>
           <span style={{ color: entryTiming.barsLate > 5 ? "#ef4444" : "#1fc16b", fontWeight: 700 }}>

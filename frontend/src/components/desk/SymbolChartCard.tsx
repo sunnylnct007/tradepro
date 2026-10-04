@@ -19,6 +19,7 @@ export function SymbolChartCard({
   symbol,
   height = 300,
   entryPrice,
+  strategyId,
   entryDate,
   fills,
 }: {
@@ -30,6 +31,9 @@ export function SymbolChartCard({
   entryDate?: string | null;
   /** Filled trades → buy/sell markers on the chart (entry/exit review). */
   fills?: { side: "BUY" | "SELL"; price: number | null; atUtc: string }[];
+  /** The strategy that owns this position — entry timing is graded against
+   *  ITS rule, not a retired strategy's cloud-cross. */
+  strategyId?: string | null;
 }) {
   const [tf, setTf] = useState<TF>("3M");
 
@@ -73,7 +77,7 @@ export function SymbolChartCard({
         })}
       </div>
 
-      <CandleIchimokuChart symbol={symbol} timeframe={tf} height={height} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
+      <CandleIchimokuChart symbol={symbol} timeframe={tf} height={height} entryPrice={entryPrice} entryDate={entryDate} fills={fills} strategyId={strategyId} />
     </div>
   );
 }
