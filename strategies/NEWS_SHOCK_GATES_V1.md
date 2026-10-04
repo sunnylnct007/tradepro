@@ -106,4 +106,82 @@ bounce" would be a different rule from "any shock bounces".
   stop treating catalyst coverage as a blocker for shipping it.
 - Nothing here changes swing, momentum, wheel or strangle.
 
-## RESULT — (to be filled by the run, verbatim)
+## RESULT — run 4 Oct 2026. FAILS G1 and G4. The scouting number was mostly drift.
+
+    S1 events (>=8% one-day drop, above 200-SMA, >=$25M/63d liquid): n=3,377
+
+    +5d    raw +1.62%   EXCESS +0.82%   median excess +0.23%   worst -73.3%
+    +10d   raw +2.53%   EXCESS +0.91%   median excess +0.19%   worst -78.0%
+    +20d   raw +3.79%   EXCESS +0.52%   median excess -0.96%   worst -70.8%
+
+    V0 PASS (3,377) · G2 PASS (+0.56 early / +1.25 late) · G3 PASS (+0.19%)
+    G1 FAIL (+0.91% vs +1.50%) · G4 FAIL (-78.0% vs -35%)
+
+    VERDICT: FAILS. No alert ships.
+
+### What the control did to the headline
+
+The scouting pass that motivated this study reported +3.68% at 10 days against
+a +0.68% "baseline". Against a PROPER matched control — the same symbol's own
+forward return on its other above-200-SMA sessions — the excess collapses to
+**+0.91%**. Most of the apparent edge was the drift of the kind of stock that
+gets an 8% shock while in an uptrend: high-beta names that rise a lot anyway.
+The crude baseline pooled every symbol and therefore compared volatile names
+against the universe average. That is the whole gap.
+
+Lesson, more useful than the verdict: **the scouting number was not wrong, it
+was the wrong comparison.** A matched control is not a formality.
+
+### G4 is the one that forbids the trade the owner actually wanted
+
+Worst +10d outcome: **-78.0%**. The owner's framing was selling PUTS into
+these shocks, which is precisely the position that pays a little when the
+bounce happens and is destroyed when it does not. 3,377 events contain names
+that fell 8% on news and then fell another 78% in ten sessions. Median excess
+is +0.19% — the TYPICAL event is nearly a coin flip — while the tail is
+catastrophic and on the wrong side for a put seller.
+
+### Q3 — depth helps the mean and NOT the tail, exactly as predicted
+
+    -8 to -12%       n=2,674   excess +0.69%   worst -62.1%
+    -12 to -20%      n=  598   excess +1.68%   worst -44.0%
+    worse than -20%  n=  105   excess +1.97%   worst -78.0%
+
+Deeper drops do bounce harder (+0.69% → +1.97%), and the deepest band carries
+the worst single outcome in the study. Prediction recorded before the run:
+*"monotonic but mild... the worst-case deteriorates faster than the mean
+improves, which would argue for a depth CAP as well as a floor."* That is
+what happened. A -12 to -20% band would clear G1 on its own at +1.68% — but
+it is 598 events over twenty years (one per name per thirty-odd years) and
+its worst case is still -44%. Not a lane.
+
+### Q2 — not reached, and that is a finding too
+
+G1/G4 failed on the price signal alone, so splitting by catalyst could only
+have rescued it by slicing a failing population into a flattering subset —
+which is the multiple-testing trap this discipline exists to avoid. The
+catalyst question stays open and un-asked rather than answered badly.
+
+### Consequence (pre-stated, applied)
+
+**No alert ships.** Per the frozen consequences for a G1/G4 failure the rule
+is recorded and dropped. The news feed in Settings → Catalysts keeps running
+as CONTEXT on existing boards; it does not become a signal.
+
+### What this does NOT say
+
+The owner made money on MDB and WDC and this study does not contradict that.
+It says the phenomenon is not a mechanical edge at the size we would trade it:
+the average is thin once drift is removed, the median is a coin flip, and the
+tail is ruinous for a put seller. The owner's trades added something this test
+cannot encode — a judgement about WHICH shock was survivable (a CEO leaving,
+a partnership headline) versus a business actually breaking. That judgement is
+real and is not a filter we can write today.
+
+### Predictions, scored
+- Q1 "PASSES, excess +2.0-2.8%" — **WRONG**. +0.91%, failed G1. I over-trusted
+  the scouting gap and under-estimated how much of it was drift.
+- G4 "the gate I expect to be closest" — **right**, and it failed outright.
+- Q3 "monotonic but mild, tail worsens faster than the mean improves" — **right**.
+- Q2 "catalyst adds nothing (~70%)" — **not reached**.
+
