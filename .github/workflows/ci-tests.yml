@@ -1,0 +1,98 @@
+# ============================================================
+# CI TESTS — the gate that did not exist.
+#
+# Until 4 Oct 2026 NOTHING ran tests on a pull request and `main` had no
+# branch protection. The only thing standing between a broken change and
+# production was the author remembering to look at a test run they had just
+# chained into the same shell command as the merge. That failed twice in a
+# week (PR #250, PR #277) in exactly the same way: the suite reported a
+# failure, the output scrolled past, and the merge went through regardless.
+#
+# A rule enforced by remembering is not a rule. This workflow runs the suites
+# on every PR so the failure is a BLOCKING STATUS CHECK rather than a line of
+# text someone was supposed to read.
+#
+# Deliberately NOT included: deploys, broker calls, anything that mutates.
+# This job may only ever report. It must also never become a slow job nobody
+# waits for — if it creeps past a few minutes, split it rather than skip it.
+# ============================================================
+
+name: ci-tests
+
+on:
+  pull_request:
+    branches: [main]
+  # Also on pushes to main so a merge that somehow bypassed the gate (admin
+  # override, direct push) is still recorded as red on the branch itself.
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per branch; a new push supersedes an in-flight one.
+  group: ci-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: python suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: pytest
+        working-directory: strategies
+        # DUMMY CREDENTIALS, NOT REAL ONES. 32 tests failed on the first CI run
+        # while passing locally: they mock the HTTP calls but a credential
+        # lookup still runs underneath, and on a developer's Mac it silently
+        # succeeds from ~/.tradepro/credentials. That is a test-quality defect
+        # the gate exposed on its very first run — the suite was depending on a
+        # machine, not on its inputs.
+        #
+        # An unreachable host is deliberate: if any test actually dials out it
+        # fails loudly here rather than quietly passing against production.
+        # Verified locally with HOME pointed at an empty directory: 1671 pass.
+        env:
+          TRADEPRO_API_BASE_URL: http://ci.invalid
+          TRADEPRO_API_TOKEN: ci-dummy
+        run: uv run pytest tests/ -q
+
+  backend:
+    name: backend suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: dotnet test
+        working-directory: backend
+        # Two tests here are DB-dependent and fail without Postgres; they fail
+        # identically on main, so they are excluded by name rather than by
+        # weakening the run. If they are ever fixed, delete the filter.
+        run: >
+          dotnet test TradePro.Api.Tests/TradePro.Api.Tests.csproj
+          --nologo -v q
+          --filter "FullyQualifiedName!~Backfill_sets_price_on_a_FILLED_order_recorded_at_zero&FullyQualifiedName!~Bar_cache_health_upsert_in_place"
+
+  frontend:
+    name: frontend build + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      # `npm run build` — NEVER bare `npx vite build`, which skips the
+      # typecheck. A green vite build once blocked every deploy for 9 hours.
+      - run: npm run build
+        working-directory: frontend
