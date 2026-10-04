@@ -129,7 +129,7 @@ export function SymbolDetailModal({
         >
           {/* Left: big chart. */}
           <div style={{ minWidth: 0, overflow: "auto" }}>
-            <SymbolChartCard symbol={symbol} height={620} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
+            <SymbolChartCard strategyId={strategy} symbol={symbol} height={620} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
           </div>
 
           {/* Right: cards, scroll independently. */}

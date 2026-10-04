@@ -194,7 +194,7 @@ export function SymbolDetailRail({
       {/* 1. Chart — 400px tall so candles + axis labels are readable in the
               wider rail. The rail itself has resize:horizontal so the trader
               can drag the right edge for even more room. */}
-      <SymbolChartCard symbol={symbol} height={400} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
+      <SymbolChartCard strategyId={strategy} symbol={symbol} height={400} entryPrice={entryPrice} entryDate={entryDate} fills={fills} />
 
       {/* 2. Position */}
       <SymbolPositionCard symbol={symbol} positions={positions} />
