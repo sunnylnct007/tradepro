@@ -45,9 +45,19 @@ jobs:
       - uses: astral-sh/setup-uv@v3
       - name: pytest
         working-directory: strategies
-        # No network: the suite must not depend on IBKR, the API, or S3 being
-        # reachable from a runner. A test that needs them is an integration
-        # test and belongs behind its own marker.
+        # DUMMY CREDENTIALS, NOT REAL ONES. 32 tests failed on the first CI run
+        # while passing locally: they mock the HTTP calls but a credential
+        # lookup still runs underneath, and on a developer's Mac it silently
+        # succeeds from ~/.tradepro/credentials. That is a test-quality defect
+        # the gate exposed on its very first run — the suite was depending on a
+        # machine, not on its inputs.
+        #
+        # An unreachable host is deliberate: if any test actually dials out it
+        # fails loudly here rather than quietly passing against production.
+        # Verified locally with HOME pointed at an empty directory: 1671 pass.
+        env:
+          TRADEPRO_API_BASE_URL: http://ci.invalid
+          TRADEPRO_API_TOKEN: ci-dummy
         run: uv run pytest tests/ -q
 
   backend:
