@@ -44,6 +44,33 @@ LEFT=$(aws s3 sync "$SRC" "s3://$BUCKET/bar_cache" --dryrun \
         | grep -c '^(dryrun) upload:' || true)
 log "rc=$RC uploaded=$UP failed=$ERRS still_pending=$LEFT"
 
+# JUDGE THE OUTCOME, NOT THE EXIT CODE.
+#
+# `aws s3 sync` returns 1 when it SKIPS a file — most often because the
+# all-day harvest rewrote a parquet while the sync was reading it. That is
+# benign and self-correcting: the next run picks it up. Measured 29 Sep -
+# 4 Oct, rc alternated 1,1,0,0,0,1 across runs whose numbers were otherwise
+# IDENTICAL (uploaded=0 failed=0 still_pending=0) — i.e. the mirror had
+# nothing left to do every single time.
+#
+# still_pending is the real verdict: it is a FRESH dry-run taken AFTER the
+# sync, so 0 means every local file is in S3. A job that reports failure
+# while succeeding is the same disease as one that reports success while
+# failing — both teach you to stop reading it, and an unread run log is how
+# the two-month fill blindness survived.
+#
+#   still_pending > 0  -> FAIL loudly, whatever rc said
+#   still_pending == 0 -> OK, and if rc was non-zero say so as a WARNING
+#                         with the CLI's own words, never swallowed
+if [[ "$LEFT" -gt 0 ]]; then
+    log "FAIL: $LEFT file(s) still not in S3 after the sync — the bar store is NOT fully backed up"
+    RC=1
+elif [[ "$RC" -ne 0 ]]; then
+    log "warn: aws s3 sync exited $RC but every local file is in S3 (still_pending=0) — treating as OK. CLI said:"
+    printf '%s\n' "$OUT" | grep -iE 'warn|skip|error' | head -3 | sed 's/^/    /' >> "$LOG" || true
+    RC=0
+fi
+
 # STALE PREFIX CHECK: trees that exist in S3 but NOT locally. `aws s3 sync`
 # never deletes, so a local reorganisation (22 Aug: us_equity retired, LSE
 # ETFs moved to uk_equity) leaves the old layout live in S3 — and a
@@ -61,7 +88,12 @@ for PFX in $(aws s3 ls "s3://$BUCKET/bar_cache/" 2>/dev/null | awk '/PRE/{print 
         [[ -d "$SRC/$PFX/$SYM" ]] || STALE="$STALE $PFX/$SYM"
     done
 done
-[[ -n "$STALE" ]] && log "STALE IN S3 (present in bucket, absent locally):$STALE"
+# A symbol in S3 but not on disk is RETIRED HISTORY, not drift — WBS left the
+# universe and this line has named it every night since. Reported, never
+# alarming: the mirror never deletes, so old trees are a restore hazard worth
+# listing, not a failure worth a red job. (Same lesson as the chart-store
+# reconcile, which went FATAL nightly over 50 retired HK/Tokyo listings.)
+[[ -n "$STALE" ]] && log "retired in S3 (present in bucket, absent locally — restore hazard, not an error):$STALE"
 printf '%s\n' "$OUT" | grep -i 'failed' | head -5 >> "$LOG" || true
 
 # Report to the central run_log so the Data screen can answer "is our data in
