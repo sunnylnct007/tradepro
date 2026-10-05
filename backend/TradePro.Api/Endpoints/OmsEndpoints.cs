@@ -490,8 +490,17 @@ public static class OmsEndpoints
                 var res = await ibkr.GetPositionsAsync(ct, forceFresh: true);
                 if (res.Error is not null)
                     return Results.Json(new { error = $"could not read IBKR positions: {res.Error}" }, statusCode: 502);
+                // SYMBOL CONVENTION. IBKR returns a BARE ticker ("MET"); the OMS
+                // stores US equities suffixed ("MET_US_EQ"). Shipped without this
+                // conversion first time (5 Oct) and the reconcile wrote SELL MET
+                // against BUY MET_US_EQ — two different symbols as far as every
+                // consumer is concerned, so the adjustment netted against nothing
+                // and the oversell guard's view did not move. The symbol-
+                // harmonisation class exists precisely because this mismatch keeps
+                // recurring; use it rather than comparing raw broker strings.
                 foreach (var g in res.Positions.Where(x => x.Quantity != 0)
-                                               .GroupBy(x => (x.Symbol ?? "").ToUpperInvariant()))
+                                               .GroupBy(x => SymbolHarmonization
+                                                   .ToOmsSymbol(x.Symbol ?? "")))
                 {
                     if (string.IsNullOrWhiteSpace(g.Key)) continue;
                     actuals.Add((g.Key, g.Sum(x => x.Quantity),
