@@ -409,6 +409,7 @@ public static class OmsEndpoints
             TradePro.Api.Providers.Trading212.Trading212PositionsCache liveCache,
             TradePro.Api.Providers.Trading212.Trading212DemoPositionsCache demoCache,
             TradePro.Api.Providers.IG.IGClient ig,
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             CancellationToken ct) =>
         {
             var broker = (body?.Broker ?? "").Trim().ToUpperInvariant();
@@ -465,6 +466,38 @@ public static class OmsEndpoints
                     actuals.Add((g.Key, qty, avg));
                 }
                 fetchEmpty = res.Positions.Count == 0;
+            }
+            else if (broker is "IBKR_PAPER")
+            {
+                // ADDED 5 Oct 2026, after the ledger and the broker disagreed by
+                // a whole position and nothing could close the gap.
+                //
+                // 28 phantom shorts were covered by orders placed DIRECTLY at
+                // the broker (the OMS cannot place them — it had no record of
+                // the shorts to begin with). The covers filled, the broker went
+                // long-only, and the ledger still read ESNT -2,596 / CLF -2,088.
+                // That is not cosmetic: the RiskGate's oversell guard derives
+                // from the ledger, so it would have refused a legitimate FUTURE
+                // exit on those names — reproducing the September failure where
+                // swing could open and never close.
+                //
+                // IBKR_LIVE is deliberately NOT accepted. This build places no
+                // live orders and writes no live bookkeeping.
+                if (!ibkr.IsEnabled)
+                    return Results.BadRequest(new { error = "IBKR client is disabled" });
+                // forceFresh: a reconciliation against a CACHED book is how the
+                // 1 Oct runaway happened. Never reconcile to a stale read.
+                var res = await ibkr.GetPositionsAsync(ct, forceFresh: true);
+                if (res.Error is not null)
+                    return Results.Json(new { error = $"could not read IBKR positions: {res.Error}" }, statusCode: 502);
+                foreach (var g in res.Positions.Where(x => x.Quantity != 0)
+                                               .GroupBy(x => (x.Symbol ?? "").ToUpperInvariant()))
+                {
+                    if (string.IsNullOrWhiteSpace(g.Key)) continue;
+                    actuals.Add((g.Key, g.Sum(x => x.Quantity),
+                                 g.Select(x => x.AvgCost).FirstOrDefault()));
+                }
+                fetchEmpty = res.Positions.Count(x => x.Quantity != 0) == 0;
             }
             else
             {
