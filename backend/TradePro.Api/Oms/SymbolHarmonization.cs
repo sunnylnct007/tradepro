@@ -40,6 +40,27 @@ public static class SymbolHarmonization
         return u > 0 ? s[..u] : s;
     }
 
+    /// <summary>
+    /// Map a broker's BARE ticker to the symbol the OMS stores internally.
+    ///
+    /// The OMS keys US equities as "AAPL_US_EQ". T212 happens to use the same
+    /// form so its reads need no conversion, but IBKR returns "AAPL" — and on
+    /// 5 Oct 2026 a reconcile wrote `SELL MET` against an existing
+    /// `BUY MET_US_EQ`, which are two different symbols to every consumer,
+    /// including the RiskGate oversell guard. The adjustment netted against
+    /// nothing and the guard's view did not move.
+    ///
+    /// Named for the DIRECTION it converts so no caller has to reason about
+    /// which broker's convention happens to double as the internal one.
+    /// Idempotent: an already-suffixed symbol is returned unchanged.
+    /// </summary>
+    public static string ToOmsSymbol(string brokerTicker)
+    {
+        var s = (brokerTicker ?? "").Trim().ToUpperInvariant();
+        if (s.Length == 0 || s.Contains('_')) return s;
+        return s + "_US_EQ";
+    }
+
     public static string ToBrokerTicker(string symbol, string brokerLabel)
     {
         var s = symbol.Trim().ToUpperInvariant();
