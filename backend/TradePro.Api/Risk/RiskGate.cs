@@ -570,37 +570,64 @@ public sealed class RiskGate
     }
 
     /// <summary>
-    /// Net position for (broker, strategy, symbol) derived from the order
-    /// ledger: BUYs minus SELLs over every order that actually reached a
-    /// broker, or is still in flight toward one.
+    /// How much of <paramref name="symbol"/> this strategy can still sell:
     ///
-    /// Counted: SUBMITTED, WORKING, PARTIALLY_FILLED, FILLED. An in-flight
-    /// order MUST count — the 1 Oct runaway fired every ~17 minutes, far
-    /// faster than fills were being confirmed, so a check that waited for
-    /// FILLED would have let the whole flood through.
+    ///     FILLED net  (what actually executed)
+    ///   − in-flight SELLs (what we have already committed to selling)
     ///
-    /// Not counted: PENDING_APPROVAL (not dispatched), CANCELLED, REJECTED,
-    /// EXPIRED (never reached the market), and anything soft-deleted — an
-    /// OMS reset stamps deleted_at, and those orders no longer describe the
-    /// book.
+    /// WHY FILLS AND NOT ORDER QUANTITIES (fixed 5 Oct 2026). The first
+    /// version summed oms_orders.qty by state, which counts what we ASKED
+    /// for. A submitted-but-unfilled BUY therefore inflated the holding:
+    /// after the covers landed the guard read AAPL +9 against 1 actually
+    /// held, and MET +31 against 1 — it would have permitted selling thirty
+    /// shares we did not own. That is the guard being LOOSE, which is the
+    /// quiet failure: it refuses nothing and protects nothing.
     ///
-    /// The order being evaluated is excluded by id so it cannot count itself.
+    /// oms_positions (ListPositionsAsync) has always summed oms_fills, so
+    /// the guard and the positions view disagreed by construction, and
+    /// sync-from-broker could reconcile one while the other stayed wrong.
+    /// Same source now, so reconciling the book reconciles the guard.
+    ///
+    /// WHY IN-FLIGHT SELLS ARE SUBTRACTED RATHER THAN IGNORED. Fills alone
+    /// are not enough: the 1 Oct runaway re-sold every ~17 minutes, far
+    /// faster than IBKR confirmed fills, so a fills-only check would have
+    /// waved the entire flood through. Subtracting what is already working
+    /// makes the SECOND sell see zero remaining and refuse — which is
+    /// exactly where it had to stop.
+    ///
+    /// Soft-deleted orders are excluded, matching ListPositionsAsync: an OMS
+    /// reset stamps deleted_at and those fills no longer describe the book.
     /// </summary>
     private async Task<decimal> LedgerNetPositionAsync(
         string broker, string? strategyId, string symbol, Guid excludeId)
     {
         await using var conn = await _db.OpenConnectionAsync();
         return await conn.ExecuteScalarAsync<decimal>(@"
-            SELECT COALESCE(SUM(
-                       CASE WHEN side = 'BUY' THEN qty ELSE -qty END), 0)
-            FROM oms_orders
-            WHERE broker = @broker
-              AND symbol = @symbol
-              AND id <> @excludeId
-              AND deleted_at IS NULL
-              AND (strategy_id = @strategyId
-                   OR (@strategyId IS NULL AND strategy_id IS NULL))
-              AND state IN ('SUBMITTED', 'WORKING', 'PARTIALLY_FILLED', 'FILLED');",
+            WITH filled AS (
+                SELECT COALESCE(SUM(
+                           CASE WHEN o.side = 'BUY' THEN f.qty ELSE -f.qty END), 0) AS net
+                FROM oms_orders o
+                JOIN oms_fills f ON f.order_id = o.id
+                WHERE o.broker = @broker
+                  AND o.symbol = @symbol
+                  AND o.id <> @excludeId
+                  AND o.deleted_at IS NULL
+                  AND (o.strategy_id = @strategyId
+                       OR (@strategyId IS NULL AND o.strategy_id IS NULL))
+            ),
+            working AS (
+                SELECT COALESCE(SUM(GREATEST(o.qty - COALESCE(o.filled_qty, 0), 0)), 0) AS pending
+                FROM oms_orders o
+                WHERE o.broker = @broker
+                  AND o.symbol = @symbol
+                  AND o.id <> @excludeId
+                  AND o.deleted_at IS NULL
+                  AND o.side = 'SELL'
+                  AND o.state IN ('SUBMITTED', 'WORKING', 'PARTIALLY_FILLED')
+                  AND (o.strategy_id = @strategyId
+                       OR (@strategyId IS NULL AND o.strategy_id IS NULL))
+            )
+            SELECT filled.net - working.pending FROM filled, working;",
             new { broker, symbol, strategyId, excludeId });
     }
 
