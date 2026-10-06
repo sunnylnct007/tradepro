@@ -28,7 +28,7 @@ public interface IOmsService
     /// (rows kept for analysis, stamped deleted_at + hidden from active views).
     /// Used to clear stale orders after a broker paper-account reset. Optionally
     /// scoped to one broker prefix (e.g. "T212"). Returns rows affected.</summary>
-    Task<int> SoftDeleteAsync(DateTime createdOnOrAfterUtc, string reason, string? brokerPrefix = null);
+    Task<int> SoftDeleteAsync(DateTime createdOnOrAfterUtc, string reason, string? brokerPrefix = null, DateTime? createdBeforeUtc = null);
 
     /// <summary>PENDING_APPROVAL → SUBMITTED. Phase 1 stub: marks the
     /// row submitted. Phase 2 will actually post to the broker here.</summary>
