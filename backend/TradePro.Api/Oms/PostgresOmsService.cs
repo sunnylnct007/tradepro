@@ -328,18 +328,32 @@ public sealed class PostgresOmsService : IOmsService
         return rows.ToList();
     }
 
-    public async Task<int> SoftDeleteAsync(DateTime createdOnOrAfterUtc, string reason, string? brokerPrefix = null)
+    public async Task<int> SoftDeleteAsync(DateTime createdOnOrAfterUtc, string reason,
+                                           string? brokerPrefix = null, DateTime? createdBeforeUtc = null)
     {
         await using var conn = await _db.OpenConnectionAsync();
         // Stamp deleted_at (rows retained). Optional broker prefix ("T212" matches
         // T212_DEMO/T212_LIVE) so a reset can be scoped to one broker.
+        //
+        // createdBeforeUtc CLOSES the window (exclusive). Added 6 Oct 2026: a
+        // buggy reconcile wrote four bookkeeping rows under BARE tickers
+        // ("MET" instead of "MET_US_EQ") at a known minute, and they surfaced
+        // on the desk as a phantom "(unattributed)" group. Deleting them with
+        // an open-ended `since` would have taken four REAL orders placed later
+        // the same afternoon with them. A cleanup tool that can only delete
+        // "everything after X" is one that gets used carelessly or not at all.
         const string sql = @"
             UPDATE oms_orders
             SET deleted_at = now(), deleted_reason = @reason
             WHERE created_at_utc >= @since
+              AND (@before IS NULL OR created_at_utc < @before)
               AND deleted_at IS NULL
               AND (@broker IS NULL OR upper(broker) LIKE upper(@broker) || '%');";
-        return await conn.ExecuteAsync(sql, new { since = createdOnOrAfterUtc, reason, broker = brokerPrefix });
+        return await conn.ExecuteAsync(sql, new
+        {
+            since = createdOnOrAfterUtc, before = createdBeforeUtc,
+            reason, broker = brokerPrefix,
+        });
     }
 
     public async Task<OmsOrder> ApproveAsync(Guid orderId, string actor)

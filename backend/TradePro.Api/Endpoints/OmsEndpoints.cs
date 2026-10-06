@@ -37,8 +37,10 @@ public static class OmsEndpoints
         orders.MapPost("/soft-delete", async (SoftDeleteOrdersRequest? req, IOmsService oms) =>
         {
             var since = req?.SinceUtc ?? DateTime.UtcNow.Date;
-            var n = await oms.SoftDeleteAsync(since, req?.Reason ?? "paper-account reset cleanup", req?.BrokerPrefix);
-            return Results.Ok(new { softDeleted = n, sinceUtc = since, brokerPrefix = req?.BrokerPrefix });
+            var n = await oms.SoftDeleteAsync(since, req?.Reason ?? "paper-account reset cleanup",
+                                              req?.BrokerPrefix, req?.BeforeUtc);
+            return Results.Ok(new { softDeleted = n, sinceUtc = since, beforeUtc = req?.BeforeUtc,
+                                    brokerPrefix = req?.BrokerPrefix });
         });
 
         // ── Golden-source reconciliation surface ──────────────────────
@@ -816,4 +818,4 @@ public sealed record PurgeUnattributedRequest(string? Broker = null, bool Confir
 
 /// <summary>Soft-delete OMS orders created on/after SinceUtc (rows kept for
 /// analysis, hidden from active views). Optional BrokerPrefix scope.</summary>
-public sealed record SoftDeleteOrdersRequest(DateTime? SinceUtc = null, string? Reason = null, string? BrokerPrefix = null);
+public sealed record SoftDeleteOrdersRequest(DateTime? SinceUtc = null, string? Reason = null, string? BrokerPrefix = null, DateTime? BeforeUtc = null);
