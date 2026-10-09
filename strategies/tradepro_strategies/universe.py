@@ -58,6 +58,14 @@ See PHANTOM_* below for the test that decides."""
 
 MAX_PHANTOM_BARS = 4
 
+ZERO_VOL_JUMP = 0.20
+"""A zero-volume bar whose close moved more than this is CORRUPT, not thin.
+
+20% is far above any real gap a genuinely untraded session could imply, and
+far below the 18x WBD printed on 6 Oct 2026. Chosen to separate corruption
+from growth: the obvious alternative — a price-ratio ceiling — rejects MU,
+LITE, WDC and VICR, which simply went up a lot on real volume."""
+
 PHANTOM_WINDOW = 500
 """How far back the phantom check looks — about two years.
 
@@ -363,9 +371,42 @@ def poison_check(closes, volumes=None):
         # older ones are returned as information rather than a verdict.
         recent = closes[-PHANTOM_WINDOW:]
         recent_v = volumes[-PHANTOM_WINDOW:]
-        phantom = sum(1 for i in range(1, len(recent))
-                      if recent_v[i] == 0 and recent[i] == recent[i - 1])
-        return phantom <= MAX_PHANTOM_BARS, phantom
+        # Two kinds of zero-volume bar, and the original check only saw one.
+        #
+        # REPEATED: vol=0 and the close is unchanged. A handful is tolerable
+        # (a young ETF genuinely did not trade some days), hence the budget.
+        #
+        # JUMPED: vol=0 and the close MOVED hard. There is no benign reading —
+        # nothing traded, so nothing can have repriced it. WBD, 6 Oct 2026:
+        #
+        #     2026-10-05  c=  30.95  vol=93,241,676
+        #     2026-10-06  c= 559.50  vol=0          <- an 18x move on no trades
+        #
+        # The old test required an UNCHANGED close, so it scored that bar as
+        # clean and the series passed on one phantom against a budget of four.
+        # The replay then reported +$50,742 of fictional profit.
+        #
+        # A single jumped bar is disqualifying; there is no honest version of
+        # it. The price RATIO is deliberately NOT used here: measured across
+        # the live universe it rejects MU (6.3x), LITE (6.9x), WDC and VICR —
+        # real stocks that really did multiply. Corruption is identified by
+        # "no volume yet the price moved", not by "the price moved a lot".
+        repeated = jumped = 0
+        for i in range(1, len(recent)):
+            if recent_v[i] != 0:
+                continue
+            prev = recent[i - 1]
+            if recent[i] == prev:
+                repeated += 1
+            elif prev > 0 and abs(recent[i] / prev - 1) > ZERO_VOL_JUMP:
+                jumped += 1
+        # The second element stays a NUMERIC phantom count: callers and tests
+        # treat it as one ("assert n > 4"), and returning a string here broke
+        # the wrong-contract test immediately. Jumped bars are counted as
+        # phantoms too, so a splice still reports its full size.
+        if jumped:
+            return False, repeated + jumped
+        return repeated <= MAX_PHANTOM_BARS, repeated
     recent = closes[-120:] or closes
     med = _st.median(recent)
     if med <= 0:
