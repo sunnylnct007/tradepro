@@ -185,8 +185,21 @@ def fetch_boards(strategy: str, api_base: str, token: str | None = None,
 
 
 def golden_loader():
-    """symbol -> (dates, closes) from the golden parquet store."""
+    """symbol -> (dates, closes) from the golden parquet store.
+
+    POISONED SERIES ARE REFUSED HERE TOO. The universe builder and the live
+    screens run poison_check; this loader did not, and on 9 Oct 2026 WBD's
+    fabricated bar (c=559.50 on ZERO volume, after closing at 30.95) reached
+    the replay and reported +$50,742 of fictional profit on a position nobody
+    holds. Fixing poison_check alone left this site untouched — the
+    fix-one-call-site-miss-the-next shape that keeps recurring here.
+
+    A refused symbol is returned as None, which replay() already records as
+    UNMEASURED and names. It is never silently dropped: a signal we cannot
+    price honestly must be visible as such, not absent.
+    """
     from .cli.build_universe import _load
+    from .universe import poison_check
 
     def load(sym: str):
         try:
@@ -196,6 +209,11 @@ def golden_loader():
         if df is None or len(df) == 0:
             return None
         closes = [float(x) for x in df["close"].tolist()]
+        vols = ([float(x or 0) for x in df["volume"].tolist()]
+                if "volume" in df.columns else None)
+        ok, _why = poison_check(closes, vols)
+        if not ok:
+            return None
         dates = [str(x)[:10] for x in
                  (df["date"].tolist() if "date" in df.columns else df.index.tolist())]
         return dates, closes
