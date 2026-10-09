@@ -246,16 +246,9 @@ def latest_price(sym: str) -> dict | None:
         return None
 
 def _load(sym: str):
-    fs = sorted(glob.glob(f"{BASE_DIR}/{sym}/1d/*.parquet"))
-    if not fs:
-        return None
-    import pandas as pd
-    try:
-        df = pd.concat([pd.read_parquet(f) for f in fs]).sort_index()
-    except Exception:
-        return None
-    df = df[~df.index.duplicated(keep="last")]
-    return df if len(df) >= 220 and "open" in df.columns else None
+    """Delegates to the ONE loader (was identical to momentum's copy)."""
+    from ..daily_bars import MIN_BARS, load_daily
+    return load_daily(sym, min_bars=MIN_BARS, require_ohlc=True)
 
 
 def scan(symbols: list[str]) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:

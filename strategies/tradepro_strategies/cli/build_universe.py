@@ -27,15 +27,12 @@ BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
 
 def _load(sym: str):
-    fs = sorted(glob.glob(f"{BASE_DIR}/{sym}/1d/*.parquet"))
-    if not fs:
-        return None
-    import pandas as pd
-    try:
-        df = pd.concat([pd.read_parquet(f) for f in fs]).sort_index()
-    except Exception:
-        return None
-    return df[~df.index.duplicated(keep="last")]
+    """Delegates to the ONE loader. Kept as a name because many modules and
+    studies import it; the body moved to daily_bars.load_daily so a fix lands
+    once. No poison filter here on purpose — the universe builder must SEE a
+    poisoned series in order to exclude it."""
+    from ..daily_bars import load_daily
+    return load_daily(sym)
 
 
 _SPY_CACHE: dict = {}

@@ -41,15 +41,10 @@ FUND_PATH = os.path.expanduser("~/.tradepro/research/fundamentals.json")
 
 
 def _load(sym: str):
-    fs = sorted(glob.glob(f"{BASE}/{sym}/1d/*.parquet"))
-    if not fs:
-        return None
-    import pandas as pd
-    try:
-        df = pd.concat([pd.read_parquet(f) for f in fs]).sort_index()
-    except Exception:
-        return None
-    return df[~df.index.duplicated(keep="last")]
+    """Delegates to the ONE loader (was a byte-identical copy of
+    build_universe._load with BASE_DIR renamed to BASE)."""
+    from ..daily_bars import load_daily
+    return load_daily(sym)
 
 
 def _sma(c, i, n):

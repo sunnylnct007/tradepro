@@ -36,22 +36,34 @@ import re
 
 import pytest
 
-CLI = os.path.join(
+_PKG = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "tradepro_strategies", "cli")
+    "tradepro_strategies")
+CLI = os.path.join(_PKG, "cli")
+
+# THE PACKAGE ROOT IS WATCHED TOO (9 Oct 2026). The four CLI copies of the
+# bar loader were consolidated into tradepro_strategies/daily_bars.py — which
+# SHRANK this register from 6 entries to 1, but also moved the remaining glob
+# OUT of cli/ and therefore out of this guard's sight. A debt that stops being
+# counted has not been paid. Scanning both directories keeps it visible.
+ROOT_MODULES = ("daily_bars.py",)
 
 # Raw-globbing the bar cache. DEBT — shrink this list, never extend it.
 KNOWN_BYPASSES = {
-    "swing_candidates.py",
-    "momentum_candidates.py",
+    # 9 Oct 2026: swing_candidates, momentum_candidates, name_context and
+    # build_universe left this list. They did not get fixed — their four
+    # near-identical loaders were merged into daily_bars.py, which still
+    # globs. One place to fix instead of four is progress; calling it fixed
+    # would be a lie, so daily_bars.py is listed below and still counted.
     "today_setups.py",
     "signal_audit.py",
-    "name_context.py",
-    "build_universe.py",
     "fill_replay.py",
     "paper_session.py",
     "check_daily_vs_intraday.py",
 }
+
+#: Same debt, package root rather than cli/.
+KNOWN_ROOT_BYPASSES = {"daily_bars.py"}
 
 # A glob over a bar-cache partition path. The symbol segment may be an
 # interpolation (`{sym}/1d/`) OR a wildcard (`*/5m/`) — the first version of
@@ -75,10 +87,21 @@ def _cli_modules():
                   if f.endswith(".py") and not f.startswith("_"))
 
 
-def _bypasses(fname: str) -> bool:
-    with open(os.path.join(CLI, fname)) as fh:
+def _bypasses(fname: str, base: str = CLI) -> bool:
+    with open(os.path.join(base, fname)) as fh:
         body = "\n".join(ln for ln in fh if not ln.lstrip().startswith("#"))
     return any(pat.search(body) for pat in _BYPASS_PATTERNS)
+
+
+def test_no_new_ROOT_module_reads_the_bar_cache_by_glob():
+    """The same guard at the package root, so a bypass cannot escape cli/."""
+    offenders = [f for f in sorted(os.listdir(_PKG))
+                 if f.endswith(".py") and not f.startswith("_")
+                 and f not in KNOWN_ROOT_BYPASSES and _bypasses(f, _PKG)]
+    assert not offenders, (
+        f"{offenders} glob the bar cache from the package root. Moving a "
+        "bypass out of cli/ does not pay the debt, it only hides it."
+    )
 
 
 def test_no_new_module_reads_the_bar_cache_by_glob():
