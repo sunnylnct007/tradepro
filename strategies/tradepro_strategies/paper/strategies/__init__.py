@@ -11,9 +11,11 @@ each module here triggers that registration — so any code doing
 whether the caller has imported the class directly.
 
 Built-in registry keys today:
-    orb                       Opening-range breakout (trend / breakout family)
-    intraday_flat             Scanner-derived basket, long-only, EOD-flat,
-                              IG-routed (PR #28)
+    mean_reversion_swing      Swing (2.25 sigma dip above the 200-day)
+    momentum_pullback         Momentum (pullback to the 10-day in an uptrend)
+
+Those two are the whole live desk. See the RETIRED block below for what was
+deregistered on 10 Oct 2026 and why the files remain.
 
 (vwap_mean_reversion, bollinger_bounce, ma_crossover, compass_momentum were
 deleted 21 Aug 2026 — frozen since May, never scheduled, never integrated;
@@ -34,14 +36,33 @@ from ..registry import (
     register_strategy,
 )
 from ..strategy import Strategy
-from .ichimoku_equity import IchimokuEquityStrategy  # noqa: F401 — registers
-from .ichimoku_fx_mr import IchimokuFXMeanReversionStrategy  # noqa: F401 — registers
-from .intraday_flat import IntradayFlatStrategy  # noqa: F401 — registers
-from .opening_range_breakout import OpeningRangeBreakout
-
-# Alias the long-form name into the shared registry so legacy callers
-# that used `build("opening_range_breakout", ...)` keep working.
-register_strategy("opening_range_breakout")(OpeningRangeBreakout)
+# ── RETIRED, 10 Oct 2026 — DEREGISTERED, NOT DELETED ──────────────────
+#
+# ichimoku_equity, ichimoku_fx_mr, intraday_flat and orb no longer register.
+# Importing a module runs @register_strategy at class definition, so simply
+# NOT importing them here is the whole deregistration.
+#
+# Measured before cutting: of the four, the most recent order from any of
+# them was ichimoku_equity on 23 Sep 2026, and NOTHING schedules any of them
+# — no launchd job, no Lambda. orb additionally failed its pre-registered
+# gates (INTRADAY_VWAP_ORB_GATES_V1, 3 of 5).
+#
+# They were not harmless while registered. A retired sleeve still in the
+# registry produced: strategy rows on the cockpit that read as live, "2
+# sleeve(s) whose activity cannot be determined" on the P&L panel, health
+# dots for desks that cannot trade, and — on 3 Oct — an Ichimoku cloud-cross
+# grading a MOMENTUM position's entry timing as "11 bars LATE" when the
+# momentum rule had fired one bar earlier.
+#
+# The files stay. They are the record of what was built and why it stopped,
+# and the two Ichimoku modules carry the only worked example of the stateful
+# exit pattern. Deleting them to make a count smaller would lose that; not
+# registering them makes them inert, which is the actual goal.
+#
+# To bring one back: restore its import here and schedule it. That is
+# deliberately one line, because a retired strategy returning should be a
+# decision, not an accident.
+from .opening_range_breakout import OpeningRangeBreakout  # noqa: F401
 
 
 def build(
