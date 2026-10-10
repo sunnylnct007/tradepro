@@ -234,6 +234,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="[risk] Halt the desk for the day when realised+unrealised P&L drops below -this. Off by default.")
     p.add_argument("--max-drawdown-pct", type=float, default=None,
                    help="[risk] Halt the desk when equity falls this %% from its peak (e.g. 5). Off by default.")
+    p.add_argument("--wind-down", action="store_true",
+                   help="Manage held positions and open NOTHING new. For migrating a sleeve between brokers: the old lane keeps exiting its book while the new one takes entries. NOT the same as --max-open-positions 0, which rejects exits too and strands the book.")
     p.add_argument("--max-open-positions", type=int, default=None,
                    help="[risk] Reject NEW entries beyond this many concurrent positions. Off by default.")
     p.add_argument("--max-position-pct-of-capital", type=float, default=None,
@@ -2391,7 +2393,11 @@ def main(argv: list[str] | None = None) -> int:
                 "(universe ∪ held) so every name gets an entry+exit evaluation",
                 len(recon_bars))
 
-    engine = Engine(bus=bus, router=router)
+    engine = Engine(bus=bus, router=router, wind_down=bool(getattr(args, "wind_down", False)))
+    if engine.wind_down:
+        log.warning(
+            "WIND-DOWN: this lane will manage its %s held position(s) and open "
+            "NOTHING new. Exits are unaffected.", args.strategy_id or args.strategy)
     engine.register_strategy(
         strategy, symbols=symbols, capital_usd=args.capital_usd,
     )

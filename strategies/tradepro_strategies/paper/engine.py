@@ -98,6 +98,14 @@ class Engine:
     # without strict lock-step.
     queue_maxsize: int = 4
 
+    wind_down: bool = False
+    """Manage what is held; open NOTHING new. Exits are untouched.
+
+    For migrating a sleeve between brokers: the old lane must keep running
+    or its positions are orphaned with nothing to exit them. Declared as a
+    field rather than set as a stray attribute so it is visible in the
+    dataclass and cannot be silently misspelled at a call site."""
+
     def register_strategy(
         self,
         strategy: Strategy,
@@ -440,6 +448,22 @@ class Engine:
                         _sym, msg.bar.timestamp,
                         is_exit=(_long_only and o.side == OrderSide.SELL))
                 ]
+                # WIND-DOWN: manage what is held, open nothing new.
+                #
+                # For migrating a sleeve between brokers (momentum IBKR ->
+                # T212, 10 Oct 2026). The old lane must keep running or its
+                # positions are orphaned with nothing to exit them — the
+                # "can open but never close" failure of September, arrived at
+                # from the other direction.
+                #
+                # The obvious alternative, --max-open-positions 0, SILENTLY
+                # STRANDS the book: that gate is `post_open > cap`, so an exit
+                # taking 20 holdings to 19 projects 19, exceeds 0, and is
+                # REJECTED along with the entries. Checked before relying on
+                # it. This filter is on SIDE, so exits are untouched by
+                # construction.
+                if self.wind_down:
+                    orders = [o for o in orders if o.side == OrderSide.SELL]
             for order in orders:
                 if order.strategy_id != strategy.strategy_id:
                     log.warning(
