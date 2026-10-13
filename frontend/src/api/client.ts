@@ -1304,7 +1304,13 @@ export const api = {
       strategies: Array<{
         strategy: string;
         label: string;
-        status: "healthy" | "idle" | "blocked" | "stale" | "unknown";
+        // "retired" = not in the pushed strategy registry, so not trading BY
+        // DECISION — never a fault, and must not count toward "needs
+        // attention". Distinct from "stale", which means a sleeve that IS
+        // registered and should be trading but isn't. When the registry cannot
+        // be read the API returns "stale" with a reason saying so, rather than
+        // guessing either way.
+        status: "healthy" | "idle" | "blocked" | "stale" | "unknown" | "retired";
         reason: string;
         lastOrderUtc: string | null;
         minutesSinceOrder: number | null;

@@ -22,8 +22,20 @@ namespace TradePro.Api.Endpoints;
 ///   status: healthy  — filled at least one order today
 ///           blocked  — placed orders today but ALL cancelled, none filled
 ///           idle     — traded recently (≤30h) but no fills today
-///           stale    — no orders in >30h — likely not trading
+///           stale    — no orders in >30h AND the strategy is still REGISTERED,
+///                      so it should be trading and isn't. A real fault.
+///           retired  — no orders AND not in the pushed strategy registry: not
+///                      trading BY DECISION. NOT a fault, and deliberately does
+///                      not count toward the panel's "needs attention" — five
+///                      retired sleeves held it red every day until 13 Oct 2026,
+///                      which is how a genuinely stopped sleeve gets ignored.
 ///           unknown  — no orders on record
+///
+/// retired-vs-stale needs the registry, which only the Mac can introspect
+/// (tradepro-paper-strategies-push). If the catalogue is missing or empty the
+/// endpoint FAILS CLOSED: nothing is called retired, and the stale reason says
+/// the two cannot be told apart. "Registry unavailable" must never render as
+/// "nothing is wrong".
 ///
 /// Registered on the `api` group → map "/strategies/health" (NOT "/api/..").
 /// </summary>
@@ -44,6 +56,34 @@ public static class StrategyHealthEndpoints
     // Per-symbol engine id → base, e.g. "intraday-ichimoku_equity-AAPL" → "intraday-ichimoku_equity".
     private static readonly Regex PerSymbol = new(@"^(.*)-[A-Z0-9.]{1,6}$", RegexOptions.Compiled);
 
+    // Lane id → registry name. A lane is "<registry name>_<broker>", e.g.
+    // momentum_pullback_t212 and momentum_pullback_ibkr are both the registered
+    // strategy `momentum_pullback`. The registry knows nothing about brokers, so
+    // the suffix must come off before asking it whether a strategy exists.
+    //
+    // Suffixes are listed rather than inferred: stripping "everything after the
+    // last underscore" would turn mean_reversion_swing into mean_reversion, and
+    // an unknown-but-registered strategy would read as retired. If a new broker
+    // appears and is not listed here, BaseName returns the id unchanged, the
+    // registry lookup misses, and the sleeve shows as retired — so the list is
+    // checked by a test against the live lane ids.
+    private static readonly string[] BrokerSuffixes =
+        { "_ibkr", "_t212", "_ig", "_paper", "_live", "_demo" };
+
+    // PUBLIC so the test project can pin it. No InternalsVisibleTo in this
+    // solution, and this is the lookup that decides RETIRED vs STALE — an
+    // untested hand-maintained suffix list is precisely the shape that keeps
+    // misdescribing this panel.
+    public static string BaseName(string laneId)
+    {
+        foreach (var s in BrokerSuffixes)
+        {
+            if (laneId.EndsWith(s, StringComparison.OrdinalIgnoreCase))
+                return laneId[..^s.Length];
+        }
+        return laneId;
+    }
+
     private static string GroupOf(string id, HashSet<string> configured)
     {
         if (configured.Contains(id)) return id;           // configured strategies keep their id
@@ -53,9 +93,47 @@ public static class StrategyHealthEndpoints
 
     public static IEndpointRouteBuilder MapStrategyHealthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/strategies/health", async (NpgsqlDataSource db) =>
+        app.MapGet("/strategies/health", async (
+            NpgsqlDataSource db,
+            TradePro.Api.Simulation.IPaperStrategiesStore catalogue) =>
         {
             await using var conn = await db.OpenConnectionAsync();
+
+            // WHICH STRATEGIES STILL EXIST. The Mac introspects its Python
+            // registry and pushes the catalogue (tradepro-paper-strategies-push);
+            // the API box has no Python, so this store is the only thing here
+            // that knows the difference between a sleeve that STOPPED and one
+            // that was RETIRED.
+            //
+            // FAIL CLOSED. `registryKnown` is false when the catalogue has never
+            // been pushed or reads empty, and nothing is then called retired —
+            // because "the registry is unavailable" must never be rendered as
+            // "nothing is wrong". On 13 Oct the catalogue was genuinely empty
+            // until pushed, so this path is the normal one on a fresh box, not a
+            // theoretical edge.
+            var registered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var registryKnown = false;
+            try
+            {
+                var cur = catalogue.Get();
+                if (cur is System.Text.Json.JsonElement el
+                    && el.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && el.TryGetProperty("strategies", out var arr)
+                    && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var s in arr.EnumerateArray())
+                    {
+                        if (s.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } nm)
+                            registered.Add(nm);
+                    }
+                    registryKnown = registered.Count > 0;
+                }
+            }
+            catch
+            {
+                // An unreadable catalogue is "cannot tell", never "all retired".
+                registryKnown = false;
+            }
 
             var raw = (await conn.QueryAsync<(string Id, DateTime? LastOrder, int Fills, int Cancels, int Pending, int TodayTotal)>(
                 @"SELECT strategy_id AS Id,
@@ -147,10 +225,38 @@ public static class StrategyHealthEndpoints
                     status = "unknown";
                     reason = "no orders on record";
                 }
+                // RETIRED IS NOT A FAULT, and must be ruled out BEFORE stale.
+                //
+                // Owner, 13 Oct 2026: five retired sleeves sat here permanently
+                // red — ichimoku_equity/_ibkr, ichimoku_fx_mr/_ibkr,
+                // intraday_flat — each saying "no orders in 20d/54d/50d/95d/
+                // 117d — may not be trading". The panel's own `anyBad` trips on
+                // `stale`, so the cockpit read "needs attention" every single
+                // day, which is how a REAL stopped sleeve gets ignored. This
+                // desk has shipped that failure before (2 Oct: 3 of 5 reds were
+                // the check, not the desk).
+                //
+                // "may not be trading" was also simply false. They are not
+                // trading BY DECISION, and the registry refuses to register
+                // them (registry.RETIRED) — so there is nothing to attend to.
+                else if (stale && registryKnown && !registered.Contains(BaseName(id)))
+                {
+                    status = "retired";
+                    reason = $"retired — not in the strategy registry; last order "
+                           + $"{FmtAge(minsSince!.Value)} ago. Not a fault.";
+                }
                 else if (stale)
                 {
                     status = "stale";
-                    reason = $"no orders in {FmtAge(minsSince!.Value)} — may not be trading";
+                    // SAY WHICH IT IS. When the registry could not be read we
+                    // cannot tell a stopped sleeve from a retired one, and
+                    // guessing either way is the silent-degradation shape: call
+                    // everything retired and a real outage goes quiet; call
+                    // everything stale and the panel cries wolf. Name the gap.
+                    reason = registryKnown
+                        ? $"no orders in {FmtAge(minsSince!.Value)} — registered, so it SHOULD be trading"
+                        : $"no orders in {FmtAge(minsSince!.Value)} — may not be trading "
+                          + "(registry unavailable, so retired-vs-stopped cannot be told apart)";
                 }
                 else
                 {
