@@ -44,8 +44,29 @@ DIRTY=$(git status --porcelain | head -5)
 git reset --hard origin/main --quiet
 (cd strategies && "$UV" sync --quiet --extra ibkr 2>/dev/null)
 
+# PUBLISH THE STRATEGY REGISTRY. Only the Mac can introspect it (the API box
+# has no Python), and a deploy is exactly when it can change — so the push
+# belongs here rather than in a human's memory.
+#
+# WHY (13 Oct 2026): the catalogue had NEVER been pushed, so the API could not
+# tell a RETIRED sleeve from a STOPPED one and the health panel showed five
+# retired strategies as "stale — may not be trading", holding the cockpit red
+# every day. Worse in the other direction: a NEWLY registered strategy missing
+# from the catalogue reads as "retired", which would hide a real outage. The
+# API fails closed on a stale catalogue, and this is what keeps it fresh.
+#
+# Reported either way. A silent push failure would reintroduce exactly the
+# blind spot it exists to close.
+CATALOG=$(cd strategies && "$UV" run tradepro-paper-strategies-push 2>&1 | tail -1)
+case "$CATALOG" in
+  *"ok: 200"*) CATALOG="strategy catalogue pushed" ;;
+  *)           CATALOG="STRATEGY CATALOGUE PUSH FAILED: ${CATALOG:-no output} — the API cannot tell retired sleeves from stopped ones until this succeeds" ;;
+esac
+
 if [ -n "$DIRTY" ]; then
-  post error "deployed $OLD -> $NEW but the deploy clone was DIRTY (someone edited it): $DIRTY"
+  post error "deployed $OLD -> $NEW but the deploy clone was DIRTY (someone edited it): $DIRTY · $CATALOG"
+elif [ "${CATALOG#STRATEGY CATALOGUE PUSH FAILED}" != "$CATALOG" ]; then
+  post error "deployed $OLD -> $NEW but $CATALOG"
 else
-  post ok "deployed $OLD -> $NEW"
+  post ok "deployed $OLD -> $NEW · $CATALOG"
 fi

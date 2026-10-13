@@ -128,6 +128,33 @@ public static class StrategyHealthEndpoints
                     }
                     registryKnown = registered.Count > 0;
                 }
+
+                // A STALE CATALOGUE IS NOT A TRUSTWORTHY ONE, and the dangerous
+                // direction is the quiet one: a NEWLY registered strategy that
+                // the catalogue has not caught up with is "not in the registry",
+                // so if it stopped trading it would read RETIRED — a fault
+                // rendered as a decision. That is the silent-degradation shape,
+                // and unlike a false red it is invisible.
+                //
+                // The push now runs on every Mac deploy (mac-deploy-sync.sh), so
+                // the catalogue tracks the registry automatically. This bounds
+                // what happens when that FAILS. 14 days: long enough that a
+                // genuinely quiet fortnight does not trip it, short enough that
+                // a broken push surfaces while it still matters.
+                if (registryKnown)
+                {
+                    // DateTimeOffset, not DateTime: the column is TIMESTAMPTZ,
+                    // and reading it into a DateTime makes the age depend on
+                    // Npgsql's Kind mapping. A wrong Kind would skew it by the
+                    // UTC offset without erroring — this desk has already had a
+                    // monitor read "(-58 min ago)" from exactly that mismatch
+                    // and go permanently silent.
+                    var pushedAt = await conn.ExecuteScalarAsync<DateTimeOffset?>(
+                        "SELECT updated_at FROM paper_strategies WHERE id = 'singleton'");
+                    if (!pushedAt.HasValue
+                        || (DateTimeOffset.UtcNow - pushedAt.Value).TotalDays > 14)
+                        registryKnown = false;
+                }
             }
             catch
             {
