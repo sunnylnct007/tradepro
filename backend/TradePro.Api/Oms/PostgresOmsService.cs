@@ -1018,7 +1018,19 @@ public sealed class PostgresOmsService : IOmsService
                 CASE WHEN SUM(f.qty) = 0 THEN NULL
                      ELSE ROUND((SUM(f.qty * f.price) / NULLIF(SUM(f.qty), 0))::numeric, 10)
                 END                AS AvgPrice,
-                MAX(f.fill_at_utc) AS LastFillAtUtc
+                MAX(f.fill_at_utc) AS LastFillAtUtc,
+                -- Carries the DISTINCTION the COALESCE above erases, so no
+                -- consumer needs the sentinel string to tell a strategy's
+                -- position from an account holding or a reconcile adjustment.
+                -- See OmsPosition.Attributed.
+                --
+                -- LAST, deliberately: Dapper materialises this record by
+                -- matching the constructor against the SELECT's COLUMN ORDER,
+                -- so adding it second broke materialisation for EVERY row —
+                -- all 7 tests in OmsPositionsTest, not just the new ones. A
+                -- new column goes at the end, matching the record's last
+                -- parameter.
+                (o.strategy_id IS NOT NULL) AS Attributed
             FROM oms_orders o
             JOIN oms_fills f ON f.order_id = o.id
             {where}
