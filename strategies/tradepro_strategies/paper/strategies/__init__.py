@@ -62,7 +62,16 @@ from ..strategy import Strategy
 # To bring one back: restore its import here and schedule it. That is
 # deliberately one line, because a retired strategy returning should be a
 # decision, not an accident.
-from .opening_range_breakout import OpeningRangeBreakout  # noqa: F401
+#
+# ORB's import SURVIVED the 10 Oct cut, 13 Oct 2026. The comment above has
+# named orb as deregistered since that commit, and `available()` returned it
+# the whole time — the import on this line was simply never removed. It
+# reached the live API's catalogue as a registered strategy.
+#
+# This is the shape this project keeps paying for: a comment describing a fix
+# is not evidence the fix exists. `test_registry_is_exactly_the_documented_set`
+# now asserts on `available()` rather than on prose, so the next divergence
+# fails a test instead of reading as correct.
 
 
 def build(

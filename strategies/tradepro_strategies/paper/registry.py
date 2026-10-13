@@ -47,6 +47,43 @@ log = logging.getLogger("tradepro.paper.registry")
 _REGISTRY: dict[str, type[Strategy]] = {}
 _ENTRY_POINTS_LOADED = False
 
+#: Strategies RETIRED by decision. Registration is refused for these names, so
+#: importing the module cannot bring one back.
+#:
+#: WHY THIS EXISTS, 13 Oct 2026. Retirement used to mean "do not import it in
+#: paper/strategies/__init__.py", on the reasoning that @register_strategy runs
+#: at class definition so not importing is the whole deregistration. That is
+#: true and it is not a mechanism: ANY other module importing the class
+#: re-registers it, from anywhere, silently.
+#:
+#: Which is what happened. The 10 Oct cut removed the four imports from
+#: paper/strategies/__init__.py and left them in cli/paper_session.py — the
+#: LANE ENTRY POINT, imported by every live lane. Measured:
+#:
+#:     import tradepro_strategies.paper.strategies   -> [swing, momentum]
+#:     import tradepro_strategies.cli.paper_session  -> [swing, momentum, orb]
+#:
+#: So orb was registered in every lane process for three days while the module
+#: comment said it was retired, and it reached the live API's strategy
+#: catalogue. One fix, two sites, landed at one — the shape that keeps costing
+#: this desk days.
+#:
+#: Retirement is now a DECLARATION the registry enforces rather than an absence
+#: nobody can verify. Importing a retired class is still fine (its backtests
+#: and tests construct it directly); what it can no longer do is make the
+#: strategy runnable.
+#:
+#: To bring one back: remove it HERE, and schedule it. Deliberately one line,
+#: because a retired strategy returning should be a decision, not an accident.
+RETIRED: frozenset[str] = frozenset({
+    "ichimoku_equity",    # last order 23 Sep 2026; nothing schedules it
+    "ichimoku_fx_mr",     # IG forex; IG no longer in use
+    "intraday_flat",      # last order ~June 2026
+    "orb",                # failed 3 of 5 pre-registered gates
+                          # (INTRADAY_VWAP_ORB_GATES_V1); its 1m parquet feed
+                          # has written nothing since early Oct
+})
+
 
 @dataclass
 class StrategySpec:
@@ -92,6 +129,19 @@ def register_strategy(name: str) -> Callable[[type[Strategy]], type[Strategy]]:
             raise TypeError(
                 f"register_strategy({name!r}): {cls!r} is not a Strategy subclass"
             )
+        # RETIRED NAMES DO NOT REGISTER, whoever imported the module. Skipped
+        # rather than raised: importing a retired class is legitimate (its own
+        # tests and backtests construct it directly), and an exception here
+        # would turn `import cli.paper_session` — the live lane entry point —
+        # into a crash. Logged at INFO so the refusal is visible rather than
+        # mysterious; see RETIRED above for why absence-of-import was not
+        # enough.
+        if name in RETIRED:
+            log.info(
+                "register_strategy(%r): RETIRED — not registering. %s imported "
+                "the class, which under the old 'just do not import it' rule "
+                "would have silently brought it back.", name, cls.__module__)
+            return cls
         if name in _REGISTRY and _REGISTRY[name] is not cls:
             raise ValueError(
                 f"strategy name {name!r} already registered to {_REGISTRY[name]!r}"
