@@ -22,6 +22,12 @@ const STATUS: Record<Health["status"], { dot: string; label: string; color: stri
   blocked: { dot: "🔴", label: "Blocked",          color: "#f85149" },
   stale:   { dot: "🔴", label: "No recent orders", color: "#f85149" },
   unknown: { dot: "⚪", label: "No orders yet",    color: "var(--text-muted)" },
+  // RETIRED IS NOT RED. Five retired sleeves were rendering as `stale` and
+  // tripping `anyBad`, so the cockpit said "needs attention" every day —
+  // which is how a genuinely stopped sleeve gets ignored. A retired sleeve is
+  // a decision, not a fault, so it reads muted and counts toward neither
+  // anyBad nor anyWarn below.
+  retired: { dot: "⚫", label: "Retired",          color: "var(--text-muted)" },
 };
 
 function ago(mins: number | null): string {
@@ -68,8 +74,15 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
     return () => { cancel = true; clearInterval(t); };
   }, []);
 
-  const anyBad = rows?.some((r) => r.status === "blocked" || r.status === "stale");
-  const anyWarn = rows?.some((r) => r.status === "idle" || r.status === "unknown");
+  // RETIRED SLEEVES ARE NOT PEERS OF WHAT IS TRADING. They stay visible —
+  // hiding a sleeve is how an orphaned position goes unnoticed, and
+  // ichimoku_equity still holds 2 real IBKR positions — but they do not get a
+  // dot in the traffic light and cannot make the panel say "needs attention".
+  const live = (rows ?? []).filter((r) => r.status !== "retired");
+  const retired = (rows ?? []).filter((r) => r.status === "retired");
+
+  const anyBad = live.some((r) => r.status === "blocked" || r.status === "stale");
+  const anyWarn = live.some((r) => r.status === "idle" || r.status === "unknown");
 
   return (
     <div style={{
@@ -89,7 +102,7 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
         <span style={{ fontWeight: 600 }}>Strategies</span>
         {/* one dot per strategy — the traffic light */}
         <span style={{ display: "flex", gap: 4, fontSize: 9 }}>
-          {rows?.map((r) => (
+          {live.map((r) => (
             <span key={r.strategy} title={`${r.label}: ${STATUS[r.status].label} — ${r.reason}`}>
               {STATUS[r.status].dot}
             </span>
@@ -97,6 +110,12 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
           {!rows && !err && <span>…</span>}
           {err && <span style={{ color: "#f85149" }}>⚠</span>}
         </span>
+        {retired.length > 0 && (
+          <span style={{ color: "var(--text-muted)", fontSize: 9.5 }}
+                title={retired.map((r) => `${r.label} — ${r.reason}`).join("\n")}>
+            +{retired.length} retired
+          </span>
+        )}
         {anyBad
           ? <span style={{ color: "#f85149", fontWeight: 700 }}>⚠ needs attention</span>
           : anyWarn
@@ -108,7 +127,11 @@ export function StrategyHealthPanel({ defaultOpen = false }: { defaultOpen?: boo
       {/* Expanded detail */}
       {open && rows && (
         <div style={{ padding: "2px 10px 8px" }}>
-          {rows.map((r) => {
+          {/* Live sleeves first, retired ones after — still listed, because a
+              retired sleeve can still HOLD something (ichimoku_equity has 2
+              open IBKR positions nobody manages) and hiding it is how that
+              goes unnoticed. Ordered, not omitted. */}
+          {[...live, ...retired].map((r) => {
             const s = STATUS[r.status];
             const p = perf[r.strategy];
             const avg = p && p.trades && p.realisedLtd != null ? p.realisedLtd / p.trades : null;
