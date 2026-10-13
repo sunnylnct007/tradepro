@@ -87,16 +87,13 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
       // positions ledger. Independent of the broker reads so a failure here
       // just means "no attribution" (fall back to broker grouping), never a
       // blank table.
-      const attribution = new Map<string, string>();
       const oms = await api.omsPositions().catch((e) => {
         msgs.push(`OMS positions: ${e instanceof Error ? e.message : e}`);
         return null;
       });
-      if (oms?.positions) {
-        for (const p of oms.positions) {
-          if (!p.strategyId || p.quantity === 0) continue;
-          attribution.set(attrKey(p.broker, p.symbol), p.strategyId);
-        }
+      const { attribution, ambiguous } = buildAttribution(oms?.positions ?? []);
+      for (const k of ambiguous) {
+        msgs.push(`${k}: more than one strategy claims a net position — attribution withheld`);
       }
 
       // T212 equity (demo). Reads are independent so one failing broker doesn't
@@ -260,6 +257,62 @@ export function PositionsTable({ onOpenSymbol }: { onOpenSymbol?: (symbol: strin
       </div>
     </div>
   );
+}
+
+/** Rows the OMS reports for one (broker, symbol), reduced to "which strategy
+ * owns this holding".
+ *
+ * WHY THIS IS NOT A ONE-LINE MAP. The ledger groups by strategy_id, and a
+ * broker reconcile appends its correction as a SEPARATE row carrying NO
+ * strategy — it never rewrites the strategy's history. So on 13 Oct 2026 the
+ * ledger read:
+ *
+ *     momentum_pullback_ibkr   AAPL  +9
+ *     (unattributed)           AAPL  -8      <- the 9 Oct reconcile
+ *
+ * netting to the 1 share IBKR actually held. This used to be a bare
+ * `attribution.set()` per row, so the LAST row won — and four real momentum
+ * holdings (AAPL, ABBV, IQV, MET) rendered under a phantom "(unattributed)"
+ * group with a meaningless Σ P&L. An adjustment must never take ownership of
+ * the position it adjusts.
+ *
+ * `attributed` carries that distinction from the API so this file never has to
+ * know the "(unattributed)" sentinel — it is a COALESCE display label, and
+ * duplicating the string across the language boundary is the duplicate-
+ * definition shape that keeps costing this desk days.
+ *
+ * Exported and pure so the behaviour is checkable without a browser; there is
+ * no frontend test runner yet, so this is the next best thing.
+ */
+export function buildAttribution(
+  positions: { strategyId: string; symbol: string; broker: string; quantity: number;
+               attributed?: boolean }[],
+): { attribution: Map<string, string>; ambiguous: string[] } {
+  // (broker,symbol) -> strategyId -> NET qty across that strategy's rows
+  const nets = new Map<string, Map<string, number>>();
+  for (const p of positions) {
+    // attributed === false means account holding / adjustment. Treat a MISSING
+    // field as attributed: an older API that does not send it must not have
+    // every row silently demoted to "unattributed".
+    if (p.attributed === false) continue;
+    if (!p.strategyId || p.quantity === 0) continue;
+    const k = attrKey(p.broker, p.symbol);
+    const m = nets.get(k) ?? new Map<string, number>();
+    m.set(p.strategyId, (m.get(p.strategyId) ?? 0) + p.quantity);
+    nets.set(k, m);
+  }
+  const attribution = new Map<string, string>();
+  const ambiguous: string[] = [];
+  for (const [k, m] of nets) {
+    const owners = [...m.entries()].filter(([, q]) => q !== 0).map(([s]) => s);
+    if (owners.length === 1) attribution.set(k, owners[0]);
+    // Two strategies both holding one symbol is real and legal. NAME the
+    // ambiguity rather than pick a winner — a confidently wrong owner is worse
+    // than an admitted unknown, and the row falls through to the account
+    // bucket where it is at least not misattributed.
+    else if (owners.length > 1) ambiguous.push(k);
+  }
+  return { attribution, ambiguous };
 }
 
 /** OMS attribution key: broker + bare ticker, case-folded, so a holding lines

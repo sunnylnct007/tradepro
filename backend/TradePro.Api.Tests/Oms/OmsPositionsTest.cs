@@ -26,7 +26,7 @@ public sealed class OmsPositionsTest
 
     private async Task<Guid> EnqueueAndFillAsync(
         PostgresOmsService oms,
-        string strategyId,
+        string? strategyId,
         string symbol,
         string side,
         decimal qty,
@@ -122,4 +122,60 @@ public sealed class OmsPositionsTest
         var p = Assert.Single(positions);
         Assert.Equal(100m, p.Quantity);  // cancelled row contributes nothing
     }
+
+    /// <summary>A reconcile ADJUSTMENT must not look like a strategy position.
+    ///
+    /// THE BUG, 13 Oct 2026. The broker sync appends its correction as a
+    /// SEPARATE order carrying NO strategy_id — it never rewrites the
+    /// strategy's history, which is correct ledger practice. So AAPL read:
+    ///
+    ///     momentum_pullback_ibkr  +9
+    ///     (unattributed)          -8
+    ///
+    /// netting to the 1 share IBKR actually held. The desk's positions table
+    /// matched a holding to a single ledger row by (broker, symbol), the
+    /// adjustment row sorted last and won, and four REAL momentum holdings
+    /// rendered under a phantom "(unattributed)" group with a meaningless
+    /// P&amp;L total. The owner asked what it was.
+    ///
+    /// `Attributed` carries the distinction the COALESCE erases, so no caller
+    /// has to know the sentinel string to tell the two apart.
+    /// </summary>
+    [Fact]
+    public async Task Reconcile_adjustment_is_not_attributed_and_nets_against_the_strategy()
+    {
+        var oms = NewService();
+        await EnqueueAndFillAsync(oms, "momentum_pullback_ibkr", "AAPL_US_EQ", "BUY", 9m, 329.49m);
+        // the 9 Oct reconcile: a SELL of 8 with NO strategy
+        await EnqueueAndFillAsync(oms, null, "AAPL_US_EQ", "SELL", 8m, 329.60m);
+
+        var positions = await oms.ListPositionsAsync(strategyId: null);
+
+        // BOTH rows survive — the ledger is an audit trail, not a snapshot.
+        Assert.Equal(2, positions.Count);
+
+        var strat = Assert.Single(positions, p => p.StrategyId == "momentum_pullback_ibkr");
+        Assert.True(strat.Attributed, "a strategy's own position must read as attributed");
+        Assert.Equal(9m, strat.Quantity);
+
+        var adj = Assert.Single(positions, p => p.StrategyId == "(unattributed)");
+        Assert.False(adj.Attributed,
+            "a NULL-strategy row is an account holding or an adjustment — if this " +
+            "reads true, the desk will attribute a holding to the row correcting it");
+        Assert.Equal(-8m, adj.Quantity);
+
+        // And the net is what the broker actually holds.
+        Assert.Equal(1m, positions.Sum(p => p.Quantity));
+    }
+
+    /// <summary>The ordinary case still reads as attributed — a flag that is
+    /// false everywhere would "fix" the bug by demoting every real position.</summary>
+    [Fact]
+    public async Task A_plain_strategy_position_is_attributed()
+    {
+        var oms = NewService();
+        await EnqueueAndFillAsync(oms, "ichi_fx", "EURUSD", "BUY", 100m, 1.10m);
+        Assert.True(Assert.Single(await oms.ListPositionsAsync(null)).Attributed);
+    }
+
 }

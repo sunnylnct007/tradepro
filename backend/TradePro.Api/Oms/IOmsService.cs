@@ -119,14 +119,36 @@ public sealed record FillSnapshot(
 
 /// <summary>One row of the OMS-derived position view. quantity is
 /// signed (BUY positive, SELL negative). avgPrice is the weighted
-/// average across the contributing fills, or null when net qty is 0.</summary>
+/// average across the contributing fills, or null when net qty is 0.
+/// <para/>
+/// ONE SYMBOL LEGITIMATELY YIELDS SEVERAL ROWS. The view groups by
+/// strategy_id, and a broker reconcile appends its correction as a
+/// SEPARATE order with a NULL strategy rather than rewriting the
+/// strategy's history. So on 13 Oct 2026 AAPL read
+/// momentum_pullback_ibkr +9 and (unattributed) -8, netting to the 1
+/// share the broker actually held. A consumer that wants "who owns this
+/// holding" must NET the rows for a (broker, symbol); one that takes a
+/// single row gets whichever sorted last.
+/// </summary>
 public sealed record OmsPosition(
     string StrategyId,
     string Symbol,
     string Broker,
     decimal Quantity,
     decimal? AvgPrice,
-    DateTime LastFillAtUtc
+    DateTime LastFillAtUtc,
+    /// <summary>False when the underlying orders carry NO strategy_id —
+    /// i.e. this row is an ACCOUNT holding or a reconcile ADJUSTMENT, not
+    /// a strategy's position. StrategyId then reads "(unattributed)",
+    /// which is a DISPLAY LABEL produced by a COALESCE, never a strategy.
+    /// <para/>
+    /// Exists so callers need not know that sentinel string. The desk's
+    /// positions table matched on StrategyId, so an adjustment row took
+    /// ownership of the position it was adjusting and relabelled four real
+    /// momentum holdings "(unattributed)" — the group the owner asked
+    /// about on 13 Oct 2026. An adjustment must never own what it adjusts.
+    /// Defaulted so the field is additive for every existing caller.</summary>
+    bool Attributed = true
 );
 
 /// <summary>Global OMS mode store. Auto = strategy intents auto-approve.

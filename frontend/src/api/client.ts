@@ -1465,7 +1465,13 @@ export const api = {
     }>("/api/integrations/account-state"),
 
   omsPositions: (strategyId?: string) =>
-    get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string }> }>(
+    // `attributed` is FALSE when the underlying orders carry no strategy_id —
+    // an account holding or a reconcile ADJUSTMENT. strategyId then reads
+    // "(unattributed)", which is a COALESCE display label, not a strategy. Use
+    // this flag rather than matching that string; and remember one (broker,
+    // symbol) legitimately has several rows, which must be NETTED. See
+    // buildAttribution in PositionsTable.
+    get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string; attributed?: boolean }> }>(
       "/api/oms/positions", strategyId ? { strategyId } : undefined,
     ),
   omsPositionsDiff: (account: "demo" | "live" = "demo", strategyId?: string) =>
