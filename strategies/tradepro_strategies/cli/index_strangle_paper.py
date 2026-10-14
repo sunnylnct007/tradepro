@@ -1095,6 +1095,22 @@ def place_paper(row: dict, contracts: int = 1, shadow: bool = False,
         # but a broker message that runs long is exactly the interesting case.
         reason = (str(out.get("error") or out.get("warning") or "")
                   or legs_said or f"HTTP {r.status_code}: {str(out)[:160]}")
+        # WHICH LEG, AND WHAT WE ASKED FOR. At the resolve stage the API returns
+        # putResolved/callResolved as separate booleans — they are NOT in
+        # out["put"]/out["call"], so `legs_said` above never sees them and the
+        # record read "could not resolve one or both contracts" and nothing
+        # more.
+        #
+        # Eight sessions (5-14 Oct 2026) of that message, and it did not say
+        # which leg, which expiry or which strikes — so diagnosing it needed a
+        # live market and a hand-driven probe. It turned out BOTH legs were
+        # failing on an expiry that had rolled to a November chain XSP cannot
+        # resolve, which this one line would have shown on day one.
+        if out.get("stage") == "resolve":
+            reason += (f" [put={out.get('putResolved')} call={out.get('callResolved')}"
+                       f" expiry={body['expiry']} strikes={body['putStrike']}/"
+                       f"{body['callStrike']} symbol={body['symbol']}"
+                       f" secType={body['underlyingSecType']}]")
     return {"placed": ok, "request": body, "response": out, "reason": reason,
             "partial": bool(out.get("partial")), "expiry_kind": kind,
             # Tagged so the two populations are never averaged together.
