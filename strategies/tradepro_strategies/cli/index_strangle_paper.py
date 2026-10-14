@@ -422,8 +422,36 @@ PLACE_EXPIRY_KIND = PLACE_EXPIRY_KINDS[-1]
 # WIDENING IS ONE LINE. Add the next unit — XSP weekly by the table above, then
 # SPX weekly — when the one before it has a clean run. The env override exists
 # so that can be tried on the Lambda without a deploy.
+# SWITCHED monthly -> weekly, 14 Oct 2026. NOT a widening: the monthly unit
+# CANNOT PLACE, and has not since 5 Oct.
+#
+# WHAT BROKE. `_monthly_expiry(21)` rolled the monthly unit's target from
+# 2026-10-16 to 2026-11-20 on 5 Oct, and XSP's November chain does not resolve
+# on this account. Measured through the read-only quote probe with the market
+# OPEN, 14 Oct:
+#
+#     XSP 2026-10-16   RESOLVED     <- the WEEKLY unit's expiry
+#     XSP 2026-11-20   FAILED       <- the MONTHLY unit's, every session since 5 Oct
+#     XSP 2026-11-21   FAILED
+#     XSP 2026-12-18   FAILED
+#     SPX 2026-11-20   RESOLVED     <- so November is not the problem generally
+#
+# Not the strikes either: 770/793, 775/785 and 700/850 all fail on November.
+# The onset matches the expiry roll exactly. So the one unit permitted to place
+# was the one that could not resolve, while the one that resolves was not
+# permitted. Eight sessions of "could not resolve one or both contracts".
+#
+# AND THE EVIDENCE ALREADY FAVOURED WEEKLY, independently. STRANGLE_GATE_GATES_V1
+# priced the exit at the day's own vol instead of the entry's: the MONTHLY edge
+# collapses 0.019% -> 0.001% of collateral, while the weekly survives at
+# 0.029% -> 0.021%. Monthly is the tenor whose edge turned out to be an artifact
+# of the harness holding IV constant.
+#
+# The underlying resolver bug is NOT fixed by this and must not be forgotten:
+# SPX, NDX and GOLD will hit the same wall when their expiries roll. Logged for
+# a proper fix; this restores a desk that can place while that is done.
 PLACE_UNITS: tuple[tuple[str, str], ...] = (
-    ("XSP", "monthly"),
+    ("XSP", "weekly"),
 )
 
 
