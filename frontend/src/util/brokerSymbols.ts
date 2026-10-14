@@ -213,6 +213,33 @@ export function exchangeOf(raw: string): string {
 }
 
 /** Short broker label for a chip, e.g. "T212_DEMO" → "T212 · demo". */
+/** Broker FAMILY, for joining records that name the same broker differently.
+ *
+ * The OMS ledger stores the ACCOUNT ("IBKR_PAPER", "T212_DEMO", "IG_DEMO");
+ * the desk's position rows carry the family ("IBKR", "T212", "IG"). Joining
+ * them on the raw string silently matches nothing:
+ *
+ *     map key   ibkr_paper:AAPL
+ *     lookup    ibkr:AAPL          -> MISS, every time
+ *
+ * Measured against the live ledger on 14 Oct 2026: ALL THREE brokers missed,
+ * every symbol. A join that misses is invisible — the rows still render, just
+ * under "Unattributed / Account holdings", which reads like a data problem
+ * rather than a key problem and sent two investigations the wrong way.
+ *
+ * Both sides of a join must call this, so neither side has to know how the
+ * other spells the broker.
+ */
+export function brokerFamily(broker: string | null | undefined): string {
+  const s = (broker || "").toLowerCase();
+  // Account suffixes, not brokers. Kept as a prefix test rather than a list of
+  // full account names so a new account (IBKR_PAPER2, T212_LIVE) needs no edit.
+  for (const fam of ["ibkr", "t212", "ig"]) {
+    if (s === fam || s.startsWith(fam + "_")) return fam;
+  }
+  return s;
+}
+
 export function brokerLabel(broker: string | null | undefined): string {
   if (!broker) return "—";
   const m = broker.match(/^([A-Z0-9]+)_(\w+)$/);

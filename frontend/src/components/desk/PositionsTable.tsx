@@ -36,7 +36,7 @@ import { api } from "../../api/client";
 import { SortTh } from "../SortTh";
 import { useSort } from "../../util/useSort";
 import { fmtQty } from "../../util/numbers";
-import { canonicalSymbol, chartSymbolFor } from "../../util/brokerSymbols";
+import { brokerFamily, canonicalSymbol, chartSymbolFor } from "../../util/brokerSymbols";
 import { Sparkline } from "./Sparkline";
 import { loadSparkline, sparklineStats } from "./sparklineCache";
 import { fmtMoney, fmtNum, fmtPct, signColour, accountMode, type AccountMode } from "./deskFormat";
@@ -320,7 +320,15 @@ export function buildAttribution(
 function attrKey(broker: string, symbol: string): string {
   // canonicalSymbol so a renamed holding (T212 LB_US_EQ) lines up with the
   // OMS's current-ticker row (BBWI) instead of showing as unattributed.
-  return `${broker.toLowerCase()}:${canonicalSymbol(symbol)}`;
+  //
+  // brokerFamily because the two sides SPELL THE BROKER DIFFERENTLY: the OMS
+  // ledger stores the account ("IBKR_PAPER"), the position rows carry the
+  // family ("IBKR"). `broker.toLowerCase()` produced "ibkr_paper:AAPL" on one
+  // side and "ibkr:AAPL" on the other, so the join missed EVERY symbol on ALL
+  // THREE brokers — verified against the live ledger, 14 Oct 2026. The rows
+  // still rendered, just under "Unattributed / Account holdings", which reads
+  // like a data problem rather than a key problem.
+  return `${brokerFamily(broker)}:${canonicalSymbol(symbol)}`;
 }
 
 /** Bucket rows into ordered sections. Strategy mode: one section per strategyId
