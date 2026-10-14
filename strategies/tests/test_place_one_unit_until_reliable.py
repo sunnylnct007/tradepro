@@ -12,7 +12,12 @@ It had been attempting four US units a session and landing about two. Over the
     SPX weekly     3 placed / 3 failed   50%
     SPX monthly    6 placed / 7 failed   46%  (3 of those BROKER rejections)
 
-So the desk places XSP monthly and nothing else. The rest stay EVALUATED and
+That table chose XSP MONTHLY originally. It was switched to XSP WEEKLY on
+14 Oct 2026 because the monthly unit stopped being able to place at all — its
+expiry rolled into a November chain XSP cannot resolve on this account. See
+test_the_default_set_is_XSP_weekly_alone.
+
+So the desk places ONE unit and nothing else. The rest stay EVALUATED and
 recorded with a stated refusal, because a unit that is never attempted writes
 no decision row, and the end-of-day check reads a missing row as a fault.
 """
@@ -41,9 +46,23 @@ def _row(market, **kw):
     return base
 
 
-def test_the_default_set_is_XSP_monthly_alone():
-    assert PLACE_UNITS == (("XSP", "monthly"),)
-    assert _place_units() == (("XSP", "monthly"),)
+def test_the_default_set_is_XSP_weekly_alone():
+    """PINNED ON PURPOSE. Which unit the desk places is a DECISION, and it must
+    not drift without someone editing this line and saying why.
+
+    Switched monthly -> weekly on 14 Oct 2026, and NOT as a widening: the
+    monthly unit could not place at all. `_monthly_expiry(21)` rolled its target
+    to 2026-11-20 on 5 Oct and XSP's November chain does not resolve on this
+    account (verified with the market open: Oct resolves, Nov/Dec do not, while
+    SPX November does). Eight sessions of "could not resolve one or both
+    contracts".
+
+    The gate study had independently found the monthly's edge to be a harness
+    artifact (0.019% -> 0.001% of collateral once vol expansion is priced, vs
+    weekly's 0.029% -> 0.021%), so both lines of evidence point the same way.
+    """
+    assert PLACE_UNITS == (("XSP", "weekly"),)
+    assert _place_units() == (("XSP", "weekly"),)
 
 
 def test_a_unit_outside_the_set_is_refused_without_touching_the_broker():
@@ -57,12 +76,18 @@ def test_a_unit_outside_the_set_is_refused_without_touching_the_broker():
 
 def test_the_refusal_NAMES_what_the_desk_is_placing():
     # A refusal that does not say what IS being traded cannot be acted on.
-    res = place_paper(_row("XSP"), kind="weekly")
-    assert "XSP monthly" in res["reason"], res["reason"]
+    # DERIVED from PLACE_UNITS rather than restated: this test is about the
+    # refusal naming the live set, not about which set that is. Hardcoding it
+    # meant a deliberate unit switch broke three tests, two of which were not
+    # about the unit.
+    live_market, live_kind = PLACE_UNITS[0]
+    other = "monthly" if live_kind == "weekly" else "weekly"
+    res = place_paper(_row(live_market), kind=other)
+    assert f"{live_market} {live_kind}" in res["reason"], res["reason"]
 
 
 def test_the_chosen_unit_is_NOT_refused_by_this_gate():
-    res = place_paper(_row("XSP"), kind="monthly")
+    res = place_paper(_row(PLACE_UNITS[0][0]), kind=PLACE_UNITS[0][1])
     # It may still refuse for its own reasons (no chain in a test process);
     # it must not refuse for THIS one.
     if res and res.get("placed") is False:
