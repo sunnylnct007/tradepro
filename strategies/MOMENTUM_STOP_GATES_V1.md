@@ -99,3 +99,106 @@ that conclusion cannot be invented afterwards.
 ## Results
 
 *(appended after the run)*
+
+## Results — run 2026-10-14
+
+### G1 — FAILED. The stop is well inside the noise.
+
+    median stop distance   1.43 ATR      (gate: >= 2.0)
+    range                  1.10 .. 3.53
+    below 2 ATR            14 of 16
+
+    ARM   ATR 7.25%  -> stop is 1.10 ATR
+    SWKS  ATR 6.61%  -> 1.21
+    DOCN  ATR 6.48%  -> 1.24
+    DE    ATR 2.27%  -> 3.53   (the only comfortable one)
+
+**My prediction was wrong, and wrong about the inputs.** I estimated this
+universe at 2.5–3.5% daily ATR, making 8% worth 2.3–3.2 ATR. It actually runs
+**5–7%**, so the 8% stop sits roughly **1.4 ordinary days' range** from entry.
+On ARM it is barely one day. A fixed percentage stop cannot be right across a
+universe whose ATR varies 3x (2.27% to 7.25%) — DE gets 3.5 ATR of room and ARM
+gets 1.1 for the same 8%.
+
+### G2 — FAILED. The stops fired on noise.
+
+    stopped names closing back above their EXIT within 10 sessions: 6 of 7 (86%)
+    all exits including trails:                                    13 of 15 (87%)
+
+Gate was <60%. CAVEAT, stated because it cuts both ways: the archive is 17 days
+old, so several names had only 1–4 forward bars available, not 10 (RMBS had
+none and is excluded). A shorter window makes the test WEAKER as a sample but
+the result STRONGER in kind — most of these recovered above their exit within
+one to three sessions, which is what a noise stop looks like.
+
+### G3 — CANNOT BE EVALUATED. My gate was badly designed.
+
+Under a 3×ATR stop (floor 8%, cap 20%), **14 of 16 trades never close** inside
+the available data — a 15–20% stop has not been reached in 17 days. So the
+headline comparison the gate asked for is:
+
+    base    16 CLOSED trades      -99.03%
+    scaled   2 closed + 14 MARKS -108.81%
+
+That is not a comparison, it is closed P&L against open marks — precisely the
+"evaluated != closed" error this desk already pays for. Reporting it as a FAIL
+would be as dishonest as reporting it as a PASS.
+
+Like-for-like, on the only two trades that resolve under BOTH rules:
+
+    DE   base -10.07%   scaled -10.07%
+    MU   base  -7.99%   scaled -11.32%
+
+Two trades decide nothing.
+
+**G3 is recorded as INCONCLUSIVE, and the fault is mine**: a gate comparing
+total return must require the comparison to be like-for-like on CLOSED trades.
+It did not, so it could produce a confident number from an unresolved book.
+
+One observation that is not a verdict: the 14 unresolved positions mark at a
+mean of **−6.24%, with 12 of 14 negative**. A wider stop is currently holding
+losers for longer. Whether they recover is the open question — which is the
+whole reason G3 needs time, not an opinion.
+
+### K1 — not reached (G3 did not pass).
+
+## Prediction scorecard
+
+| # | Prediction | Outcome |
+|---|---|---|
+| 1 | G1 passes narrowly; stop is ~2.3–3.2 ATR | **WRONG.** 1.43 ATR median. I was wrong about the universe's volatility, not just the conclusion |
+| 2 | G2 fails; stopped names recover | **RIGHT.** 86% |
+| 3 | G3 passes (a), fails (b) | **WRONG, and inverted.** (a) could not be judged; (b) passed — worst scaled trade −13.84%, nowhere near −20% |
+
+One of three. The one I was most confident about — my own morning hypothesis,
+which I had pre-registered as probably WRONG — turned out to be right for a
+reason I had mis-estimated.
+
+## Conclusion
+
+**Established:** the 8% stop is mis-scaled for this universe. It is a fixed
+percentage applied to names whose ATR varies three-fold, it sits ~1.4 days'
+range from entry, and 86% of the positions it closed were trading above the
+exit within days. The exits were premature.
+
+**NOT established:** that widening it helps. The obvious fix cannot be
+evaluated on 17 days of signals, and the early marks lean against it.
+
+**So: change nothing yet.** Specifically do NOT widen STOP_PCT on this
+evidence — it would be tuning a live rule on two resolved trades, and the
+unresolved ones are currently worse, not better.
+
+What this does support, and what the pre-registration said it would if G1 and
+G2 both failed, is that the real exposure is CORRELATION: 12 of 16 exits landed
+on two days because the sleeve holds a basket that moves together. A stop
+calibrated per-name does not fix a book that is one bet.
+
+Next step, owner's call, in preference order:
+1. **Let it run and re-run G3 when the scaled variant's trades resolve** —
+   weeks, not days. The signal archive accrues on its own; this costs nothing
+   but time and the sleeve is on paper.
+2. **Size for the correlation** rather than retune the stop — fewer positions,
+   or a cap per sector. That is a sizing decision, not a tuning knob.
+3. Stopping momentum remains available and is now a weaker case than it looked
+   this morning: its exits were firing on noise, so the entry signal has not
+   actually been tested yet.
