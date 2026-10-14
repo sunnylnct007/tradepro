@@ -113,6 +113,7 @@ public static class StrategyHealthEndpoints
             // theoretical edge.
             var registered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var registryKnown = false;
+            string? registryError = null;
             try
             {
                 var cur = catalogue.Get();
@@ -143,32 +144,74 @@ public static class StrategyHealthEndpoints
                 // a broken push surfaces while it still matters.
                 if (registryKnown)
                 {
-                    // DateTimeOffset, not DateTime: the column is TIMESTAMPTZ,
-                    // and reading it into a DateTime makes the age depend on
-                    // Npgsql's Kind mapping. A wrong Kind would skew it by the
-                    // UTC offset without erroring — this desk has already had a
-                    // monitor read "(-58 min ago)" from exactly that mismatch
-                    // and go permanently silent.
-                    var pushedAt = await conn.ExecuteScalarAsync<DateTimeOffset?>(
-                        "SELECT updated_at FROM paper_strategies WHERE id = 'singleton'");
-                    if (!pushedAt.HasValue
-                        || (DateTimeOffset.UtcNow - pushedAt.Value).TotalDays > 14)
+                    // AGE IS COMPUTED IN POSTGRES, not in C#. The column is
+                    // TIMESTAMPTZ; every client-side option has a way to be
+                    // quietly wrong — DateTime depends on Npgsql's Kind
+                    // mapping (this desk once had a monitor report
+                    // "(-58 min ago)" from that and go permanently silent),
+                    // and DateTimeOffset DOES NOT CAST AT ALL: Npgsql hands
+                    // back a DateTime and Dapper throws
+                    // "Invalid cast from 'System.DateTime' to
+                    // 'System.DateTimeOffset'".
+                    //
+                    // That is not hypothetical — it is what shipped in #294 on
+                    // 13 Oct. The throw landed in the catch below, registryKnown
+                    // went false, and the retired-vs-stale classification was
+                    // silently disabled on a catalogue pushed hours earlier. A
+                    // guard added to prevent a silent failure caused one.
+                    //
+                    // NOW() - updated_at is unambiguous, timezone-correct, and
+                    // crosses the boundary as a plain number.
+                    var ageDays = await conn.ExecuteScalarAsync<double?>(
+                        @"SELECT EXTRACT(EPOCH FROM (NOW() - updated_at)) / 86400.0
+                            FROM paper_strategies WHERE id = 'singleton'");
+                    if (!ageDays.HasValue || ageDays.Value > 14)
                         registryKnown = false;
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // An unreadable catalogue is "cannot tell", never "all retired".
+                //
+                // NAME THE CAUSE. The bare `catch` here swallowed #294's cast
+                // exception for a full day: the panel said "registry
+                // unavailable", which is true but unactionable, and nothing
+                // anywhere said WHY. A degraded mode that cannot explain itself
+                // is indistinguishable from a working one that has nothing to
+                // report — the exact shape this panel keeps being bitten by.
                 registryKnown = false;
+                registryError = ex.GetType().Name + ": " + ex.Message;
             }
 
-            var raw = (await conn.QueryAsync<(string Id, DateTime? LastOrder, int Fills, int Cancels, int Pending, int TodayTotal)>(
+            var raw = (await conn.QueryAsync<(string Id, DateTime? LastOrder, int Fills, int Cancels, int Pending, int TodayTotal, int Working)>(
                 @"SELECT strategy_id AS Id,
                          MAX(created_at_utc) AS LastOrder,
                          COUNT(*) FILTER (WHERE state IN ('FILLED','PARTIALLY_FILLED') AND created_at_utc >= date_trunc('day', NOW()))::int AS Fills,
-                         COUNT(*) FILTER (WHERE state = 'CANCELLED'        AND created_at_utc >= date_trunc('day', NOW()))::int AS Cancels,
+                         -- A SUPERSEDED ORDER IS NOT A FAILED ORDER. A lane
+                         -- re-emits a standing exit every tick; each new one
+                         -- cancels the last with 'superseded by newer order'.
+                         -- That is this desk's own bookkeeping, not a broker
+                         -- or risk rejection.
+                         --
+                         -- Counting them made the panel report
+                         -- mean_reversion_swing_ibkr as BLOCKED, 26 orders
+                         -- today ALL cancelled none filled (14 Oct 2026),
+                         -- while that sleeve's exit was sitting LIVE at IBKR,
+                         -- PreSubmitted and queued for the open. A red that is
+                         -- really a green is how the real ones get ignored —
+                         -- the same cry-wolf the retired sleeves caused.
+                         COUNT(*) FILTER (WHERE state = 'CANCELLED'
+                                            AND COALESCE(cancelled_reason, '') NOT ILIKE 'superseded%'
+                                            AND created_at_utc >= date_trunc('day', NOW()))::int AS Cancels,
                          COUNT(*) FILTER (WHERE state = 'PENDING_APPROVAL' AND created_at_utc >= date_trunc('day', NOW()))::int AS Pending,
-                         COUNT(*) FILTER (WHERE created_at_utc >= date_trunc('day', NOW()))::int AS TodayTotal
+                         COUNT(*) FILTER (WHERE created_at_utc >= date_trunc('day', NOW()))::int AS TodayTotal,
+                         -- LIVE AT THE BROKER, any day. Deliberately NOT scoped
+                         -- to today: an order placed after yesterday's close
+                         -- sits PreSubmitted overnight and fills at the next
+                         -- open. BMRN's exit did exactly that on 13 Oct, and a
+                         -- today-only count made the sleeve look like it had
+                         -- done nothing.
+                         COUNT(*) FILTER (WHERE state IN ('SUBMITTED','WORKING','PARTIALLY_FILLED'))::int AS Working
                   FROM oms_orders
                   WHERE strategy_id IS NOT NULL
                   GROUP BY strategy_id")).ToList();
@@ -235,6 +278,7 @@ public static class StrategyHealthEndpoints
                 int cancels = members.Sum(m => m.Cancels);
                 int pending = members.Sum(m => m.Pending);
                 int total = members.Sum(m => m.TodayTotal);
+                int working = members.Sum(m => m.Working);
 
                 string status, reason;
                 if (fills > 0)
@@ -283,7 +327,21 @@ public static class StrategyHealthEndpoints
                     reason = registryKnown
                         ? $"no orders in {FmtAge(minsSince!.Value)} — registered, so it SHOULD be trading"
                         : $"no orders in {FmtAge(minsSince!.Value)} — may not be trading "
-                          + "(registry unavailable, so retired-vs-stopped cannot be told apart)";
+                          + "(registry unavailable, so retired-vs-stopped cannot be told "
+                          + $"apart{(registryError is null ? "" : ": " + registryError)})";
+                }
+                else if (working > 0)
+                {
+                    // SAYING "no qualifying signal" HERE WOULD BE FALSE. The
+                    // signal fired, the order is at the broker, and it is
+                    // waiting for liquidity or for the open. Reported as idle
+                    // (nothing to attend to) with a reason that says what is
+                    // actually happening, instead of claiming the rule stayed
+                    // silent.
+                    status = "idle";
+                    reason = working == 1
+                        ? "1 order working at the broker, waiting to fill"
+                        : $"{working} orders working at the broker, waiting to fill";
                 }
                 else
                 {
