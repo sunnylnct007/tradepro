@@ -430,6 +430,61 @@ public static class IBKRResponseParser
         return (fallbackConId, Array.Empty<string>());
     }
 
+    /// <summary>The OPTION TRADING CLASSES secdef/search lists for a symbol.
+    ///
+    /// IBKR returns ONE OPT section PER CLASS, each with its own `symbol`:
+    /// XSP lists both XSP (monthlies) and XSPW (weeklies); SPX lists SPX and
+    /// SPXW. secdef/info takes an optional tradingClass, and without it a
+    /// strike that exists in only one class can answer "No Contracts
+    /// retrieved" — the same symptom that was already traced once, on 2 Sep
+    /// 2026, to an UNDER-SPECIFIED request (exchange and sectype were missing
+    /// then; 52 of 56 strikes failed and it read as "IBKR does not list that
+    /// strike").
+    ///
+    /// Derived from the response we ALREADY fetch rather than from a list in
+    /// code: the roots live in the Python market config, and copying them
+    /// across the language boundary is the hand-maintained-list shape that has
+    /// misdescribed three surfaces on this desk already.
+    ///
+    /// Returns distinct classes in listing order, the underlying's own symbol
+    /// first when present, so the common case is tried first.</summary>
+    public static IReadOnlyList<string> ParseOptionTradingClasses(string json, long conId)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
+        var classes = new List<string>();
+        foreach (var m in root.EnumerateArray())
+        {
+            if (m.ValueKind != JsonValueKind.Object) continue;
+            long? rowConId = null;
+            if (m.TryGetProperty("conid", out var c))
+            {
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n)) rowConId = n;
+                else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var sv)) rowConId = sv;
+            }
+            // Only the row we actually resolved. GLD's Hong Kong futures row
+            // shares the ticker and must not contribute classes.
+            if (rowConId != conId) continue;
+            var underlying = Str(m, "symbol");
+            if (m.TryGetProperty("sections", out var sections) && sections.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var sec in sections.EnumerateArray())
+                {
+                    if (sec.ValueKind != JsonValueKind.Object) continue;
+                    if (Str(sec, "secType") != "OPT") continue;
+                    var cls = Str(sec, "symbol") ?? underlying;
+                    if (!string.IsNullOrWhiteSpace(cls) && !classes.Contains(cls))
+                        classes.Add(cls!);
+                }
+            }
+        }
+        // The underlying's own symbol first: it is the monthly class for every
+        // market this desk trades, and trying it first keeps the common path
+        // one call long.
+        return classes;
+    }
+
     /// <summary>Parse GET /iserver/secdef/strikes — <c>{"call": [...], "put": [...]}</c>
     /// of numeric strikes (may arrive as JSON numbers or strings; tolerant either way).</summary>
     public static (IReadOnlyList<decimal> Calls, IReadOnlyList<decimal> Puts) ParseStrikes(string json)
