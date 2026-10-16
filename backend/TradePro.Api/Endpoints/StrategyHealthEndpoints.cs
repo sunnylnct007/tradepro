@@ -22,8 +22,8 @@ namespace TradePro.Api.Endpoints;
 ///   status: healthy  — filled at least one order today
 ///           blocked  — placed orders today but ALL cancelled, none filled
 ///           idle     — traded recently (≤30h) but no fills today
-///           stale    — no orders in >30h AND the strategy is still REGISTERED,
-///                      so it should be trading and isn't. A real fault.
+///           stale    — no orders in >30h, the lane is NOT ticking either, and
+///                      the strategy is still REGISTERED. A real fault.
 ///           retired  — no orders AND not in the pushed strategy registry: not
 ///                      trading BY DECISION. NOT a fault, and deliberately does
 ///                      not count toward the panel's "needs attention" — five
@@ -84,6 +84,20 @@ public static class StrategyHealthEndpoints
         return laneId;
     }
 
+    /// <summary>"&lt;strategyId&gt;-yyyy-MM-dd" -> strategyId.
+    ///
+    /// Trims from the LAST dash-date, not the first dash: strategy ids contain
+    /// dashes themselves ("intraday-ichimoku_equity-AAPL"), so splitting on the
+    /// first would reduce that to "intraday" and merge every per-symbol engine
+    /// into one phantom sleeve. Public so the parsing is pinned by a test —
+    /// this decides whether a lane reads as RUNNING or STOPPED.</summary>
+    public static string StrategyIdFromSessionLabel(string label)
+    {
+        var cut = label.LastIndexOf('-');
+        for (int i = 0; i < 2 && cut > 0; i++) cut = label.LastIndexOf('-', cut - 1);
+        return cut > 0 ? label[..cut] : label;
+    }
+
     private static string GroupOf(string id, HashSet<string> configured)
     {
         if (configured.Contains(id)) return id;           // configured strategies keep their id
@@ -95,9 +109,42 @@ public static class StrategyHealthEndpoints
     {
         app.MapGet("/strategies/health", async (
             NpgsqlDataSource db,
-            TradePro.Api.Simulation.IPaperStrategiesStore catalogue) =>
+            TradePro.Api.Simulation.IPaperStrategiesStore catalogue,
+            TradePro.Api.Simulation.IPaperSnapshotStore snapshots) =>
         {
             await using var conn = await db.OpenConnectionAsync();
+
+            // DID THE LANE TICK? — as distinct from "did it place an order".
+            //
+            // Every lane pushes a snapshot each pass (/api/ingest/paper-snapshot),
+            // session-labelled "<strategyId>-<date>". That is a HEARTBEAT, and it
+            // is the honest liveness signal: a lane can be perfectly healthy and
+            // place nothing for days.
+            //
+            // Two cases where the order-based test lies, both live on 16 Oct 2026:
+            //   * momentum_pullback_ibkr is in WIND-DOWN. It places exits only,
+            //     by design. It will NEVER place an entry again, so it goes
+            //     "stale" every single day, forever.
+            //   * swing fires on roughly 31% of sessions. 33-42h dry is the rule
+            //     working, not a defect — already written down as such.
+            // Both read "no orders in Nh — registered, so it SHOULD be trading",
+            // which is false, and is the cry-wolf shape three fixes this week
+            // already removed from this same panel.
+            var lastTick = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var snap in snapshots.List(200))
+                {
+                    // "<strategyId>-yyyy-MM-dd" -> strategyId. Trim from the LAST
+                    // dash-date, not the first dash: strategy ids contain dashes
+                    // ("intraday-ichimoku_equity-AAPL").
+                    var sid = StrategyIdFromSessionLabel(snap.SessionLabel ?? "");
+                    if (sid.Length == 0) continue;
+                    if (!lastTick.TryGetValue(sid, out var cur) || snap.ReceivedAtUtc > cur)
+                        lastTick[sid] = snap.ReceivedAtUtc;
+                }
+            }
+            catch { /* no heartbeats is "cannot tell", handled at the use site */ }
 
             // WHICH STRATEGIES STILL EXIST. The Mac introspects its Python
             // registry and pushes the catalogue (tradepro-paper-strategies-push);
@@ -316,6 +363,16 @@ public static class StrategyHealthEndpoints
                     reason = $"retired — not in the strategy registry; last order "
                            + $"{FmtAge(minsSince!.Value)} ago. Not a fault.";
                 }
+                else if (stale && lastTick.TryGetValue(id, out var tick)
+                         && (nowUtc - tick).TotalMinutes <= 90)
+                {
+                    // RUNNING, just not trading. 90 min: lanes tick every ~15-20,
+                    // so this is several missed passes, not one slow one.
+                    status = "idle";
+                    reason = $"running (last pass {FmtAge((nowUtc - tick).TotalMinutes)} ago) "
+                           + $"but no order in {FmtAge(minsSince!.Value)} — no qualifying "
+                           + "signal, or the sleeve is winding down and places exits only";
+                }
                 else if (stale)
                 {
                     status = "stale";
@@ -325,7 +382,8 @@ public static class StrategyHealthEndpoints
                     // everything retired and a real outage goes quiet; call
                     // everything stale and the panel cries wolf. Name the gap.
                     reason = registryKnown
-                        ? $"no orders in {FmtAge(minsSince!.Value)} — registered, so it SHOULD be trading"
+                        ? $"no orders in {FmtAge(minsSince!.Value)} and no lane pass received — "
+                          + "registered, so it SHOULD be running"
                         : $"no orders in {FmtAge(minsSince!.Value)} — may not be trading "
                           + "(registry unavailable, so retired-vs-stopped cannot be told "
                           + $"apart{(registryError is null ? "" : ": " + registryError)})";
