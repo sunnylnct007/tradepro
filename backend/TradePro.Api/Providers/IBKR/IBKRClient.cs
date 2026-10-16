@@ -1048,6 +1048,41 @@ public sealed class IBKRClient
     /// Step 1: resolve a symbol's underlying conid AND its available option
     /// expiration months in one call — GET /iserver/secdef/search?symbol=X.
     /// </summary>
+    private static readonly ConcurrentDictionary<string, (DateTime AtUtc, IReadOnlyList<string> R)> _tradingClassCache = new();
+
+    /// <summary>Option TRADING CLASSES listed for a symbol (XSP -> XSP, XSPW).
+    ///
+    /// Read from the secdef/search response we already make for months, so the
+    /// classes come from IBKR rather than from a list in code — the roots live
+    /// in the Python market config and copying them here is the
+    /// hand-maintained-list shape that keeps drifting on this desk.</summary>
+    public async Task<IReadOnlyList<string>> GetOptionTradingClassesAsync(
+        string symbol, long conId, CancellationToken ct = default)
+    {
+        var sym = (symbol ?? string.Empty).Trim().ToUpperInvariant();
+        if (!_options.IsEnabled || sym.Length == 0) return Array.Empty<string>();
+        if (_tradingClassCache.TryGetValue(sym, out var hit)
+            && DateTime.UtcNow - hit.AtUtc < _chainMetaTtl)
+            return hit.R;
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get,
+                $"v1/api/iserver/secdef/search?symbol={Uri.EscapeDataString(sym)}",
+                null, ct);
+            if (!resp.IsSuccessStatusCode) return Array.Empty<string>();
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            var classes = IBKRResponseParser.ParseOptionTradingClasses(text, conId);
+            _tradingClassCache[sym] = (DateTime.UtcNow, classes);
+            return classes;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "trading-class lookup failed for {Sym}", sym);
+            return Array.Empty<string>();
+        }
+    }
+
     public async Task<IBKROptionMonthsResult> GetOptionMonthsAsync(
         string symbol, CancellationToken ct = default)
     {
@@ -1241,6 +1276,39 @@ public sealed class IBKRClient
                     symbol, month, strike, r);
         }
 
+        if (res.Contracts.Count == 0)
+        {
+            // LAST RESORT: NAME THE CHAIN. secdef/info takes an optional
+            // tradingClass, and a strike listed in only one of a symbol's
+            // classes can answer "No Contracts retrieved" without it.
+            //
+            // This is the THIRD time under-specifying this request has produced
+            // exactly that symptom. On 2 Sep 2026 it was exchange and sectype
+            // missing — 52 of 56 strikes failed and it read for weeks as "IBKR
+            // does not list that strike". From 5 to 16 Oct 2026 the strangle
+            // could not place at all: measured with the market open, resolution
+            // succeeded ONLY for (strike, right) pairs that had resolved once
+            // before and been cached, and failed for every newly computed one.
+            //
+            // STRICTLY ADDITIVE — reached only after the unqualified request
+            // and the chain prime have both returned nothing, so it can turn a
+            // failure into a success and never the reverse. Each attempt is
+            // MORE specific than the one before, which narrows the
+            // wrong-contract risk rather than widening it.
+            foreach (var cls in await GetOptionTradingClassesAsync(symbol, underlying.Value, ct))
+            {
+                var byClass = await GetOptionContractsAsync(
+                    underlying.Value, month, strike, r, ct, tradingClass: cls);
+                if (byClass.Contracts.Count == 0) continue;
+                _log.LogInformation(
+                    "{Sym} {Month} {Strike}{Right} resolved only when the trading class "
+                    + "{Class} was named — the unqualified secdef/info returned nothing",
+                    symbol, month, strike, r, cls);
+                res = byClass;
+                break;
+            }
+        }
+
         if (res.Contracts.Count == 0) return null;
         // Match the EXACT expiry when the contract carries one — a month can
         // hold several expiries (weeklies), and placing the wrong one is a
@@ -1295,12 +1363,15 @@ public sealed class IBKRClient
     }
 
     public async Task<IBKROptionContractsResult> GetOptionContractsAsync(
-        long underlyingConId, string month, decimal strike, string right, CancellationToken ct = default)
+        long underlyingConId, string month, decimal strike, string right,
+        CancellationToken ct = default, string? tradingClass = null)
     {
         if (!_options.IsEnabled)
             return new IBKROptionContractsResult(Array.Empty<IBKROptionContract>(), "IBKR disabled", 0);
+        // tradingClass IS part of the key: XSP and XSPW are different chains,
+        // and sharing a key would serve one class's contract for the other.
         var contractKey = FormattableString.Invariant(
-            $"{underlyingConId}|{month}|{strike}|{right}");
+            $"{underlyingConId}|{month}|{strike}|{right}|{tradingClass ?? "-"}");
         if (_optContractCache.TryGetValue(contractKey, out var cachedContracts))
             return cachedContracts;
         try
@@ -1319,7 +1390,14 @@ public sealed class IBKRClient
                 // 25th, call and put). So the narrow chain was never an expiry problem.
                 $"v1/api/iserver/secdef/info?conid={underlyingConId}&exchange=SMART&sectype=OPT&month={Uri.EscapeDataString(month)}"
                 + $"&strike={Uri.EscapeDataString(strike.ToString(System.Globalization.CultureInfo.InvariantCulture))}"
-                + $"&right={Uri.EscapeDataString(right)}",
+                + $"&right={Uri.EscapeDataString(right)}"
+                // OPTIONAL and additive. Omitted, this is the request that has
+                // always been sent. Supplied, it names which chain to look in —
+                // see ResolveOptionConidAsync, which only reaches for it after
+                // the unqualified request has already returned nothing.
+                + (string.IsNullOrWhiteSpace(tradingClass)
+                    ? string.Empty
+                    : $"&tradingClass={Uri.EscapeDataString(tradingClass)}"),
                 null, ct);
             var text = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
