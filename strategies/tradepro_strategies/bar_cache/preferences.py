@@ -118,14 +118,32 @@ class PreferencesLoader:
         # Hot path — within TTL, serve from cache.
         if self._snapshot is not None and (now - self._snapshot_at) < self._ttl:
             return self._snapshot
-        # Failure cooldown — if we hit a failure recently, don't
-        # hammer the backend until the cooldown expires.
+        # Failure cooldown — if we hit a failure recently, don't hammer the
+        # backend until it expires.
+        #
+        # THE GUARD USED TO READ `self._snapshot is None and ...`, so the
+        # cooldown applied ONLY when there was nothing to fall back on. That is
+        # backwards: it backed off when it had no answer, and hammered when it
+        # had a perfectly good stale one.
+        #
+        # Measured, 16 Oct 2026. The API was unreachable for ~26 minutes
+        # (08:40-09:06). The momentum T212 lane made 1,208 preference fetches in
+        # that window — one per symbol per bar, each paying a full connection
+        # timeout, each logging twice. The pass began at 08:40 and was still
+        # running five hours later, so the lane completed NO pass, pushed no
+        # snapshot, and the desk read it as a stopped sleeve.
+        #
+        # The cooldown now applies whichever side we are on. With a snapshot we
+        # serve it; without one we return None and the caller uses the default
+        # chain — same outcomes as before, minus the hammering.
         if (
-            self._snapshot is None
-            and self._last_failure_at > 0
+            self._last_failure_at > 0
             and (now - self._last_failure_at) < self._failure_cooldown_seconds
         ):
-            return None
+            # Silent on purpose. The failure that STARTED the cooldown is logged
+            # loudly below; repeating it per symbol is what produced 2,416 lines
+            # in two hours and buried everything else in the lane log.
+            return self._snapshot
         try:
             payload = self._fetch_snapshot()
         except Exception as exc:  # noqa: BLE001
