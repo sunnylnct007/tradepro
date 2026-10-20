@@ -183,3 +183,52 @@ def summarise(routings: dict[str, Routing]) -> dict[str, int]:
     for r in routings.values():
         out[r.bucket] = out.get(r.bucket, 0) + 1
     return out
+
+
+#: Structures that express the SAME view as the key, in order of preference.
+#: A fallback may only swap HOW a view is expressed, never WHICH view.
+#:
+#: A cash-secured put and a bull put spread are both "I am happy to be long
+#: here"; the spread just has a floor. A bear put spread is the opposite view
+#: and is NOT a fallback for either, however permitted it may be.
+SAME_VIEW_FALLBACKS: dict[Structure, tuple[Structure, ...]] = {
+    Structure.CASH_SECURED_PUT: (Structure.BULL_PUT_SPREAD,),
+}
+
+
+def permitted_or_fallback(
+    structure: Structure | None,
+    regime,
+    permitted: frozenset[Structure],
+) -> tuple[Structure | None, str]:
+    """The structure to actually evaluate in this regime.
+
+    MEASURED ON THE LIVE BOARD, 20 Oct 2026. Of 82 screened names, 2 were
+    eligible. The single largest refusal after earnings was:
+
+        40x  CASH_SECURED_PUT not permitted in ORANGE regime
+             (allowed: BULL_PUT_SPREAD, PROTECTIVE_PUT, COLLAR)
+
+    Forty names where the engine ALREADY NAMED the permitted structure in its
+    own refusal, and the screen threw the candidate away instead of offering
+    it. That is the owner's bucket-2 case — "on names we do not want to have
+    but technically are paying good premium we could sell spread" — arriving
+    as a block message rather than a trade.
+
+    ONLY SAME-VIEW SWAPS. RED permits BEAR_PUT_SPREAD and COLLAR; neither
+    expresses "happy to be long here", so a RED name still refuses. A fallback
+    that flips the view would be inventing a trade nobody asked for.
+    """
+    if structure is None:
+        return None, ""
+    if structure in permitted:
+        return structure, ""
+    for alt in SAME_VIEW_FALLBACKS.get(structure, ()):
+        if alt in permitted:
+            return alt, (
+                f"{structure.value} is not permitted in {getattr(regime, 'value', regime)}; "
+                f"traded as {alt.value} instead — same view, with a floor under it")
+    return None, (
+        f"{structure.value} is not permitted in {getattr(regime, 'value', regime)} and no "
+        f"permitted structure expresses the same view "
+        f"(permitted: {', '.join(sorted(x.value for x in permitted)) or 'none'})")
