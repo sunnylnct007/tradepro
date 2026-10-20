@@ -111,3 +111,32 @@ def test_summarise_counts_every_bucket_including_refusals():
         "D": Routing(None, "none", "x"),
     })
     assert out == {"own": 1, "spread": 1, "none": 2}
+
+
+def test_CRWV_is_ownable_despite_85pct_realised_vol():
+    """OWNER'S RULING, 20 Oct 2026: *"core weave is fine … could have been a
+    naked put … its a good name"*.
+
+    CRWV realises 85% annualised and sits 55% below its 52-week high, so it is
+    tempting to add a volatility ceiling or a drawdown filter to is_ownable. I
+    started to. BOTH WOULD EXCLUDE THIS NAME, and the owner has ruled it in.
+
+    What actually separates it from APLD is SIZE, which the existing gates
+    already measure: CRWV trades $2.15bn a day against APLD's $388m. Volatility
+    is not the discriminator and must not become one.
+
+    The -602 on the CRWV put came from an AI/semiconductor sell-off — the
+    sector fell 17-43% while SPY moved 1.6% — not from picking the wrong name.
+    A selection rule cannot prevent that; a CONCENTRATION rule can.
+    """
+    r = route("CRWV", implied_vol=0.992, historical_vol=0.853,
+              price=63.88, avg_daily_usd_volume=2.15e9)
+    assert r.structure is Structure.CASH_SECURED_PUT, r.reason
+    assert r.bucket == "own"
+
+
+def test_the_size_gate_is_what_separates_CRWV_from_APLD():
+    """Both realise ~85% vol. Only one is a name to own, and volume says which."""
+    crwv_ok, _ = is_ownable(price=63.88, avg_daily_usd_volume=2.15e9, symbol="CRWV")
+    apld_ok, _ = is_ownable(price=19.50, avg_daily_usd_volume=0.388e9, symbol="APLD")
+    assert crwv_ok and not apld_ok
