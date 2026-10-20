@@ -32,7 +32,23 @@ def _lookback_dates(session_date: datetime, lookback_days: int) -> list[datetime
         raise ValueError("lookback_days must be >= 0")
     base = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if lookback_days == 0:
-        return [base]
+        # A NON-TRADING DAY HAS NO BARS. Asking anyway is not a fallback, it is
+        # 917 symbols x 2 sources of guaranteed failure.
+        #
+        # Measured 17-19 Oct 2026. The lookback path has always filtered to
+        # business days via bdate_range; this single-day path never did. Over
+        # one weekend the swing lane logged 25,260 lines on Saturday and 54,318
+        # on Sunday — one DataUnavailableError warning per symbol, raised AFTER
+        # calling every source — and its next pass did not finish until 20:20
+        # UTC on Monday, twenty minutes AFTER the close. Three exits, one of
+        # them a target exit, missed an entire trading day.
+        #
+        # Returning [] rather than the nearest business day is deliberate:
+        # serving Friday's bar when Sunday was asked for would be a silent
+        # substitution of a different day's data, which is the failure mode
+        # this desk has paid for repeatedly. No candidates means no bars, which
+        # is the truth about a Sunday.
+        return [] if base.weekday() >= 5 else [base]
     import pandas as pd
     # Buffer of 7 covers two consecutive bank-holiday weeks (e.g. Easter).
     n = lookback_days + 7
@@ -41,6 +57,27 @@ def _lookback_dates(session_date: datetime, lookback_days: int) -> list[datetime
     bdates = pd.bdate_range(start=start, end=base, freq="B")
     # Keep the most recent n+1 business days (includes session_date if weekday).
     return [ts.to_pydatetime().replace(tzinfo=None) for ts in bdates[-(n + 1):]]
+
+
+_CLOSED: dict[str, int] = {}
+
+
+def _record_closed(session_date: datetime) -> None:
+    _CLOSED[session_date.strftime("%Y-%m-%d (%a)")] = (
+        _CLOSED.get(session_date.strftime("%Y-%m-%d (%a)"), 0) + 1)
+
+
+def flush_closed_summary() -> None:
+    """One line per non-trading session date, instead of one per symbol."""
+    for day, n in sorted(_CLOSED.items()):
+        _log.info(
+            "MARKET CLOSED on %s — skipped %d symbol(s) without calling a "
+            "source. Not a data fault.", day, n)
+    _CLOSED.clear()
+
+
+import atexit as _atexit
+_atexit.register(flush_closed_summary)
 
 
 async def _fetch_window(
@@ -64,6 +101,18 @@ async def _fetch_window(
     """
     base = session_date.replace(hour=0, minute=0, second=0, microsecond=0)
     candidates = _lookback_dates(session_date, lookback_days)
+
+    # NOTHING TO ASK FOR. Only reachable when the session date is a weekend and
+    # no lookback was requested. Raise WITHOUT touching a source and WITHOUT a
+    # per-symbol warning: the market being shut is not this symbol's problem,
+    # and 917 identical warnings are what buried the real signal last weekend.
+    # Counted once per run instead, by the same summary that reports empty
+    # fetches.
+    if not candidates:
+        _record_closed(session_date)
+        raise DataUnavailableError(
+            symbol=symbol, session_date=session_date, interval=interval,
+        )
 
     # Prefer a SINGLE ranged fetch when the source supports it — one call
     # for the whole [earliest..session_date] window instead of N per-day
