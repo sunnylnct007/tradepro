@@ -22,9 +22,10 @@ import os
 from datetime import datetime, timezone
 
 from ..quant_engine.options.iv_rank import fetch_iv_rank
+from ..quant_engine.options.bucket import degrade_for_context
 from ..quant_engine.options.risk import (
-    MarketContext, OptionsRiskConfig, PortfolioState, Regime, Structure,
-    TradeCandidate, evaluate,
+    MarketContext, OptionsRiskConfig, PERMITTED_BY_REGIME, PortfolioState,
+    Regime, Structure, TradeCandidate, evaluate,
 )
 
 # The wheel's screen verdict, in one place. A name can clear every gate the
@@ -1068,10 +1069,25 @@ def _evaluate_short_tier(sym: str, cfg, ivr, regime, falling_knife, ref_close,
         earnings_in_expiry_window=False,
         data_fresh=True, quotes_delayed=False,
     )
-    cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
+    # Same degradation as the main screen — see the long note at the other
+    # call site. BOTH sites or neither: a structure decision that applies on
+    # one of two paths is how this desk has repeatedly shipped a fix that
+    # reads as correct in the file and does nothing on the path that runs.
+    _resolved = degrade_for_context(
+        Structure.CASH_SECURED_PUT,
+        regime=ctx.regime,
+        permitted=PERMITTED_BY_REGIME.get(ctx.regime) if ctx.regime else None,
+        earnings_in_expiry_window=ctx.earnings_in_expiry_window,
+    )
+    cand = TradeCandidate(symbol=sym,
+                          structure=_resolved.structure or Structure.CASH_SECURED_PUT,
                           abs_delta=delta, dte=dte_pick, strike=strike,
                           notional_gbp=notional_gbp)
     decision = evaluate(cand, ctx, portfolio or PortfolioState(), scfg)
+    if _resolved.notes:
+        from dataclasses import replace as _dc_res2
+        decision = _dc_res2(decision,
+                            warnings=list(decision.warnings) + list(_resolved.notes))
     # The vol-regime floor applies to short-tier bridge passes too.
     if (os.environ.get("TRADEPRO_WHEEL_VOL_REGIME_GATE", "0").strip().lower() in ("1", "true", "yes", "on")
             and ivr.available and ivr.iv_rank is None and ivr.iv_hv_ratio is not None
@@ -1351,6 +1367,15 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     dte = 35
     chain_ok = False
     chain_source = None
+    # THE PUTS THE PICK CAME FROM. A spread needs a SECOND strike priced off
+    # the same chain, and until now nothing survived the selection except the
+    # single short leg — each of the three sources selected from its own local
+    # variable (gc / ic / chain) and let it fall out of scope. Captured at all
+    # three success sites, because a spread that can only be priced when the
+    # chain happened to come from one source is the half-applied fix this desk
+    # keeps shipping.
+    sel_puts = None
+    sel_spot = None
     chain_expiry = None   # selected expiry — needed to match captured OI exactly
     chain_iv = None         # the selected quote's own IV — feeds the model cross-check
     spot_divergence = None  # |yf spot / IBKR close − 1| when both known
@@ -1397,6 +1422,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                 chain_ok = True
                 chain_source = "g3"
+                sel_puts, sel_spot = gc.puts, gc.spot
                 chain_expiry = getattr(gc, "expiry", None)
                 if ref_close is None:
                     # No daily bars → the chain feed's own spot stands in. A
@@ -1432,6 +1458,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                     chain_ok = True
                     chain_source = "ibkr"
+                    sel_puts, sel_spot = ic.puts, ic.spot
                     chain_expiry = getattr(ic, "expiry", None)
         except Exception as e:  # noqa: BLE001 — fall through to yfinance
             log.warning("%s IBKR chain failed, trying yfinance: %s", sym, e)
@@ -1466,6 +1493,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     notional_gbp = round(strike * 100 / _FX_GBPUSD, 0)
                     chain_ok = True
                     chain_source = "yfinance"
+                    sel_puts, sel_spot = chain.puts, chain.spot
                     chain_expiry = getattr(chain, "expiry", None)
         except Exception as e:  # noqa: BLE001 — None → risk BLOCKs (fail-visible)
             log.warning("%s yfinance chain fetch failed: %s", sym, e)
@@ -1585,7 +1613,33 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         quotes_delayed=(chain_source == "ibkr"
                         or premium_source in ("prev_close_indicative", "carried_last_live")),
     )
-    cand = TradeCandidate(symbol=sym, structure=Structure.CASH_SECURED_PUT,
+    # ── STRUCTURE IS NOT A CONSTANT ──────────────────────────────────────
+    #
+    # This line said `Structure.CASH_SECURED_PUT` since the screen was written,
+    # and that single hardcoded word was the largest source of refusals on the
+    # board. Measured 20 Oct 2026, 82 names screened, 2 eligible:
+    #
+    #     40 x "CASH_SECURED_PUT not permitted in ORANGE regime"
+    #     50 x "Earnings fall within the expiry window"
+    #
+    # Neither is a statement that the TRADE is bad. Both are statements that an
+    # UNBOUNDED short put is wrong here — and we were throwing the name away
+    # instead of trading the version of it that is right. A bull put spread
+    # expresses the identical view with the loss capped.
+    #
+    # `degrade_for_context` is the one place that decision lives (both call
+    # sites in this file now ask it). It can only ever turn a refusal into a
+    # floored trade, never the reverse. When it refuses outright — RED regime,
+    # an unknown earnings calendar — we keep the cash-secured put so the risk
+    # engine produces its own, fuller explanation rather than a bare "no".
+    _resolved = degrade_for_context(
+        Structure.CASH_SECURED_PUT,
+        regime=ctx.regime,
+        permitted=PERMITTED_BY_REGIME.get(ctx.regime) if ctx.regime else None,
+        earnings_in_expiry_window=ctx.earnings_in_expiry_window,
+    )
+    structure = _resolved.structure or Structure.CASH_SECURED_PUT
+    cand = TradeCandidate(symbol=sym, structure=structure,
                           abs_delta=delta, dte=dte, strike=strike, notional_gbp=notional_gbp)
     # capital_gates=False — the SCREEN answers "is this a good trade?", not
     # "does it fit today's balance?" (owner ruling; see risk.py). The capital
@@ -1596,6 +1650,14 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     # Same-underlying duplicate: the book already carries this name. Not a
     # hard block (rolling/adding is a legitimate choice) but the screen must
     # SAY it — the owner's concentration question starts here.
+    # WHY it is a spread travels with it. A structure that changed silently
+    # would be the worst outcome here — the owner has to see that we did not
+    # trade what they would have expected, and on what grounds.
+    if _resolved.notes:
+        from dataclasses import replace as _dc_res
+        decision = _dc_res(decision,
+                           warnings=list(decision.warnings) + list(_resolved.notes))
+
     _already = bool(book and sym in (book.get("open_symbols") or []))
     if _already:
         from dataclasses import replace as _dc_dup
