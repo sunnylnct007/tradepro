@@ -292,9 +292,39 @@ def resolve_structure(
               price=price, avg_daily_usd_volume=avg_daily_usd_volume, deny=deny)
     if r.structure is None:
         return Resolution(None, r.bucket, r.reason)
+    return degrade_for_context(
+        r.structure, bucket=r.bucket, reason=r.reason, regime=regime,
+        permitted=permitted, earnings_in_expiry_window=earnings_in_expiry_window)
 
-    s: Structure | None = r.structure
+
+def degrade_for_context(
+    structure: Structure,
+    *,
+    bucket: str = "own",
+    reason: str = "",
+    regime=None,
+    permitted: frozenset[Structure] | None = None,
+    earnings_in_expiry_window: bool | None = None,
+) -> Resolution:
+    """Steps 2 and 3 only — regime and earnings — on a structure the caller has
+    ALREADY chosen.
+
+    Split out from `resolve_structure` because the live screen needs exactly
+    this half and must not yet have the other one. Step 1 (ownership) depends
+    on average daily traded volume, which the screen does not currently carry,
+    and on the IV/HV ratio gate the owner has correctly challenged (WDC passes
+    at 30d and fails at 6m; the window was never chosen, it was inherited from
+    whatever IBKR returned). Routing on either today would invent refusals on
+    the very names most worth selling — MSFT and NVDA would read as "not one to
+    own" purely because the volume field is absent.
+
+    So the screen degrades but does not route. These two steps can only ever
+    turn a REFUSAL into a floored trade, never the reverse, which is why they
+    are safe to ship ahead of the third. One implementation, two callers.
+    """
+    s: Structure | None = structure
     notes: list[str] = []
+    r = Routing(structure, bucket, reason)
 
     # 2. REGIME.
     if permitted is not None:
