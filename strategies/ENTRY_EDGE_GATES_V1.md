@@ -99,3 +99,84 @@ both, the sleeves should be stopped regardless of the exit geometry.
 ## Results
 
 *(appended after the run)*
+
+## Results — run 2026-10-20
+
+                SWING                              MOMENTUM
+      h    n  signal%  ctrlA%   vs A  vs SPY    n  signal%  ctrlA%   vs A  vs SPY
+      1   48   -0.61    0.14   -0.75   -0.58  103   -0.17    0.11   -0.29   -0.19
+      3   26   -2.45    0.31   -2.76   -2.18   94   -0.95    0.33   -1.29   -0.90
+      5   18   -0.90    0.44   -1.34   -1.09   71   -1.22    0.58   -1.80   -1.78
+     10   13   -0.43    0.70   -1.13   -1.02   50   -1.60    1.22   -2.83   -2.34
+
+     hit rate at h=5:   SWING 33%        MOMENTUM 44%
+
+### G1 — FAILED, both, at every horizon.
+
+Signal forward returns are NEGATIVE while the same symbols' unconditional
+forward returns are POSITIVE at every horizon (+0.11% to +1.22%). **These names
+drift up in general and the rules buy the moments they do not.** At h = 5 swing
+gives up 1.34 points against simply holding the same name at a random time;
+momentum gives up 1.80, widening to 2.83 by h = 10.
+
+### G2 — FAILED, both, at every horizon.
+
+Against SPY over identical dates: swing −1.09, momentum −1.78 at h = 5. Not
+"fails to beat the index" — materially worse than it.
+
+### G3 — FAILED, both. 33% and 44% positive at h = 5.
+
+Momentum's hit rate RISES to 56% at h = 10 while its mean falls to −1.60%:
+more winners, much bigger losers.
+
+### K1 — not triggered, which makes it worse.
+
+Dropping the largest contributor leaves the sign unchanged in both
+(swing −0.90 → −1.32 without UNM; momentum −1.22 → −0.91 without SMTC). The
+result is not one name. It is the whole population.
+
+## Prediction scorecard
+
+| # | Prediction | Outcome |
+|---|---|---|
+| 1 | Momentum G1 passes at h=10 | **WRONG** — its worst horizon, −2.83 vs control |
+| 2 | Swing G1 passes at h=3/5 | **WRONG** — −2.76 at h=3, its worst |
+| 3 | Both fail G2 | **RIGHT** |
+| 4 | G3 passes for swing | **WRONG** — 33%, the lowest number in the study |
+
+One of four, and the one I got right was the pessimistic one. Every optimistic
+prediction was wrong, and wrong in the same direction.
+
+## Conclusion
+
+**The exits are not the problem, and fixing the stop would not have saved
+these rules.** That was the working hypothesis after MOMENTUM_STOP_GATES_V1 —
+stop at 1.43 ATR, 86% of stopped names recovering — and it is now refuted. The
+recoveries were real, but the entries were already negative before any stop
+touched them.
+
+What the numbers say, stated plainly: **both rules select worse-than-random
+moments to buy names that otherwise drift up.** A coin flip on the same
+universe would have done better, and so would buying SPY.
+
+THE PRE-REGISTERED LIMIT STILL APPLIES, and now cuts the other way. 48 and 110
+signals inside one 3½-week regime, overlapping heavily in time, cannot prove an
+edge — but the registration said a clear FAIL would be the more informative
+outcome, and this is clear: **8 of 8 strategy × horizon combinations negative
+against BOTH controls**, with no single name carrying it.
+
+What this does NOT establish: that mean reversion and momentum are bad ideas.
+It establishes that THESE implementations, on THIS universe, in THIS regime,
+buy at the wrong moment. A −2.25σ entry and a pullback-to-the-10-day entry are
+reasonable premises; the measurement says this parameterisation inverts them.
+
+### Recommended
+
+1. **Stop trading both sleeves on paper as configured.** They are not
+   generating data worth collecting — every additional trade is measuring a
+   known-negative rule.
+2. **Keep the archive running.** Signal capture cost nothing, never broke, and
+   is what made this answerable in a day.
+3. Do NOT retune the stop, the trail or the position cap on this evidence.
+   Nothing downstream of the entry can fix an entry that is negative before any
+   exit applies.
