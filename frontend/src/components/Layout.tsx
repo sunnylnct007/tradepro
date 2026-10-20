@@ -70,27 +70,44 @@ type NavSection = { label: string; items: NavItem[] };
 // not belong the night before a trading day.
 const marketNav: NavItem[] = [
   { to: "/desk?view=candidates", label: "Candidates" },
-  { to: "/desk?view=swing",      label: "Swing"      },
-  { to: "/desk?view=momentum",   label: "Momentum"   },
   { to: "/desk?view=portfolio",  label: "Portfolio"  },
   { to: "/desk?view=oms",        label: "Orders"     },
   { to: "/desk?view=research",   label: "Research"   },
   { to: "/desk?view=harvest",    label: "Data"       },
 ];
 
+// WINDING DOWN, 20 Oct 2026 — own section, because a sleeve that will never
+// open another position is not a peer of one that might.
+//
+// Both lanes run in --wind-down (exits only). ENTRY_EDGE_GATES_V1 graded the
+// ENTRIES alone, no stop or target, against two controls — the same symbols at
+// other times, and SPY over identical dates. 8 of 8 strategy x horizon
+// combinations came back NEGATIVE against BOTH.
+//
+// The boards stay reachable: they still hold positions, and the signal archive
+// keeps accruing. They are simply no longer offered as things to act on.
+const windingDownNav: NavItem[] = [
+  { to: "/desk?view=swing",    label: "Swing"    },
+  { to: "/desk?view=momentum", label: "Momentum" },
+];
+
 // The desk marks these UNPROVEN (no passed gates). Same labels, same order,
 // so the tiering reads identically on both shells.
-const unprovenNav: NavItem[] = [
-  { to: "/desk?view=post-earnings-puts", label: "Puts"     },
+// OPTIONS, grouped. Three top-level tiles for one subject read as three
+// strategies; they are three views of the same book. Owner, 20 Oct: "i want a
+// better screen in trade pro and not confusing diff menus and stuff".
+const optionsNav: NavItem[] = [
+  { to: "/desk?view=options",            label: "Options"  },
   { to: "/desk?view=strangle-decisions", label: "Strangle" },
-  { to: "/desk?view=options",            label: "Wheel"    },
+  { to: "/desk?view=post-earnings-puts", label: "Puts"     },
 ];
 
 // Operational surfaces the platform needs to RUN — deliberately not signal
 // surfaces. Health/IT Data matter more than usual right now because a second
 // developer owns the harvest + connectivity work.
 const moreSections: NavSection[] = [
-  { label: "Unproven — no passed gates", items: unprovenNav },
+  { label: "Options — no passed gates yet", items: optionsNav },
+  { label: "Winding down — exits only", items: windingDownNav },
   { label: "System", items: [
     { to: "/settings",           label: "Settings"  },
     { to: "/health",             label: "Health"    },

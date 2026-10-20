@@ -135,10 +135,27 @@ const NAV: NavEntry[] = [
   { key: "candidates", label: "Candidates", icon: "◈", view: "candidates", tier: "trusted",
     title: "Every strategy's candidates in ONE table — strategy is a filter, not a tab. "
            + "Each row shows its own freshness and whether its sleeve passed its gates." },
-  { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "trusted",
-    title: "Swing candidates — the only screen built on a strategy that cleared pre-registered gates" },
-  { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "trusted",
-    title: "Momentum candidates — the SECOND strategy to clear pre-registered gates. Longer hold (~7 weeks), trailing stop, not a bracket order" },
+  // WINDING DOWN, 20 Oct 2026. Both sleeves placed their last entry on
+  // 19 Oct; the lanes now run in --wind-down (exits only).
+  //
+  // ENTRY_EDGE_GATES_V1 graded the ENTRIES on their own, with no stop or
+  // target, against two controls — the same symbols at other times, and SPY
+  // over identical dates. 8 of 8 strategy x horizon combinations came back
+  // NEGATIVE against BOTH. The signals' forward returns were negative while
+  // the same names' unconditional returns were positive: the rules bought the
+  // moments those names did not work.
+  //
+  // These tiles previously read "cleared pre-registered gates" and "the SECOND
+  // strategy to clear pre-registered gates". That was true when written and is
+  // not true now. A tile that overstates its own evidence is the thing this
+  // rail exists to prevent.
+  { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "blocked",
+    title: "Swing — WINDING DOWN. Entries graded negative against both controls "
+         + "(ENTRY_EDGE_GATES_V1, 20 Oct). Exits only; no new positions. Board kept "
+         + "so the archive keeps accruing." },
+  { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "blocked",
+    title: "Momentum — WINDING DOWN. 40 closed trades, 2 wins, -7,712 replayed; "
+         + "entries negative against both controls. Exits only; no new positions." },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
     title: "Portfolio — your actual positions" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",
@@ -172,10 +189,13 @@ const NAV: NavEntry[] = [
     title: "Index short strangle — every daily decision INCLUDING the days we stood "
          + "aside, with the reason and the inputs behind each. Paper/manual only; "
          + "nothing is placed to a live account." },
-  { key: "wheel", label: "Wheel", icon: "◎", view: "options", tier: "unproven",
-    title: "Wheel / cash-secured puts — the CSP candidate board. Liquidity, "
-         + "vega and earnings gates. Backtest v3 recommended DO NOT FUND; "
-         + "candidates are for manual review, nothing is placed." },
+  { key: "wheel", label: "Options", icon: "◎", view: "options", tier: "unproven",
+    title: "Options / cash-secured puts — the CSP board. Each name routes to a "
+         + "STRUCTURE: cash-secured put where assignment is acceptable (large, "
+         + "liquid, implied vol above realised), bull put spread where the premium "
+         + "is rich but the name is not one to own, otherwise nothing — with the "
+         + "reason stated. Backtest v3 said DO NOT FUND; candidates are for manual "
+         + "review and nothing is placed." },
 ];
 
 // Escape hatch out of the standalone /desk shell into the full app (rendered
