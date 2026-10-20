@@ -65,6 +65,14 @@ WHEEL_ENTRY_STRUCTURES: frozenset[Structure] = frozenset({
     Structure.CASH_SECURED_PUT, Structure.WHEEL,
 })
 
+# Structures whose worst case is FIXED when the trade is opened — the long leg
+# caps it and no subsequent move can widen it. The distinction the earnings
+# blackout turns on: a bounded bet over a known event is a different animal
+# from an open-ended one.
+DEFINED_RISK_STRUCTURES: frozenset[Structure] = frozenset({
+    Structure.BULL_PUT_SPREAD, Structure.BEAR_PUT_SPREAD,
+})
+
 # Structures that SELL premium (need an IV-rank edge — §4, §5.3 vega rule).
 SHORT_PREMIUM_STRUCTURES: frozenset[Structure] = frozenset({
     Structure.CASH_SECURED_PUT, Structure.COVERED_CALL,
@@ -75,6 +83,11 @@ SHORT_PREMIUM_STRUCTURES: frozenset[Structure] = frozenset({
 @dataclass(frozen=True)
 class OptionsRiskConfig:
     """Config-driven risk knobs (BRD defaults; UI-editable per the config screen)."""
+    # Let a DEFINED-RISK spread trade through an earnings print. The blackout
+    # exists for unbounded gap risk; a spread has none. Owner ruling, 20 Oct
+    # 2026. Set False to restore the blanket blackout.
+    allow_defined_risk_through_earnings: bool = True
+
     # Greek entry gates (§9.2)
     delta_min: float = 0.20
     delta_max: float = 0.35
@@ -708,12 +721,42 @@ def evaluate(
                         f"not paying enough over the bank rate for assignment risk.")
 
     # ── Earnings blackout (§9.4) ─────────────────────────────────────────
+    #
+    # DEFINED RISK IS NOT WHAT THIS GATE GUARDS AGAINST. The block reads
+    # "IV-crush + gap risk", and a spread has neither in unbounded form: the
+    # long leg fixes the worst case before the event, and IV crush is in the
+    # SELLER'S favour. A naked put through a print is an open-ended bet on a
+    # known date; a spread is a bounded one.
+    #
+    # MEASURED ON THE LIVE BOARD, 20 Oct 2026: this was the single largest
+    # refusal, 50 of 82 names. It also blocks the owner's own winners — the
+    # DELL trade (bought the gap-down at 420, sold the post-print pop at 465,
+    # +10.7%, real money) is on record as refused by this exact gate.
+    #
+    # Owner, 20 Oct: "earnings fall in window then spread on option might be a
+    # good one with limited loss".
+    #
+    # So the blackout now applies to the UNBOUNDED structures and lets a
+    # defined-risk one through WITH A WARNING — never silently. Max loss is
+    # more LIKELY to be realised through a print even though it is no larger,
+    # and the row has to say so. Config-gated, defaulting to the behaviour the
+    # owner asked for, so reverting is one flag and not a code change.
     if s in SHORT_PREMIUM_STRUCTURES:
         checked.append("earnings_blackout")
+        _defined_risk = s in DEFINED_RISK_STRUCTURES
         if ctx.earnings_in_expiry_window is None:
             data_blocks.append("Earnings calendar unavailable — cannot clear the event blackout.")
         elif ctx.earnings_in_expiry_window:
-            blocks.append("Earnings fall within the expiry window — IV-crush + gap risk; no new short premium.")
+            if _defined_risk and cfg.allow_defined_risk_through_earnings:
+                warnings.append(
+                    "THROUGH EARNINGS — a print falls inside the expiry window. Loss is "
+                    "capped by the long leg and cannot grow, but it is MORE LIKELY to be "
+                    "reached than on a quiet expiry. Size as if the max loss will happen.")
+            else:
+                blocks.append(
+                    "Earnings fall within the expiry window — IV-crush + gap risk; no new "
+                    "short premium. (A defined-risk spread is permitted through a print; "
+                    "an unbounded structure is not.)")
     # Ex-div only matters for short calls (early-assignment risk) — warn, don't block
     if s == Structure.COVERED_CALL and ctx.ex_div_in_expiry_window:
         warnings.append("Ex-dividend within expiry window — ITM short call carries early-assignment risk.")
