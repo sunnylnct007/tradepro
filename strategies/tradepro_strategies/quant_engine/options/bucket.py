@@ -232,3 +232,107 @@ def permitted_or_fallback(
         f"{structure.value} is not permitted in {getattr(regime, 'value', regime)} and no "
         f"permitted structure expresses the same view "
         f"(permitted: {', '.join(sorted(x.value for x in permitted)) or 'none'})")
+
+
+# ── One structure decision, one place ──────────────────────────────────────
+#
+# WHY THIS FUNCTION EXISTS. Both screen call sites built their candidate as a
+# hardcoded `Structure.CASH_SECURED_PUT`, which is the shape that keeps costing
+# this desk days: one fact in two places, and a fix lands at one of them. Every
+# reason a name can be steered to a different structure now composes HERE, and
+# the call sites ask rather than decide.
+#
+# There are three such reasons, and they stack in this order:
+#   1. OWNERSHIP  — would assignment in this name be acceptable? A name we do
+#                   not want to own can still be worth selling premium on, with
+#                   a floor under it. (route())
+#   2. REGIME     — ORANGE forbids an unbounded short put but permits a spread.
+#                   Refused 40 of 82 names on the live board. (#309)
+#   3. EARNINGS   — a print inside the expiry window forbids an unbounded bet
+#                   on a known date, but not a bounded one. Refused 50 of 82,
+#                   the largest single refusal. (#310)
+#
+# All three express the SAME VIEW with a floor under it, never a different
+# view: a CSP degrades to a BULL_PUT_SPREAD and never to a BEAR_PUT_SPREAD.
+# Reasons accumulate instead of overwriting, because "we traded this as a
+# spread" and WHY are the two halves of a trustworthy row.
+
+UNBOUNDED_SHORT_PREMIUM: frozenset[Structure] = frozenset({
+    Structure.CASH_SECURED_PUT, Structure.COVERED_CALL, Structure.WHEEL,
+})
+
+
+@dataclass(frozen=True)
+class Resolution:
+    """The structure to trade, the bucket it came from, and every reason it is
+    not the structure we first wanted. `notes` is empty on the plain path."""
+    structure: Structure | None
+    bucket: str
+    reason: str
+    notes: tuple[str, ...] = ()
+
+    @property
+    def downgraded(self) -> bool:
+        return bool(self.notes)
+
+
+def resolve_structure(
+    symbol: str,
+    *,
+    implied_vol: float | None,
+    historical_vol: float | None,
+    price: float | None = None,
+    avg_daily_usd_volume: float | None = None,
+    regime=None,
+    permitted: frozenset[Structure] | None = None,
+    earnings_in_expiry_window: bool | None = None,
+    deny: frozenset[str] = frozenset(),
+) -> Resolution:
+    r = route(symbol, implied_vol=implied_vol, historical_vol=historical_vol,
+              price=price, avg_daily_usd_volume=avg_daily_usd_volume, deny=deny)
+    if r.structure is None:
+        return Resolution(None, r.bucket, r.reason)
+
+    s: Structure | None = r.structure
+    notes: list[str] = []
+
+    # 2. REGIME.
+    if permitted is not None:
+        s, note = permitted_or_fallback(s, regime, permitted)
+        if note:
+            notes.append(note)
+        if s is None:
+            return Resolution(None, r.bucket, r.reason, tuple(notes))
+
+    # 3. EARNINGS. Only a TRUE print steers the structure. `None` means the
+    #    calendar is unavailable, and an absence of data is not an absence of
+    #    an event — that case falls through untouched so the risk engine blocks
+    #    it, which is the behaviour we want and have pinned.
+    if earnings_in_expiry_window is True:
+        if s in UNBOUNDED_SHORT_PREMIUM:
+            alt = next((a for a in SAME_VIEW_FALLBACKS.get(s, ())
+                        if permitted is None or a in permitted), None)
+            if alt is None:
+                notes.append(
+                    f"Earnings fall inside the expiry window and no defined-risk "
+                    f"version of {s.value} is available here — an unbounded short "
+                    f"over a known event date is not a trade we take.")
+                return Resolution(None, r.bucket, r.reason, tuple(notes))
+            notes.append(
+                f"Earnings fall inside the expiry window, so {s.value} is traded "
+                f"as {alt.value} — same view, with the loss capped before the "
+                f"print.")
+            s = alt
+        else:
+            # ALREADY defined-risk — nothing to degrade, but the print is still
+            # a fact about this trade and the row has to carry it. Reasons
+            # ACCUMULATE; the regime arriving first must not swallow the
+            # earnings one. (Caught by test_both_reasons_stack: with ORANGE and
+            # a print, the structure was right and the row silently reported
+            # only one of the two causes.)
+            notes.append(
+                f"Earnings also fall inside the expiry window. {s.value} caps "
+                f"the loss before the print, but the cap is far more likely to "
+                f"be reached — size as if it will be.")
+
+    return Resolution(s, r.bucket, r.reason, tuple(notes))
