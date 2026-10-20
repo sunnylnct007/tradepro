@@ -263,3 +263,62 @@ def test_absolute_cap_still_applies_without_mid():
                            "bid_ask_spread_usd": 0.25, "premium_mid_usd": None})
     d = evaluate(_good_csp(), ctx, _flat())
     assert any("spread too wide" in b for b in d.all_blocks)
+
+
+# ── Defined risk through an earnings print (owner ruling, 20 Oct 2026) ──────
+#
+# The blackout guards "IV-crush + gap risk". A spread has neither in unbounded
+# form — the long leg fixes the worst case before the print, and IV crush is in
+# the seller's favour. On the live board this single gate refused 50 of 82
+# names, and it is the gate that refused the owner's own DELL winner.
+#
+# So: UNBOUNDED stays blocked, DEFINED passes WITH A WARNING. Both halves are
+# pinned, because the whole point is the distinction between them.
+
+def _spread() -> TradeCandidate:
+    return TradeCandidate(
+        symbol="KO", structure=Structure.BULL_PUT_SPREAD,
+        abs_delta=0.27, dte=35, strike=55.0, contracts=1, notional_gbp=4300.0,
+    )
+
+
+def test_earnings_does_not_block_a_defined_risk_spread():
+    ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": True})
+    d = evaluate(_spread(), ctx, _flat())
+    assert d.allowed, d.all_blocks
+    assert not any("Earnings" in b for b in d.all_blocks)
+
+
+def test_a_spread_through_earnings_says_so():
+    # Passing silently would be worse than blocking. The row has to carry the
+    # event, because max loss is no LARGER through a print but is far more
+    # likely to be reached — that is a sizing decision the screen cannot make.
+    ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": True})
+    d = evaluate(_spread(), ctx, _flat())
+    assert any("THROUGH EARNINGS" in w for w in d.warnings), d.warnings
+
+
+def test_earnings_still_blocks_the_unbounded_structure():
+    # The guard against widening the exemption past defined risk.
+    ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": True})
+    d = evaluate(_good_csp(), ctx, _flat())
+    assert not d.allowed
+    assert any("Earnings" in b for b in d.all_blocks)
+
+
+def test_earnings_blanket_blackout_is_restorable_by_config():
+    ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": True})
+    cfg = OptionsRiskConfig(allow_defined_risk_through_earnings=False)
+    d = evaluate(_spread(), ctx, _flat(), cfg=cfg)
+    assert not d.allowed
+    assert any("Earnings" in b for b in d.all_blocks)
+
+
+def test_missing_earnings_calendar_still_blocks_a_spread():
+    # NEVER INFER FROM AN ABSENCE. "We do not know if there is a print" is not
+    # "there is no print", and the defined-risk exemption must not become a
+    # back door for unknown data.
+    ctx = MarketContext(**{**_good_ctx().__dict__, "earnings_in_expiry_window": None})
+    d = evaluate(_spread(), ctx, _flat())
+    assert not d.allowed
+    assert any("Earnings calendar unavailable" in b for b in d.all_blocks)
