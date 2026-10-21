@@ -154,6 +154,11 @@ def test_a_check_that_crashes_becomes_UNKNOWN_rather_than_vanishing(monkeypatch)
     # went red immediately, which is the behaviour we want from it.
     monkeypatch.setattr(dc, "check_idle_machinery", lambda *a, **k: [])
     monkeypatch.setattr(dc, "check_code_version", lambda *a, **k: [])
+    # Added 21 Oct 2026 with check_lane_schedules, for the reason stated just
+    # above: this test went red the moment that check existed, which is exactly
+    # what it is for. It also reads the real filesystem, so leaving it unstubbed
+    # would make this assertion depend on the machine it runs on.
+    monkeypatch.setattr(dc, "check_lane_schedules", lambda *a, **k: [])
     checks = dc.run_checks("http://x", None)
     assert [c.status for c in checks] == [UNKNOWN]
     assert "kaboom" in checks[0].detail
