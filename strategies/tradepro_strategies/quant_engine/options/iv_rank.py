@@ -241,6 +241,65 @@ def fetch_iv_rank_web(
         return IvRankResult(sym, available=False, reason=f"web IV fetch failed: {e}")
 
 
+def fetch_iv_history(symbol: str, ib, lookback: str = "1 Y",
+                     contract=None) -> list[tuple[str, float]]:
+    """The DATED IV series, oldest first — what `fetch_iv_rank` throws away.
+
+    `fetch_iv_rank` returns a computed rank and discards the dates, which is
+    right for a live gate and useless for a backfill. This returns
+    [(YYYY-MM-DD, iv_fraction), ...] so a one-off run can populate 52 weeks of
+    `options_iv_daily` in a single pass.
+
+    WHY A BACKFILL EXISTS AT ALL. IV-Rank needs a deep window — the gate wants
+    60 days minimum and a year to be meaningful — and we have been accumulating
+    it one session at a time since 9 Aug 2026. Measured 21 Oct, after ten
+    weeks: NVDA 41 days, MSFT 31, PG 31, WDC 15, CRWV ZERO. Roughly 63% of
+    sessions even while the capture lane was alive, and it was dead from 5 Oct.
+    At that rate a usable rank arrives around year-end, and until then the risk
+    engine falls back to the IV/HV ratio BRIDGE — the gate the owner disproved
+    on WDC (it passes at 30d and fails at 6m, and the window was never chosen).
+
+    IBKR serves the whole year in ONE request, and serves it OUTSIDE market
+    hours, so this needs a Gateway running for minutes rather than permanently.
+    That is the entire reason this function is worth having: it converts a
+    four-month wait into a single afternoon.
+
+    Raises rather than returning empty — a backfill that silently does nothing
+    is the worst outcome here, because the gap it leaves looks identical to the
+    gap it was meant to close.
+    """
+    # THE ib_insync IMPORT IS LAZY AND OPTIONAL, and that is not a style
+    # choice. `import ib_insync` pulls in eventkit, which calls
+    # get_event_loop() AT IMPORT TIME — so once any earlier test in the suite
+    # has closed the asyncio loop, the import itself raises. These tests passed
+    # alone and failed in the full suite for exactly that reason, which is the
+    # worst kind of red: nothing to do with the code under test.
+    #
+    # Building the contract was never this function's job anyway. It reads an
+    # IV series; the caller already holds a connection and can say what to read
+    # it for.
+    if contract is None:
+        import ib_insync
+        contract = ib_insync.Stock(symbol, "SMART", "USD")
+        ib.qualifyContracts(contract)
+    bars = ib.reqHistoricalData(
+        contract, endDateTime="", durationStr=lookback, barSizeSetting="1 day",
+        whatToShow="OPTION_IMPLIED_VOLATILITY", useRTH=True, formatDate=1, timeout=30)
+    if not bars:
+        raise ValueError(f"{symbol}: IBKR returned no OPTION_IMPLIED_VOLATILITY bars")
+    out: list[tuple[str, float]] = []
+    for b in bars:
+        iv = getattr(b, "close", None)
+        # The store refuses iv outside (0, 5]; drop a junk bar here rather than
+        # have the whole batch rejected for one bad point.
+        if iv is None or not (0 < float(iv) <= 5.0):
+            continue
+        out.append((str(getattr(b, "date", ""))[:10], float(iv)))
+    if not out:
+        raise ValueError(f"{symbol}: {len(bars)} IV bars, none with a usable value")
+    return out
+
+
 def fetch_iv_rank(symbol: str, ib=None, lookback: str = "1 Y") -> IvRankResult:
     """Live: pull `lookback` of daily OPTION_IMPLIED_VOLATILITY for `symbol`
     via IBKR and compute IV-Rank. Pass an existing connected `ib` to batch many
