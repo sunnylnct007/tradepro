@@ -18,9 +18,8 @@ from tradepro_strategies.quant_engine.options.risk import (
 
 # A large, liquid, ownable name with a modest variance premium.
 # MSFT, measured 21 Oct 2026.
-OWNABLE = dict(symbol="MSFT", implied_vol=0.28, historical_vol=0.24,
-               price=531.87, market_cap_usd=3_949_400_000_000.0,
-               reporting_currency="USD")
+OWNABLE = dict(symbol="MSFT", price=531.87,
+               market_cap_usd=3_949_400_000_000.0, reporting_currency="USD")
 
 
 def _green():
@@ -91,8 +90,8 @@ def test_red_regime_still_refuses_outright():
 def test_a_name_we_would_not_own_is_still_routed_not_dropped():
     # The owner's second bucket: names we do not want assigned but that pay
     # well are a SPREAD, not a refusal.
-    r = resolve_structure(symbol="MIDCAP", implied_vol=0.95, historical_vol=0.60,
-                          price=165.0, market_cap_usd=4_000_000_000.0,
+    r = resolve_structure(symbol="MIDCAP", price=165.0,
+                          market_cap_usd=4_000_000_000.0,
                           reporting_currency="USD",
                           **_green(), earnings_in_expiry_window=False)
     assert r.structure is not Structure.CASH_SECURED_PUT
