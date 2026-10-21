@@ -56,11 +56,29 @@ from .risk import Structure
 #: Thresholds, with the reasoning rather than round numbers for their own sake:
 #:   price   — a penny stock is excluded by price alone, and a sub-$20 name
 #:             makes cash-secured sizing lumpy (one contract = 100 shares).
-#:   volume  — $1bn of average daily traded value is a large-cap signal that
-#:             needs no market-cap feed. Measured 20 Oct: WDC $2.88bn, APLD
-#:             $388m. It also guarantees the option chain is worth quoting.
+#:   size    — market cap, because that is what "would I be happy to own
+#:             this" actually turns on. This was average daily VOLUME until
+#:             21 Oct 2026, which answered a quality question with a
+#:             liquidity proxy and failed PG — a name the owner named — at
+#:             $0.89bn of turnover against a $370bn market cap. Whether the
+#:             option is tradeable is a separate question, already gated on
+#:             the thing that decides a fill: its own open interest and
+#:             bid-ask spread.
+
 MIN_PRICE_USD = 20.0
-MIN_AVG_DAILY_USD_VOLUME = 1_000_000_000.0
+
+# THE SIZE FLOOR, which is what "would I own this" actually turns on.
+#
+# $10bn is the conventional large-cap boundary, not a number invented here.
+# The owner's requirement was "i do not want to do any penny stock trading"
+# and "or a small cap ones" — small cap conventionally ends at $2bn and mid
+# cap at $10bn, so this is their sentence expressed in the market's own
+# vocabulary rather than a threshold tuned until the answers looked right.
+#
+# Sanity-checked against the names the owner NAMED, 21 Oct 2026:
+#   PG $370bn · KO $402bn · MSFT $3,949bn · NVDA $5,227bn · GOOGL $4,162bn
+#   CRWV $34bn — "core weave is fine ... its a good name" — passes comfortably
+MIN_MARKET_CAP_USD = 10_000_000_000.0
 
 #: A dividend is not required — GOOGL and NVDA pay little or nothing and are
 #: exactly the names named. It is recorded as context, never as a gate.
@@ -90,28 +108,67 @@ class Routing:
 def is_ownable(
     *,
     price: float | None,
-    avg_daily_usd_volume: float | None,
+    market_cap_usd: float | None,
+    reporting_currency: str | None = None,
     deny: frozenset[str] = frozenset(),
     symbol: str = "",
 ) -> tuple[bool, str]:
-    """Would assignment in this name be acceptable — measured, not listed.
+    """Would assignment in this name be acceptable — a question about SIZE.
+
+    THIS USED TO ASK ABOUT TURNOVER, AND THE TWO ARE NOT THE SAME QUESTION.
+    The gate required $1bn of average daily dollar volume, which is a
+    LIQUIDITY measure, and liquidity was being used to answer a QUALITY
+    question. Measured 21 Oct 2026, the two diverge on exactly the names that
+    matter:
+
+        PG    $0.89bn ADV  -> FAILED       owner: "good divident paying ones
+                                            like PG, coca cola etc"
+        PG    $370bn  mcap -> passes
+
+    A 188-year-old consumer staple trades less than a hot new listing, and the
+    old gate read that as PG being unsuitable to own. It would have routed the
+    owner's own named example away from a cash-secured put and into a spread.
+
+    Liquidity still matters — you cannot get filled at a fair price without it
+    — but it is already gated elsewhere, on the thing that actually determines
+    the fill: the option's own open interest and bid-ask spread. Those are the
+    right instruments for that question. This one is about whether owning 100
+    shares is an outcome worth accepting.
+
+    THE CURRENCY IS CHECKED, NOT ASSUMED. `market_cap_usd` is sourced from
+    yfinance's `marketCap`, which is denominated in the symbol's REPORTING
+    currency despite the field's name — the fundamentals module's own comment
+    concedes "absolute USD (or symbol's reporting currency)". SK hynix (SKHY)
+    returns currency=USD, financialCurrency=KRW and a market cap of
+    1,018,882,555,904, which read as dollars would make it one of the largest
+    companies on earth. A non-USD figure is therefore REFUSED rather than
+    compared, because comparing it is how a mid-cap gets sold naked puts on
+    the strength of an exchange-rate artefact.
 
     EITHER INPUT MISSING IS A NO. Not because the name is bad, but because we
-    cannot show that it is good, and the cost of being wrong here is owning 100
+    cannot show that it is good, and the cost of being wrong is owning 100
     shares of something the owner never wanted.
     """
     if symbol.strip().upper() in deny:
         return False, "explicitly excluded by the owner"
-    if price is None or avg_daily_usd_volume is None:
-        return False, "price or traded volume unavailable — cannot verify it is a large cap"
+    if price is None:
+        return False, "price unavailable — cannot verify it is not a penny stock"
     if price < MIN_PRICE_USD:
         return False, (f"${price:,.2f} is below the ${MIN_PRICE_USD:,.0f} floor — "
                        f"penny and sub-$20 names are excluded")
-    if avg_daily_usd_volume < MIN_AVG_DAILY_USD_VOLUME:
-        return False, (f"${avg_daily_usd_volume/1e6:,.0f}m average daily volume is below "
-                       f"${MIN_AVG_DAILY_USD_VOLUME/1e9:,.0f}bn — not a large cap")
-    return True, (f"${price:,.2f} on ${avg_daily_usd_volume/1e9:,.1f}bn average daily "
-                  f"volume — large and liquid enough to own")
+    if market_cap_usd is None:
+        return False, "market cap unavailable — cannot verify it is a large cap"
+    ccy = (reporting_currency or "USD").strip().upper()
+    if ccy != "USD":
+        return False, (f"market cap is reported in {ccy}, not USD — refusing to "
+                       f"compare it against a dollar floor rather than guess at "
+                       f"an exchange rate")
+    if market_cap_usd < MIN_MARKET_CAP_USD:
+        return False, (f"${market_cap_usd/1e9:,.1f}bn market cap is below "
+                       f"${MIN_MARKET_CAP_USD/1e9:,.0f}bn — a small or mid cap, "
+                       f"not a name to be assigned")
+    return True, (f"${market_cap_usd/1e9:,.0f}bn market cap at ${price:,.2f} — "
+                  f"large enough that being assigned is an acceptable outcome")
 
 
 def route(
@@ -120,7 +177,8 @@ def route(
     implied_vol: float | None,
     historical_vol: float | None,
     price: float | None = None,
-    avg_daily_usd_volume: float | None = None,
+    market_cap_usd: float | None = None,
+    reporting_currency: str | None = None,
     deny: frozenset[str] = frozenset(),
 ) -> Routing:
     """Decide the structure for one name.
@@ -152,7 +210,8 @@ def route(
             f"implied {implied_vol:.0%} vs realised {historical_vol:.0%} "
             f"({ratio:.2f}x) — you would be paid less than the stock moves")
 
-    ownable, why_own = is_ownable(price=price, avg_daily_usd_volume=avg_daily_usd_volume,
+    ownable, why_own = is_ownable(price=price, market_cap_usd=market_cap_usd,
+                                  reporting_currency=reporting_currency,
                                   deny=deny, symbol=sym)
     if ownable:
         return Routing(
@@ -282,14 +341,16 @@ def resolve_structure(
     implied_vol: float | None,
     historical_vol: float | None,
     price: float | None = None,
-    avg_daily_usd_volume: float | None = None,
+    market_cap_usd: float | None = None,
+    reporting_currency: str | None = None,
     regime=None,
     permitted: frozenset[Structure] | None = None,
     earnings_in_expiry_window: bool | None = None,
     deny: frozenset[str] = frozenset(),
 ) -> Resolution:
     r = route(symbol, implied_vol=implied_vol, historical_vol=historical_vol,
-              price=price, avg_daily_usd_volume=avg_daily_usd_volume, deny=deny)
+              price=price, market_cap_usd=market_cap_usd,
+              reporting_currency=reporting_currency, deny=deny)
     if r.structure is None:
         return Resolution(None, r.bucket, r.reason)
     return degrade_for_context(
