@@ -76,6 +76,11 @@ interface Row {
   entry: number | null;
   /** Strike for options, stop for equity — labelled per row, never conflated. */
   level: number | null;
+  /** A composed level that is not a single number — "315/310" for a spread.
+   *  Kept SEPARATE from `level` rather than smuggled through it: `num()` calls
+   *  .toFixed(), so a string there throws at render and takes the table with
+   *  it. TypeScript does not catch it because these rows are built as `any`. */
+  levelText?: string;
   levelLabel: string;
   /** The one number that ranks this strategy's candidates against each other. */
   metric: number | null;
@@ -123,6 +128,24 @@ function plainAction(r: Row): { text: string; tone: string; strong: boolean } {
     return failed
       ? { text: "SELL A PUT — strategy unproven, size small", tone: TONE.warn, strong: true }
       : { text: "SELL A PUT today", tone: TONE.ok, strong: true };
+  }
+  // A SPREAD IS NOT A NAKED PUT, and this table said it was.
+  //
+  // The engine has routed most of the board to BULL_PUT_SPREAD since 21 Oct
+  // 2026 — 62 of 82 rows — but this table rendered every one of them as
+  // "SELL A PUT" with a single strike, because the action and the level were
+  // built from fields that predate structures. The ActionBoard on the SAME
+  // SCREEN said "GOOGL 315/310 put spread · risk $365 → $135" while the table
+  // underneath said "GOOGL SELL A PUT · 315.00 strike".
+  //
+  // Two cards, one screen, contradicting each other about what to trade — and
+  // the one that was wrong described an UNBOUNDED trade where the engine had
+  // deliberately chosen a bounded one. One fact with two render sites, fixed
+  // at one: the shape this desk keeps paying for.
+  if (a === "sell put spread") {
+    return failed
+      ? { text: "SELL A PUT SPREAD — strategy unproven, size small", tone: TONE.warn, strong: true }
+      : { text: "SELL A PUT SPREAD today", tone: TONE.ok, strong: true };
   }
   if (a === "sell" || a === "exit" || a === "close") {
     return { text: "CLOSE this position", tone: TONE.bad, strong: true };
@@ -324,8 +347,17 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       for (const c of (r?.candidates ?? [])) {
         out.push({
           symbol: c.symbol, strategy: "Wheel", tierRaw: "failed", tier: "unproven",
-          action: "sell put", entry: c.ref_close ?? null,
-          level: c.suggested_strike ?? null, levelLabel: "strike",
+          // Structure-aware. `economics.long_strike` is the floor; when the
+          // chain could not price one the row keeps the single strike and the
+          // screen's own note says the max loss is unpriced, rather than
+          // implying a floor that does not exist.
+          action: c.structure === "BULL_PUT_SPREAD" ? "sell put spread" : "sell put",
+          entry: c.ref_close ?? null,
+          level: c.suggested_strike ?? null,
+          levelText: c.economics?.long_strike != null
+            ? `${c.economics.short_strike}/${c.economics.long_strike}`
+            : undefined,
+          levelLabel: c.economics?.long_strike != null ? "put spread" : "strike",
           metric: c.annualized_yield_pct ?? null, metricLabel: "%/yr",
           asOf: r?.generated_at_utc ?? null,
           eligible: !!c.eligible,
@@ -732,7 +764,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                     </td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.entry)}</td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>
-                      {num(r.level)}
+                      {r.levelText ?? num(r.level)}
                       <span style={{ fontSize: 11.5, color: MUTED, marginLeft: 4 }}>{r.levelLabel}</span>
                     </td>
                     <td style={{ padding: "7px 8px", textAlign: "right" }}>
