@@ -101,6 +101,37 @@ def select_by_abs_delta(
     return min(scored, key=lambda x: x[0])[1] if scored else None
 
 
+def select_long_leg(
+    quotes: list[OptionQuote], *, short_strike: float, spot: float,
+    t_years: float, pricer: BlackScholesPricer,
+    target_abs_delta: float = 0.10,
+) -> OptionQuote | None:
+    """The protective leg of a bull put spread — the strike that FIXES the loss.
+
+    Chosen by DELTA, not by a dollar width or a percentage, because the owner's
+    rule is "no hardcoded constant but variable per symbol" and delta is the
+    only distance measure that already carries the name's own volatility. A
+    0.10-delta put sits ~$8 below the short strike on KO and ~$60 below it on
+    CRWV, and that difference is the point: the floor is placed where the
+    market says a 10% chance of reaching it lives, on each name separately.
+    This is the same unit the SHORT leg is picked in (0.27 delta), so the two
+    legs are chosen on one consistent scale.
+
+    REQUIRES A REAL ASK. We BUY this leg, so the debit is the ask, and a leg we
+    cannot price is a spread whose max loss we would have to guess at. The
+    whole purpose of the structure is a loss that is known on the day it is
+    opened, so an unpriceable long leg returns None and the caller must say so
+    rather than show a number it invented.
+    """
+    if short_strike <= 0:
+        return None
+    below = [q for q in quotes
+             if q.strike < short_strike and q.ask is not None and q.ask > 0]
+    if not below:
+        return None
+    return select_by_abs_delta(below, target_abs_delta, spot, t_years, pricer)
+
+
 _log = _logging.getLogger("tradepro.options.chains")
 
 # Wall-clock budget for a single yfinance HTTP call. Config-driven, because
