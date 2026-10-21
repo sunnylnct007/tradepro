@@ -35,6 +35,8 @@ import datetime as dt
 import re
 import json
 import logging
+import pathlib
+import plistlib
 import subprocess
 from dataclasses import dataclass, field
 
@@ -279,6 +281,96 @@ def check_code_version() -> list[Check]:
                   f"Mac deploy checkout is {local} but origin/main is {remote} — "
                   "the lanes and jobs are running code that is NOT on main",
                   "launchctl start com.tradepro.mac-deploy-sync (runs every 600s anyway)")]
+
+
+DEPLOY_SCRIPTS = pathlib.Path("/Users/skumar/tradepro-deploy/strategies/scripts")
+LAUNCH_AGENTS = pathlib.Path.home() / "Library" / "LaunchAgents"
+
+
+def check_lane_schedules() -> list[Check]:
+    """Does launchd run the schedule that is in the repo?
+
+    `check_code_version` above compares git SHAs, and its docstring names this
+    exact failure — A MERGE DOES NOT UPDATE A LANE. But a SHA can never catch
+    this one, because launchd does not read the checkout. It reads
+    ~/Library/LaunchAgents, which mac-deploy-sync has never touched.
+
+    WHAT THIS MISSED, 5-20 Oct 2026. PR #266 fixed option-chain-capture's
+    schedule, moving it to 22:15 so it would land inside Yahoo's post-close
+    window (16:30 ET - 04:00 ET). The merge went green. The installed plist
+    stayed at 19:00 = 14:00 ET, and the job refused EVERY run for twelve
+    trading days:
+
+        REFUSED: 2026-10-20 14:00 ET is outside the post-close capture window
+
+    It refused loudly, into a local log nobody reads. Twelve days of option
+    chains and IV history were never captured, and that data cannot be
+    backfilled — Yahoo serves open interest for the CURRENT session only. The
+    IV-percentile gate the desk needs is blocked on exactly that history.
+
+    THIS REPORTS, IT DOES NOT SYNC, and the distinction is the whole design.
+    Neither side is authoritative:
+
+      * paper-swing-ibkr   the INSTALLED copy is newer — it carries --wind-down
+                           and --capital-usd 150000; the repo copy would revert
+                           both. Auto-syncing from the repo would have silently
+                           un-wound-down a live sleeve.
+      * worker             the REPO copy is a TEMPLATE ({{PROJECT_DIR}}), never
+                           meant to be installed verbatim.
+      * option-chain-capture  the REPO copy was the correct one.
+
+    So a tool that copied either direction would be wrong a third of the time.
+    What was missing was never the sync; it was anyone NOTICING. This names the
+    files that differ and leaves the decision where it belongs.
+
+    NOT-INSTALLED IS NOT DRIFT. Seventeen repo plists have no installed
+    counterpart and that is usually deliberate — options-screen.plist was
+    retired in favour of screener-daily running it. Reporting those would make
+    this check cry wolf on its first run, and a check that cries wolf is worse
+    than no check.
+    """
+    if not DEPLOY_SCRIPTS.is_dir() or not LAUNCH_AGENTS.is_dir():
+        return [Check("Lane schedules", UNKNOWN,
+                      f"cannot read {DEPLOY_SCRIPTS} or {LAUNCH_AGENTS}",
+                      "run this on the Mac that hosts the lanes")]
+
+    drifted: list[str] = []
+    checked = 0
+    for repo_plist in sorted(DEPLOY_SCRIPTS.glob("com.tradepro.*.plist")):
+        installed = LAUNCH_AGENTS / repo_plist.name
+        if not installed.is_file():
+            continue                      # deliberate retirement, not drift
+        try:
+            repo_raw = repo_plist.read_bytes()
+            if b"{{" in repo_raw:
+                continue                  # a template, not a deployable plist
+            # COUNTED BEFORE IT IS PARSED. This increment used to sit after the
+            # comparison, so an unreadable plist added itself to `drifted` and
+            # left `checked` at zero — and the "nothing comparable" branch below
+            # then returned UNKNOWN and threw the finding away. The one file
+            # that could not be read was reported as "no lanes to compare",
+            # which is how a check loses the very thing it exists to catch.
+            checked += 1
+            if plistlib.loads(repo_raw) != plistlib.loads(installed.read_bytes()):
+                drifted.append(repo_plist.name.replace("com.tradepro.", "")
+                               .replace(".plist", ""))
+        except Exception:  # noqa: BLE001 — an unreadable plist is not a pass
+            drifted.append(f"{repo_plist.name} (unreadable)")
+
+    if not checked:
+        return [Check("Lane schedules", UNKNOWN,
+                      "no installed lane plists could be compared",
+                      "check that the lanes are installed on this machine")]
+    if not drifted:
+        return [Check("Lane schedules", OK,
+                      f"{checked} installed lane(s) match the repo")]
+    return [Check("Lane schedules", WARN,
+                  f"{len(drifted)} of {checked} installed lane(s) differ from the "
+                  f"repo: {', '.join(drifted)} — launchd may be running a "
+                  f"schedule or flags that were changed and never deployed, or "
+                  f"live tuning the repo would revert",
+                  "diff each against strategies/scripts/ and install the correct "
+                  "side BY HAND — neither side is automatically right")]
 
 
 def check_data(base: str, token: str | None) -> list[Check]:
@@ -743,7 +835,8 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_round_trips(base, token),
                lambda: check_option_legs_vs_book(base, token),
                lambda: check_idle_machinery(base, token),
-               check_code_version):
+               check_code_version,
+               check_lane_schedules):
         try:
             checks.extend(fn())
         except Exception as exc:  # noqa: BLE001
