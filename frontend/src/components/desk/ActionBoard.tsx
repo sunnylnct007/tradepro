@@ -49,7 +49,14 @@ const SPREAD_FRAC = 0.089;
 
 type Act = {
   key: string;
-  verb: string;            // BUY / SELL A PUT — what to actually do
+  /** WHICH SECTION this belongs in. Separate from `verb` on purpose: the two
+   *  sections below used to be filtered by matching the verb STRING, so the
+   *  moment a put row could legitimately say "SELL A PUT SPREAD" it would have
+   *  matched neither filter and vanished from the board entirely — a silent
+   *  withholding, which is the one thing this card promises never to do.
+   *  `verb` is display text and free to vary; `kind` is what the code reads. */
+  kind: "buy" | "put";
+  verb: string;            // BUY / SELL A PUT / SELL A PUT SPREAD — display only
   symbol: string;
   detail: string;          // the level, in the units that trade
   why: string;
@@ -64,6 +71,14 @@ type Act = {
 
 function fmt(n: number | null | undefined, d = 2) {
   return n === null || n === undefined || Number.isNaN(n) ? "—" : n.toFixed(d);
+}
+
+/** Whole dollars. Max loss and max gain are decision numbers read at a glance,
+ *  and cents on a $4,065 worst case are noise that costs legibility. */
+function usd(n: number | null | undefined) {
+  return n === null || n === undefined || Number.isNaN(n)
+    ? "—"
+    : `${n < 0 ? "-" : ""}$${Math.abs(Math.round(n)).toLocaleString()}`;
 }
 
 export function ActionBoard() {
@@ -93,7 +108,7 @@ export function ActionBoard() {
           const act = String(c.action || "").toLowerCase();
           if (!c.eligible || (act !== "buy" && act !== "consider")) { blocked++; continue; }
           out.push({
-            key: `${label}-${c.symbol}`, verb: "BUY", symbol: c.symbol,
+            key: `${label}-${c.symbol}`, kind: "buy", verb: "BUY", symbol: c.symbol,
             detail: c.entry != null ? `limit ~${fmt(c.entry)}` : "",
             why: String(c.why || "").split("·")[0].trim(),
             strategy: label, gated, ev: null,
@@ -135,12 +150,39 @@ export function ActionBoard() {
                     + `assignment − spread`;
             }
           }
+          // THE STRUCTURE IS PART OF THE INSTRUCTION. "Sell a put" and "sell a
+          // put spread" are different trades with different worst cases, and a
+          // board that renders both as the former is telling the owner to do
+          // something other than what the engine decided.
+          const econ = c.economics ?? null;
+          const isSpread = c.structure === "BULL_PUT_SPREAD";
+          // Max loss first. On a card whose job is "what do I do today", the
+          // number that decides whether to do it is what you can lose — the
+          // credit is the reason you are tempted, not the reason you are safe.
+          const risk = econ
+            ? (econ.unbounded
+                ? `risk ${usd(econ.max_loss_usd)} (NO floor) → ${usd(econ.max_gain_usd)}`
+                : `risk ${usd(econ.max_loss_usd)} → ${usd(econ.max_gain_usd)}`)
+            : c.economics_note ? "max loss not priced" : null;
+          const level = isSpread && econ?.long_strike != null
+            ? `${econ.short_strike}/${econ.long_strike} put spread`
+            : `${c.suggested_strike} strike`;
           out.push({
-            key: `wheel-${c.symbol}`, verb: "SELL A PUT", symbol: c.symbol,
-            detail: `${c.suggested_strike} strike · ${dte}d`,
-            why: sc.assignment_prob_pct != null
-              ? `${fmt(100 - sc.assignment_prob_pct, 0)}% chance it expires worthless`
-              : "assignment odds unavailable",
+            key: `wheel-${c.symbol}`, kind: "put",
+            verb: isSpread ? "SELL A PUT SPREAD" : "SELL A PUT",
+            symbol: c.symbol,
+            detail: [level, `${dte}d`, risk].filter(Boolean).join(" · "),
+            // A structure we did NOT pick first is a fact about the trade, and
+            // it leads the reason — the owner has to see that this is not the
+            // naked put they would have expected, and why.
+            why: [
+              ...(c.structure_notes ?? []).map((n: string) =>
+                n.replace(/CASH_SECURED_PUT/g, "a naked put")
+                 .replace(/BULL_PUT_SPREAD/g, "a put spread")),
+              sc.assignment_prob_pct != null
+                ? `${fmt(100 - sc.assignment_prob_pct, 0)}% chance it expires worthless`
+                : "assignment odds unavailable",
+            ].join(" · "),
             // The wheel's STRATEGY failed its backtest; this screen is being
             // used as a FILTER. Both are true and the badge must not blur them.
             strategy: "Options screen", gated: false, ev, evBasis: basis,
@@ -159,10 +201,10 @@ export function ActionBoard() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const buys = acts.filter((a) => a.verb === "BUY");
+  const buys = acts.filter((a) => a.kind === "buy");
   // An expectancy thinner than the spread is not an edge. Shown, but below the
   // line and labelled, never silently dropped.
-  const puts = acts.filter((a) => a.verb === "SELL A PUT");
+  const puts = acts.filter((a) => a.kind === "put");
   const putsWorth = puts.filter((p) => (p.ev ?? -1) > 0);
   const putsThin = puts.filter((p) => (p.ev ?? -1) <= 0);
 
