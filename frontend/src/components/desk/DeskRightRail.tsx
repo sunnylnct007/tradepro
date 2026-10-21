@@ -111,10 +111,21 @@ export function DeskRightRail() {
               <Stub>Not enough history yet for this window.</Stub>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartRows} margin={{ top: 4, right: 6, bottom: 0, left: -18 }}>
+                {/* LEFT MARGIN IS 0, NOT NEGATIVE. It was -18 against a 42px
+                    Y-axis, which pulled the labels out past the plot's left
+                    edge and CLIPPED THEIR LEADING CHARACTER. Every negative
+                    tick lost its minus sign, so "-5%" rendered as "5%" and the
+                    axis read 5 / 3 / 0 / 3 / 5 — a drawdown displayed as a
+                    gain, on the one chart whose whole job is to show whether
+                    the account is up or down. This series DOES go negative
+                    (NLV vs start was -2.54% the morning this was found). */}
+                <LineChart data={chartRows} margin={{ top: 4, right: 6, bottom: 0, left: 0 }}>
                   <CartesianGrid stroke="#1b2233" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#6b7799" }} minTickGap={28} />
-                  <YAxis tick={{ fontSize: 9, fill: "#6b7799" }} tickFormatter={(v) => `${v}%`} width={42} />
+                  {/* An explicit + on gains, so a reader never has to infer
+                      the sign from a character that might not have rendered. */}
+                  <YAxis tick={{ fontSize: 9, fill: "#6b7799" }} width={46}
+                         tickFormatter={(v) => `${v > 0 ? "+" : ""}${v}%`} />
                   <Tooltip
                     contentStyle={{ background: "#0d1117", border: "1px solid #1b2233", fontSize: 11 }}
                     formatter={(v: number, name: string) => [`${v.toFixed(2)}%`, name]}
