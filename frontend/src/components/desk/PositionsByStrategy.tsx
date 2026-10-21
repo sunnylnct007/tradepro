@@ -44,7 +44,6 @@ type Section = { key: string; title: string; rows: InternalRow[] };
 
 type InternalRow = PositionRow & {
   company: string | null;
-  changePct: number | null;
   strategyId: string | null;
   series: number[] | null;
   avgPrice: number | null;
@@ -148,11 +147,6 @@ export function PositionsByStrategy({
             company: p.yahooSymbol ?? null,
             qty: fmtQty(p.quantity),
             last: p.currentPrice,
-            // Change% is TODAY's move; the T212 position feed carries no daily
-            // change, so leave it "—" rather than duplicating the since-entry %
-            // (that duplication made the P&L look like a daily number). P&L below
-            // is the broker's since-entry unrealised = (last − avg) × qty.
-            changePct: null,
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: p.currency,
@@ -184,7 +178,6 @@ export function PositionsByStrategy({
             company: p.instrumentName ?? null,
             qty: fmtQty(p.quantity),
             last: p.currentPrice,
-            changePct: null,   // no daily-move field; P&L below is since-entry
             pnl: p.unrealisedAbs,
             pnlPct: p.unrealisedPct,
             ccy: null,
@@ -229,7 +222,6 @@ export function PositionsByStrategy({
             company: null,
             qty: fmtQty(p.qty),
             last: p.mark,
-            changePct: null,
             pnl: p.unrealisedPnl,
             pnlPct,
             ccy: p.currency ?? "USD",
@@ -250,7 +242,6 @@ export function PositionsByStrategy({
             company: null,
             qty: fmtQty(p.quantity),
             last: null,
-            changePct: null,
             pnl: null,
             pnlPct: null,
             ccy: "USD",
@@ -426,7 +417,6 @@ function PositionSection({
       company:  (r) => r.company,
       qty:      (r) => r.qty,
       last:     (r) => r.last,
-      change:   (r) => r.changePct,
       pnl:      (r) => r.pnl,
       pnlPct:   (r) => r.pnlPct,
       broker:   (r) => r.broker,
@@ -529,7 +519,6 @@ function PositionSection({
                 <SortTh label="Company"     col="company" sortKey={sortKey} dir={dir} onSort={toggle} style={TH} />
                 <SortTh label="Position"    col="qty"     sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
                 <SortTh label="Last"        col="last"    sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
-                <SortTh label="Change%"     col="change"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
                 <th style={TH_C}>Trend</th>
                 <SortTh label="P&amp;L"     col="pnl"     sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
                 <SortTh label="P&amp;L%"    col="pnlPct"  sortKey={sortKey} dir={dir} onSort={toggle} style={TH_R} />
@@ -563,7 +552,6 @@ function PositionSection({
                     <td style={{ ...TD, color: "var(--text-muted)" }}>{r.company ?? "—"}</td>
                     <td style={TD_R}>{fmtNum(r.qty)}</td>
                     <td style={{ ...TD_R, color: "var(--text)" }}>{fmtMoney(r.last, r.ccy)}</td>
-                    <td style={{ ...TD_R, color: signColour(r.changePct) }}>{fmtPct(r.changePct)}</td>
                     <td style={{ ...TD, textAlign: "center" }}>
                       <span style={{ display: "inline-flex", justifyContent: "center", width: "100%" }}>
                         <Sparkline data={r.chartSymbol ? (series[r.chartSymbol] ?? r.series) : r.series} />
