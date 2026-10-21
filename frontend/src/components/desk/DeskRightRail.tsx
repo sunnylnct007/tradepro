@@ -55,7 +55,7 @@ export function DeskRightRail() {
     return () => { live = false; clearInterval(t); };
   }, []);
 
-  const { chartRows, brokers } = useMemo(() => buildSeries(points, tf), [points, tf]);
+  const { chartRows, brokers, breaks } = useMemo(() => buildSeries(points, tf), [points, tf]);
 
   return (
     <aside
@@ -139,6 +139,16 @@ export function DeskRightRail() {
           </div>
           <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
             % change since start of window · per broker (native scale), not blended.
+            {breaks.length > 0 && (
+              <div style={{ marginTop: 3, color: "#d29922" }}>
+                {breaks.map((b) => (
+                  <div key={`${b.broker}-${b.date}`}>
+                    {b.broker} {b.date.slice(5)}: {b.pct > 0 ? "+" : ""}{b.pct.toFixed(0)}% in one
+                    day — counted as a change in account SIZE, not a return.
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -173,16 +183,57 @@ function buildSeries(points: Point[], tf: Timeframe) {
   const brokers = [...byBroker.keys()].sort();
   const dates = [...new Set(inWindow.map((p) => p.date))].sort();
 
-  // Per broker: % change vs its first in-window value.
-  const base = new Map<string, number>();
+  // ── A CAPITAL EVENT IS NOT A RETURN ─────────────────────────────────
+  //
+  // This used to be `(v - firstValue) / firstValue`, which silently treats
+  // every change in the account's SIZE as performance. On IBKR_PAPER that
+  // produced a +145% line:
+  //
+  //     2026-09-25    145,718
+  //     2026-09-26    365,051   <- +150.5% in one day
+  //     2026-09-29    250,628   <- -31.1%
+  //     2026-10-21    247,206
+  //
+  // Nothing earned that. It is the 26-29 Sep phantom-shorts episode — short
+  // proceeds inflating reported NLV, then a partial correction. The chart
+  // asserted a gain that never happened, and the outlier flattened every
+  // other series onto the zero line, so the one number that WAS real (the
+  // desk's own "NLV vs start -2.54%", shown inches away) became invisible.
+  // The panel contradicted itself and the wrong half was the loud half.
+  //
+  // So returns are CHAIN-LINKED day to day, and a daily move larger than
+  // CAPITAL_EVENT_PCT is treated as a change in the account's size rather
+  // than a result: the level resets, the cumulative return carries on
+  // unbroken. That is the standard treatment for a deposit or withdrawal,
+  // and a broker-side correction is the same shape.
+  //
+  // THE THRESHOLD IS A JUDGEMENT AND IS STATED AS ONE. A whole diversified
+  // book does not move 25% in a session; a funding event, a reset or a
+  // reconciliation does. It is deliberately far above any real daily move
+  // and far below the 150% that triggered this, so it cannot quietly eat a
+  // genuine bad day. Every break it finds is REPORTED under the chart with
+  // its date and size — a silently smoothed chart would be a worse lie than
+  // the spike it replaced.
+  const CAPITAL_EVENT_PCT = 25;
+  const breaks: Array<{ broker: string; date: string; pct: number }> = [];
+  const lookup = new Map<string, Map<string, number>>(); // broker -> date -> cumulative %
   for (const b of brokers) {
-    const series = byBroker.get(b)!.sort((a, c) => a.date.localeCompare(c.date));
-    if (series.length) base.set(b, series[0].value);
-  }
-  const lookup = new Map<string, Map<string, number>>(); // broker -> date -> value
-  for (const b of brokers) {
+    const series = byBroker.get(b)!.slice().sort((a, c) => a.date.localeCompare(c.date));
     const m = new Map<string, number>();
-    for (const p of byBroker.get(b)!) m.set(p.date, p.value);
+    let cum = 1;
+    let prev: number | null = null;
+    for (const p of series) {
+      if (prev != null && prev !== 0) {
+        const r = p.value / prev - 1;
+        if (Math.abs(r) * 100 > CAPITAL_EVENT_PCT) {
+          breaks.push({ broker: b, date: p.date, pct: r * 100 });
+        } else {
+          cum *= 1 + r;
+        }
+      }
+      m.set(p.date, Number(((cum - 1) * 100).toFixed(2)));
+      prev = p.value;
+    }
     lookup.set(b, m);
   }
 
@@ -190,13 +241,12 @@ function buildSeries(points: Point[], tf: Timeframe) {
     const row: Record<string, string | number> = { date: date.slice(5) }; // MM-DD
     for (const b of brokers) {
       const v = lookup.get(b)!.get(date);
-      const b0 = base.get(b);
-      if (v != null && b0 != null && b0 !== 0) row[b] = Number((((v - b0) / b0) * 100).toFixed(2));
+      if (v != null) row[b] = v;
     }
     return row;
   });
 
-  return { chartRows, brokers };
+  return { chartRows, brokers, breaks };
 }
 
 function windowStart(tf: Timeframe): number {
