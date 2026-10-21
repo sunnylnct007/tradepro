@@ -60,6 +60,15 @@ type Act = {
   symbol: string;
   detail: string;          // the level, in the units that trade
   why: string;
+  /** The structure-degradation reasons, kept as separate strings rather than
+   *  pre-joined into `why`. On an ORANGE day EVERY put row carries the same
+   *  one, and joining it in made each row wrap to a second full-width line of
+   *  identical text — ~250 characters repeated fifteen times, burying the
+   *  strikes and the risk that actually differ. Kept apart so the shared ones
+   *  can be said ONCE, above the list. */
+  notes: string[];
+  /** The full sentences behind `notes`, for the tooltip. */
+  noteDetail?: string;
   strategy: string;
   gated: boolean;
   /** Expectancy per cycle, % of collateral, net of the measured spread.
@@ -94,6 +103,21 @@ export function ActionBoard() {
     const problems: string[] = [];
 
     // ── EQUITY, from the gated sleeves ──────────────────────────────────
+    // SLEEVES IN WIND-DOWN DO NOT PROPOSE ENTRIES.
+    //
+    // All three equity sleeves run --wind-down (exits only) since 20 Oct 2026,
+    // after ENTRY_EDGE_GATES_V1 graded their entries NEGATIVE against both
+    // controls on 8 of 8 strategy x horizon combinations. The engine filters
+    // every BUY at the order chokepoint — so the eight "BUY HAE / BUY GME /
+    // BUY AAPL" rows leading this card were instructions the desk had already
+    // decided it would never place.
+    //
+    // A card whose entire purpose is "what am I supposed to do today" must not
+    // lead with trades that cannot happen. They are WITHHELD AND COUNTED, not
+    // hidden: the footer says how many and why, which is this card's first
+    // rule.
+    const WINDING_DOWN = new Set(["Swing", "Momentum"]);
+
     const equity = async (
       fetcher: () => Promise<any>, label: string,
     ) => {
@@ -103,12 +127,21 @@ export function ActionBoard() {
         const rows: any[] = a.candidates_v2 ?? [];
         if (!rows.length) { held.push(`${label}: no rows published yet`); return; }
         const gated = rows[0]?.tier === "gated";
+        if (WINDING_DOWN.has(label)) {
+          const live = rows.filter((c: any) => {
+            const act = String(c.action || "").toLowerCase();
+            return c.eligible && (act === "buy" || act === "consider");
+          }).length;
+          held.push(`${label}: ${live} entry signal(s) not shown — the sleeve runs `
+                  + `exits-only, so these would not be placed`);
+          return;
+        }
         let blocked = 0;
         for (const c of rows) {
           const act = String(c.action || "").toLowerCase();
           if (!c.eligible || (act !== "buy" && act !== "consider")) { blocked++; continue; }
           out.push({
-            key: `${label}-${c.symbol}`, kind: "buy", verb: "BUY", symbol: c.symbol,
+            key: `${label}-${c.symbol}`, kind: "buy", verb: "BUY", symbol: c.symbol, notes: [],
             detail: c.entry != null ? `limit ~${fmt(c.entry)}` : "",
             why: String(c.why || "").split("·")[0].trim(),
             strategy: label, gated, ev: null,
@@ -175,14 +208,24 @@ export function ActionBoard() {
             // A structure we did NOT pick first is a fact about the trade, and
             // it leads the reason — the owner has to see that this is not the
             // naked put they would have expected, and why.
-            why: [
-              ...(c.structure_notes ?? []).map((n: string) =>
-                n.replace(/CASH_SECURED_PUT/g, "a naked put")
-                 .replace(/BULL_PUT_SPREAD/g, "a put spread")),
-              sc.assignment_prob_pct != null
-                ? `${fmt(100 - sc.assignment_prob_pct, 0)}% chance it expires worthless`
-                : "assignment odds unavailable",
-            ].join(" · "),
+            // SHORT TAGS, NOT REPEATED PROSE. Each note ran ~130 characters
+            // and wrapped every row onto a second full-width line — on this
+            // board 32 rows carried the ORANGE sentence and 20 the earnings
+            // one, verbatim, burying the strikes and the risk that actually
+            // differ between rows. The full sentence survives as the tag's
+            // tooltip, so the reasoning is one hover away rather than gone.
+            notes: (c.structure_notes ?? []).map((n: string) => {
+              if (/not permitted in/.test(n)) {
+                const regime = n.match(/not permitted in (\w+)/)?.[1] ?? "regime";
+                return `${regime} → spread`;
+              }
+              if (/[Ee]arnings/.test(n)) return "earnings → floored";
+              return n;
+            }),
+            noteDetail: (c.structure_notes ?? []).join("\n\n"),
+            why: sc.assignment_prob_pct != null
+              ? `${fmt(100 - sc.assignment_prob_pct, 0)}% chance it expires worthless`
+              : "assignment odds unavailable",
             // The wheel's STRATEGY failed its backtest; this screen is being
             // used as a FILTER. Both are true and the badge must not blur them.
             strategy: "Options screen", gated: false, ev, evBasis: basis,
@@ -320,6 +363,12 @@ function Line({ a }: { a: Act }) {
           EV +{fmt(a.ev)}%
         </span>
       )}
+      {a.notes.map((n) => (
+        <span key={n} title={a.noteDetail} style={{
+          fontSize: 10.5, color: TONE.warn, border: `1px solid ${TONE.warn}`,
+          borderRadius: 4, padding: "0 5px", whiteSpace: "nowrap", opacity: 0.85,
+        }}>{n}</span>
+      ))}
       <span style={{ fontSize: 12, color: TONE.dim }}>{a.why}</span>
       <span style={{
         marginLeft: "auto", fontSize: 10, letterSpacing: 0.3,
