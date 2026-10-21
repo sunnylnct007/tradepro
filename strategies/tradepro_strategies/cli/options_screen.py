@@ -18,7 +18,12 @@ Run:  TRADEPRO_IBKR_PORT=7500 uv run tradepro-options-screen
 from __future__ import annotations
 
 import logging
+import json
 import os
+import pathlib
+import time
+
+import requests
 from datetime import datetime, timezone
 
 from ..quant_engine.options.iv_rank import fetch_iv_rank
@@ -2552,6 +2557,77 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
     return emit(out)
 
 
+# How many times to try publishing, and how long to wait between tries. The
+# screen's work is expensive (82 symbols of IBKR chains, minutes of wall
+# clock) and the publish is one HTTP call at the very end of it.
+_PUBLISH_ATTEMPTS = int(os.environ.get("TRADEPRO_PUBLISH_ATTEMPTS", "4"))
+_PUBLISH_BACKOFF_S = float(os.environ.get("TRADEPRO_PUBLISH_BACKOFF_S", "5"))
+
+#: Where a payload goes when it cannot be published at all. A LOCAL file, which
+#: this desk's storage policy otherwise forbids (Postgres + S3, never local) —
+#: and the exception is the entire point: the only reason we are here is that
+#: the network is the thing that failed, so every remote destination is
+#: unreachable by definition. This is a crash spool, not storage. Nothing reads
+#: it automatically; it exists so a day's work is recoverable by hand instead
+#: of destroyed.
+_PUBLISH_SPOOL = pathlib.Path.home() / ".tradepro" / "unpublished"
+
+
+def _publish_with_retry(url: str, payload: dict, headers: dict, rows: list):
+    """POST the screen, retrying a transient network failure.
+
+    WHY (20 Oct 2026). The screen ran, computed all 82 rows, and then threw the
+    entire day away:
+
+        NameResolutionError: Failed to resolve 'tradepro.showsoldprice.com'
+        wheel screen: FAILED (exit 1)
+
+    The host was fine either side of it — the Mac's DNS blinked for a moment.
+    One unretried POST at the end of a multi-minute job meant a blink cost a
+    full trading day's board, and the owner opened a screen showing the
+    PREVIOUS run's date. Worse, the digest that would have told them failed on
+    the same DNS: the alarm shared the failure mode with the thing it watches.
+
+    So: retry with a linear backoff, and if every attempt fails, spool the
+    payload to disk and say so at ERROR before re-raising. The raise is kept
+    deliberately — a screen that could not publish has NOT succeeded, and
+    swallowing it would turn a visible failure into a silently stale board,
+    which is the worse of the two outcomes by a wide margin.
+    """
+    last: Exception | None = None
+    for attempt in range(1, max(_PUBLISH_ATTEMPTS, 1) + 1):
+        try:
+            return requests.post(url, json=payload, headers=headers, timeout=30)
+        except Exception as exc:  # noqa: BLE001 — retry ANY transport failure
+            last = exc
+            if attempt < _PUBLISH_ATTEMPTS:
+                wait = _PUBLISH_BACKOFF_S * attempt
+                log.warning(
+                    "publish attempt %d/%d failed (%s) — retrying in %.0fs",
+                    attempt, _PUBLISH_ATTEMPTS, exc, wait)
+                time.sleep(wait)
+
+    # Every attempt failed. Keep the work.
+    spooled = None
+    try:
+        _PUBLISH_SPOOL.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        spooled = _PUBLISH_SPOOL / f"options-candidates-{stamp}.json"
+        spooled.write_text(json.dumps(payload))
+    except Exception as spool_exc:  # noqa: BLE001 — never mask the real error
+        log.error("could not spool the unpublished payload either: %s", spool_exc)
+        spooled = None
+
+    log.error(
+        "PUBLISH FAILED after %d attempts — %d candidates (%d eligible) were "
+        "computed and are NOT on the board. The desk will show the PREVIOUS "
+        "run's date until this is republished. Last error: %s%s",
+        _PUBLISH_ATTEMPTS, len(rows), sum(1 for x in rows if x.get("eligible")),
+        last,
+        f" · payload kept at {spooled}" if spooled else " · payload LOST")
+    raise last if last else RuntimeError("publish failed")
+
+
 def run_screen(symbols: list[str] | None = None) -> dict:
     import ib_insync
     from . import push_to_api as _pta
@@ -2685,12 +2761,11 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     except Exception:  # noqa: BLE001 — logging must never fail the screen
         pass
     # Push to the API for the Options tab.
-    import requests
     base, tok = _pta.load_credentials()
     if base and tok:
         _H = {"Authorization": f"Bearer {tok}"}
-        r = requests.post(f"{base.rstrip('/')}/api/options/candidates",
-                          json=payload, headers=_H, timeout=30)
+        r = _publish_with_retry(
+            f"{base.rstrip('/')}/api/options/candidates", payload, _H, rows)
         log.info("pushed screen: HTTP %s (%d candidates, %d eligible)",
                  r.status_code, len(rows), sum(1 for x in rows if x["eligible"]))
 
