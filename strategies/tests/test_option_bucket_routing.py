@@ -23,16 +23,14 @@ SMALL = 4_000_000_000.0     # a mid cap, under the $10bn large-cap floor
 
 
 def test_a_large_liquid_name_with_rich_premium_is_a_cash_secured_put():
-    r = route("GOOGL", implied_vol=0.40, historical_vol=0.30,
-              price=340.27, market_cap_usd=4_161_500_000_000.0)
+    r = route("GOOGL", price=340.27, market_cap_usd=4_161_500_000_000.0)
     assert r.structure is Structure.CASH_SECURED_PUT
     assert r.bucket == "own"
 
 
 def test_a_name_we_would_not_own_but_pays_well_is_a_SPREAD():
     """The SKHY case. Not ownable, premium rich -> floor the loss."""
-    r = route("MIDCAP", implied_vol=0.90, historical_vol=0.60,
-              price=165.0, market_cap_usd=SMALL)
+    r = route("MIDCAP", price=165.0, market_cap_usd=SMALL)
     assert r.structure is Structure.BULL_PUT_SPREAD
     assert r.bucket == "spread"
     assert "floor" in r.reason
@@ -55,36 +53,83 @@ def test_APLD_is_excluded_which_my_first_version_got_wrong():
     assert not ok, why
 
 
-def test_implied_below_realised_is_refused_however_good_the_name():
-    """WDC on 20 Oct: implied 67% against realised 72.8%. You are paid LESS
-    than the stock moves. Liking the name does not change that."""
-    r = route("WDC", implied_vol=0.670, historical_vol=0.728,
-              price=364.32, market_cap_usd=136_400_000_000.0)
-    assert r.structure is None
-    assert r.bucket == "none"
-    assert "less than the stock moves" in r.reason
+def test_the_variance_gate_lives_in_the_risk_engine_and_still_bites():
+    """The property moved; this test moved with it rather than being deleted.
+
+    Routing used to refuse below an IV/HV of 1.05 — a SECOND copy of a
+    judgement the engine already makes. The two did not merely duplicate, they
+    DISAGREED, and the engine's version is the calibrated one:
+
+        route()        refuse below 1.05
+        engine floor   block  below 0.35
+        engine min     warn   below 1.00, stating the number
+
+    The engine's comment records why it was relaxed on 30 Aug 2026: at 1.0 it
+    blocked EVERYTHING, because the whole universe sits below it — XOM 0.90,
+    NVDA 0.81, GOOGL 0.78, APLD 0.70, PG 0.63, MU 0.62, MRVL 0.49. So routing's
+    1.05 would have refused every name on the board, which is exactly why it
+    was never wired to the screen.
+
+    Both halves are pinned: genuinely uneconomic still BLOCKS, and merely thin
+    still WARNS with its number rather than passing silently.
+    """
+    from tradepro_strategies.quant_engine.options.risk import (
+        MarketContext, OptionsRiskConfig, PortfolioState, Regime, TradeCandidate,
+        evaluate)
+
+    def _decide(ratio: float):
+        ctx = MarketContext(
+            regime=Regime.GREEN, falling_knife=False, pct_off_52w_high=25.0,
+            iv_rank=None, iv_hv_ratio=ratio,
+            open_interest=5000, bid_ask_spread_usd=0.05, premium_mid_usd=4.0,
+            earnings_in_expiry_window=False, ex_div_in_expiry_window=False,
+            data_fresh=True)
+        cand = TradeCandidate(symbol="WDC", structure=Structure.CASH_SECURED_PUT,
+                              abs_delta=0.27, dte=35, strike=330.0, contracts=1,
+                              notional_gbp=25_000.0)
+        return evaluate(cand, ctx, PortfolioState(0.0, 0, 0.0),
+                        OptionsRiskConfig(), capital_gates=False)
+
+    uneconomic = _decide(0.30)
+    assert not uneconomic.allowed
+    assert any("IV/HV" in b for b in uneconomic.all_blocks), uneconomic.all_blocks
+
+    thin = _decide(0.80)
+    assert any("IV/HV 0.80" in w for w in thin.warnings), thin.warnings
 
 
-def test_a_name_we_would_not_own_with_ordinary_premium_is_SKIPPED():
-    r = route("SOMECO", implied_vol=0.33, historical_vol=0.30,
-              price=15.0, market_cap_usd=SMALL)
-    assert r.structure is None and r.bucket == "none"
+def test_a_name_we_would_not_own_is_OFFERED_WITH_A_FLOOR_not_skipped():
+    """DELIBERATE BEHAVIOUR CHANGE, 21 Oct 2026.
+
+    This used to assert the name was dropped when its premium was merely
+    ordinary. That was routing making an economics call it no longer makes —
+    and it discarded exactly the owner's second bucket: "on names we do not
+    want to have byut techincally are paying good premium we could sell
+    spread". The name is now offered as a floored trade and the risk engine
+    decides whether the premium justifies it.
+    """
+    r = route("SOMECO", price=15.0, market_cap_usd=SMALL)
+    assert r.structure is Structure.BULL_PUT_SPREAD
+    assert r.bucket == "spread"
+    assert "floor" in r.reason
 
 
-def test_missing_vol_blocks_rather_than_defaults():
-    """An unverifiable gate must refuse. No false positives."""
-    for iv, hv in ((None, 0.30), (0.40, None), (None, None)):
-        r = route("GOOGL", implied_vol=iv, historical_vol=hv,
-                  price=344.0, market_cap_usd=BIG)
-        assert r.structure is None, (iv, hv)
+def test_missing_size_data_blocks_ownership_rather_than_defaulting():
+    """An unverifiable gate must refuse. No false positives.
+
+    Vol is no longer a routing input, so the unverifiable-input case that
+    matters here is the one routing still decides: size.
+    """
+    for px, mc in ((None, BIG), (344.0, None), (None, None)):
+        r = route("GOOGL", price=px, market_cap_usd=mc)
+        assert r.structure is not Structure.CASH_SECURED_PUT, (px, mc)
         assert "unavailable" in r.reason
 
 
 def test_missing_liquidity_data_means_NOT_ownable_not_assumed_ownable():
     """Being unable to show a name is a large cap must not read as 'it is'.
     The cost of this being wrong is owning 100 shares of something unwanted."""
-    r = route("MYSTERY", implied_vol=0.50, historical_vol=0.30,
-              price=None, market_cap_usd=None)
+    r = route("MYSTERY", price=None, market_cap_usd=None)
     assert r.structure is not Structure.CASH_SECURED_PUT
 
 
@@ -96,10 +141,9 @@ def test_the_owner_can_veto_a_name_that_passes_the_measurements():
 
 def test_every_refusal_carries_a_reason():
     """A bare 'no' cannot be acted on."""
-    for r in (route("", implied_vol=0.4, historical_vol=0.3),
-              route("X", implied_vol=None, historical_vol=0.3),
-              route("X", implied_vol=0.30, historical_vol=0.30,
-                    price=5.0, market_cap_usd=1.0)):
+    for r in (route(""),
+              route("X", price=None, market_cap_usd=None),
+              route("X", price=5.0, market_cap_usd=1.0)):
         assert r.reason and len(r.reason) > 10
 
 
@@ -130,8 +174,7 @@ def test_CRWV_is_ownable_despite_85pct_realised_vol():
     sector fell 17-43% while SPY moved 1.6% — not from picking the wrong name.
     A selection rule cannot prevent that; a CONCENTRATION rule can.
     """
-    r = route("CRWV", implied_vol=0.992, historical_vol=0.853,
-              price=63.88, market_cap_usd=34_266_968_064.0)
+    r = route("CRWV", price=63.88, market_cap_usd=34_266_968_064.0)
     assert r.structure is Structure.CASH_SECURED_PUT, r.reason
     assert r.bucket == "own"
 

@@ -83,17 +83,23 @@ MIN_MARKET_CAP_USD = 10_000_000_000.0
 #: A dividend is not required — GOOGL and NVDA pay little or nothing and are
 #: exactly the names named. It is recorded as context, never as a gate.
 
-#: A short put is only worth selling when implied vol exceeds what the stock
-#: actually does — that gap IS the edge. Measured on WDC, 20 Oct: implied 67.0%
-#: against realised 72.8%, i.e. you are paid LESS than the stock moves. Selling
-#: there is negative expectancy before a single other gate.
+#: WHETHER PREMIUM IS RICH IS NOT DECIDED HERE — removed 21 Oct 2026.
 #:
-#: 1.05 rather than 1.00 so a coin-flip margin does not qualify.
-MIN_IV_TO_HV = 1.05
-
-#: Above this the premium is rich enough that a name the owner does NOT want to
-#: own is still worth trading — with a floor under it. Below it, pass.
-RICH_IV_TO_HV = 1.20
+#: Two IV/HV thresholds used to live at this spot and gate routing: refuse
+#: below 1.05x, floor-and-trade above 1.20x. Both are gone, for two reasons.
+#:
+#: They DUPLICATED the risk engine, which already answers exactly this question
+#: — IV-Rank where the window is deep enough, the variance-premium bridge where
+#: it is not — and publishes its reason. One fact decided in two places is the
+#: failure shape this desk keeps paying for.
+#:
+#: And the copy here was the gate the owner disproved. On WDC the ratio passes
+#: at a 30-day window and fails at 6-month and 1-year (1.09x against 0.78x /
+#: 0.80x); the window was never chosen, it was whatever IBKR returned. He had
+#: sold a WDC put and was in profit while this gate said avoid.
+#:
+#: Routing now answers only "would being assigned this be acceptable". Whether
+#: the premium is worth having stays with the engine that gates it.
 
 
 @dataclass(frozen=True)
@@ -174,41 +180,47 @@ def is_ownable(
 def route(
     symbol: str,
     *,
-    implied_vol: float | None,
-    historical_vol: float | None,
     price: float | None = None,
     market_cap_usd: float | None = None,
     reporting_currency: str | None = None,
     deny: frozenset[str] = frozenset(),
 ) -> Routing:
-    """Decide the structure for one name.
+    """Decide the STRUCTURE for one name, from ownership alone.
 
-    implied_vol / historical_vol are annualised fractions (0.67 = 67%), as the
-    IBKR snapshot returns them. EITHER BEING None IS A REFUSAL, not a default:
-    without both we cannot tell whether the premium is worth having, and this
-    desk's rule is that an unverifiable gate blocks rather than passes.
+    ROUTING NO LONGER JUDGES WHETHER PREMIUM IS RICH, and removing that is the
+    point of this function's current shape. It used to gate on the IV/HV ratio
+    twice over — refusing below 1.05x and demanding 1.20x before it would
+    floor a name — which was wrong in two separate ways.
+
+    First, it DUPLICATED a judgement the risk engine already makes. The engine
+    gates premium richness properly, with IV-Rank where the window is deep
+    enough and the variance-premium bridge where it is not, and it publishes
+    its reason. Deciding the same question here meant two places could disagree
+    about one fact, which is the failure shape this desk keeps paying for.
+
+    Second, the copy here was the gate the owner DISPROVED. On WDC the ratio
+    passes at a 30-day window and fails at 6-month and 1-year (1.09x against
+    0.78x / 0.80x), and the window was never chosen — it was whatever IBKR
+    happened to return. The owner had sold a WDC put and was in profit while
+    this gate said avoid. A measure that unreliable has no business deciding
+    the SHAPE of a trade on top of deciding whether to take it.
+
+    So the structure question is now the one the owner actually posed: would
+    being assigned this name be an acceptable outcome?
+
+        ownable      -> CASH_SECURED_PUT   assignment is fine, sell it naked
+        not ownable  -> BULL_PUT_SPREAD    sell the premium, floor the loss
+
+    Whether the premium is worth having at all stays with the risk engine,
+    which refuses with a stated reason either way. The practical effect is that
+    a name we would not want to own is no longer DISCARDED for failing a
+    ratio — it is offered with a floor under it, which is the owner's own
+    second bucket: "on names we do not want to have byut techincally are
+    paying good premium we could sell spread".
     """
     sym = (symbol or "").strip().upper()
     if not sym:
         return Routing(None, "none", "no symbol supplied — nothing to route")
-
-    if implied_vol is None or historical_vol is None:
-        return Routing(None, "none",
-                       "implied or realised vol unavailable — cannot tell whether "
-                       "the premium is worth selling, so not traded")
-    if historical_vol <= 0:
-        return Routing(None, "none", "realised volatility is zero or negative — unusable, so the premium cannot be judged rich or cheap")
-
-    ratio = implied_vol / historical_vol
-
-    # THE ECONOMIC GATE, BEFORE ANY PREFERENCE. Selling premium when implied
-    # sits below realised is paying someone to take your risk, regardless of
-    # how much you like the name.
-    if ratio < MIN_IV_TO_HV:
-        return Routing(
-            None, "none",
-            f"implied {implied_vol:.0%} vs realised {historical_vol:.0%} "
-            f"({ratio:.2f}x) — you would be paid less than the stock moves")
 
     ownable, why_own = is_ownable(price=price, market_cap_usd=market_cap_usd,
                                   reporting_currency=reporting_currency,
@@ -216,23 +228,15 @@ def route(
     if ownable:
         return Routing(
             Structure.CASH_SECURED_PUT, "own",
-            f"{why_own}; implied {implied_vol:.0%} vs realised {historical_vol:.0%} "
-            f"({ratio:.2f}x). Assignment is an acceptable outcome, so the put is "
+            f"{why_own}. Assignment is an acceptable outcome, so the put is "
             f"sold naked and cash-secured.")
 
-    # NOT a name to own. Premium alone decides between a floored trade and none.
-    if ratio >= RICH_IV_TO_HV:
-        return Routing(
-            Structure.BULL_PUT_SPREAD, "spread",
-            f"not one to own ({why_own}), but implied {implied_vol:.0%} vs realised "
-            f"{historical_vol:.0%} ({ratio:.2f}x) pays well — sold as a SPREAD so "
-            f"the loss has a floor. SKHY and CRWV were exactly this case and were "
-            f"sold naked: -1,998 and -602.")
-
     return Routing(
-        None, "none",
-        f"not one to own ({why_own}) and the premium is only {ratio:.2f}x realised "
-        f"— not rich enough to carry a name you do not want")
+        Structure.BULL_PUT_SPREAD, "spread",
+        f"not one to own ({why_own}) — so the premium is sold as a SPREAD, with "
+        f"the loss floored by the long leg rather than running with the stock. "
+        f"SKHY and CRWV were exactly this case and were sold naked: -1,998 "
+        f"and -602.")
 
 
 def summarise(routings: dict[str, Routing]) -> dict[str, int]:
@@ -338,8 +342,6 @@ class Resolution:
 def resolve_structure(
     symbol: str,
     *,
-    implied_vol: float | None,
-    historical_vol: float | None,
     price: float | None = None,
     market_cap_usd: float | None = None,
     reporting_currency: str | None = None,
@@ -348,8 +350,7 @@ def resolve_structure(
     earnings_in_expiry_window: bool | None = None,
     deny: frozenset[str] = frozenset(),
 ) -> Resolution:
-    r = route(symbol, implied_vol=implied_vol, historical_vol=historical_vol,
-              price=price, market_cap_usd=market_cap_usd,
+    r = route(symbol, price=price, market_cap_usd=market_cap_usd,
               reporting_currency=reporting_currency, deny=deny)
     if r.structure is None:
         return Resolution(None, r.bucket, r.reason)
