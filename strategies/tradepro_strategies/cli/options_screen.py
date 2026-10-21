@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 from ..quant_engine.options.iv_rank import fetch_iv_rank
 from ..quant_engine.options.bucket import degrade_for_context
+from ..quant_engine.options.economics import bull_put_spread, cash_secured_put
 from ..quant_engine.options.risk import (
     MarketContext, OptionsRiskConfig, PERMITTED_BY_REGIME, PortfolioState,
     Regime, Structure, TradeCandidate, evaluate,
@@ -1380,7 +1381,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
     chain_iv = None         # the selected quote's own IV — feeds the model cross-check
     spot_divergence = None  # |yf spot / IBKR close − 1| when both known
     from ..quant_engine.options.black_scholes import BlackScholesPricer
-    from ..quant_engine.options.chains import fetch_chain, select_by_abs_delta, delta_of
+    from ..quant_engine.options.chains import (
+        fetch_chain, select_by_abs_delta, select_long_leg, delta_of)
     from ..quant_engine.options.chains_g3 import fetch_chain_g3
     from ..quant_engine.options.chains_ibkr import fetch_chain_ibkr
     # Forward-aware BSM: r from env (bank/risk-free proxy), q = the name's own
@@ -1657,6 +1659,90 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         from dataclasses import replace as _dc_res
         decision = _dc_res(decision,
                            warnings=list(decision.warnings) + list(_resolved.notes))
+
+    # ── WHAT IT CAN MAKE AND WHAT IT CAN LOSE, IN DOLLARS ────────────────
+    #
+    # Owner, 20 Oct 2026: "options we shd eb able to determine as welll on
+    # spread the max loss and gain ... so we have a deterministic possible loss
+    # and profut". A premium number alone cannot answer "should I do this" —
+    # $5.10 of credit was an excellent trade on one name this month and a
+    # -$1,998 one on SKHY, and the row looked the same both times.
+    #
+    # Computed for EVERY structure, not just spreads. A cash-secured put's
+    # worst case is also a number (the strike, less the credit, down to zero)
+    # and showing it beside a spread's capped one is how the floor becomes
+    # visible as a choice rather than jargon.
+    #
+    # NO NUMBER IS INVENTED. A spread needs its long leg PRICED — we pay the
+    # ask for it — and when the chain cannot price one, this says why and
+    # leaves the figures empty. A guessed max loss on a structure whose entire
+    # purpose is a known max loss would be the worst row this screen could
+    # print.
+    spread_econ = None
+    econ_note = None
+    if premium and premium > 0 and strike and strike > 0:
+        try:
+            if structure == Structure.BULL_PUT_SPREAD:
+                _spot_for_leg = sel_spot or ref_close
+                _long = (select_long_leg(
+                            sel_puts, short_strike=strike, spot=_spot_for_leg,
+                            t_years=max(dte, 1) / 365.0, pricer=pricer)
+                         if (sel_puts and _spot_for_leg) else None)
+                if _long is None:
+                    econ_note = (
+                        "Traded as a spread, but no protective strike below "
+                        f"${strike:,.2f} could be priced from this chain — so the "
+                        "max loss is NOT shown rather than guessed at.")
+                else:
+                    _e = bull_put_spread(
+                        short_strike=strike, long_strike=_long.strike,
+                        short_credit_per_share=premium,
+                        long_debit_per_share=_long.ask)
+                    spread_econ = {
+                        "structure": structure.value,
+                        "short_strike": strike,
+                        "long_strike": _long.strike,
+                        "long_debit": round(_long.ask, 2),
+                        "long_abs_delta": round(abs(delta_of(
+                            _long, _spot_for_leg,
+                            max(dte, 1) / 365.0, pricer)), 3),
+                        "width_usd": round((strike - _long.strike) * 100, 2),
+                        "max_gain_usd": round(_e.max_gain, 2),
+                        "max_loss_usd": round(_e.max_loss, 2),
+                        "breakeven": round(_e.breakeven, 2),
+                        "capital_usd": round(_e.capital, 2),
+                        "return_on_risk_pct": round(_e.return_on_risk * 100, 1),
+                        "unbounded": _e.unbounded,
+                        "why": (
+                            f"Sell the ${strike:,.2f} put, buy the "
+                            f"${_long.strike:,.2f}. Worst case ${_e.max_loss:,.0f} "
+                            f"is fixed the day it is opened and cannot grow. The "
+                            f"protective strike is chosen at ~0.10 delta, so its "
+                            f"distance is set by THIS name's own volatility, not "
+                            f"a fixed width."),
+                    }
+            else:
+                _e = cash_secured_put(strike=strike, credit_per_share=premium)
+                spread_econ = {
+                    "structure": structure.value,
+                    "short_strike": strike,
+                    "long_strike": None,
+                    "max_gain_usd": round(_e.max_gain, 2),
+                    "max_loss_usd": round(_e.max_loss, 2),
+                    "breakeven": round(_e.breakeven, 2),
+                    "capital_usd": round(_e.capital, 2),
+                    "return_on_risk_pct": round(_e.return_on_risk * 100, 1),
+                    "unbounded": _e.unbounded,
+                    "why": (
+                        f"Sell the ${strike:,.2f} put naked and secure it with "
+                        f"cash. Keep ${_e.max_gain:,.0f} if it expires above "
+                        f"${_e.breakeven:,.2f}. There is NO floor: the loss runs "
+                        f"with the stock all the way down, worst case "
+                        f"${_e.max_loss:,.0f} at zero."),
+                }
+        except Exception as _ee:  # noqa: BLE001 — a missing number, never a wrong one
+            econ_note = f"Max loss/gain could not be computed: {_ee}"
+            log.warning("%s economics failed: %s", sym, _ee)
 
     _already = bool(book and sym in (book.get("open_symbols") or []))
     if _already:
@@ -1959,6 +2045,15 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "warnings": decision.warnings,
         "suggested_strike": strike,
         "suggested_delta": delta,
+        # THE STRUCTURE, AND WHAT IT COSTS TO BE WRONG. Until today every row
+        # was implicitly a cash-secured put and the screen never said so, which
+        # is why a capped trade and an uncapped one were indistinguishable on
+        # it. `economics` is None with `economics_note` set when a figure could
+        # not be derived — never a placeholder number.
+        "structure": structure.value,
+        "structure_notes": list(_resolved.notes),
+        "economics": spread_econ,
+        "economics_note": econ_note,
         # ── THE REST OF THE GREEKS (1 Sep 2026) ──────────────────────────
         #
         # Owner: "we need more analysis paraneters on analysis screen. it
