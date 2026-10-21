@@ -898,68 +898,38 @@ def resolve_div_yield(symbol: str, broker_div_yield: float | None) -> tuple[floa
     return out
 
 
-_OI_CACHE: dict[str, list[dict]] = {}
 
 
 def resolve_open_interest(symbol: str, *, expiry: str | None, strike: float | None,
                           right: str, chain_oi: int | None) -> tuple[int | None, str]:
-    """Open interest with a fallback to our OWN captured quotes.
+    """Open interest, from the chain or not at all.
 
-    Returns (open_interest, source).
+    THE YAHOO FALLBACK IS GONE (21 Oct 2026). This used to fall back to
+    `option_quote_daily` — our own nightly Yahoo capture — whenever the chain
+    served no OI, on the reasoning that OCC publishes OI once a day so
+    yesterday's close IS today's value. That reasoning is sound for ONE day and
+    was quietly false for sixteen: the capture lane had refused every run since
+    5 Oct (its installed schedule sat outside Yahoo's post-close window), and
+    the screen went on serving fortnight-old OI as current on 9 of 82 rows.
+    Nothing said so, because a fallback that works is indistinguishable from a
+    fallback that is stale.
 
-    Why this is legitimate rather than a degradation: **open interest is
-    published once a day.** OCC computes it overnight and it does not tick.
-    A value captured at yesterday's close IS the current value until the next
-    publication — unlike a price, there is no "live" OI to be stale against.
+    It is also no longer needed. The fallback existed because the chain served
+    OI only patchily — the docstring's own example was KO returning 0 of 7 puts
+    on 16 Aug 2026. With OPRA enabled, measured 21 Oct with the market SHUT,
+    so these are floor numbers rather than best case:
 
-    Why it is needed: the G3 chain serves OI only patchily — measured 16 Aug
-    2026, KO returned 0 of 7 puts with OI and SPY 9 of 19 — which left the
-    liquidity gate unevaluable on 59 of 82 rows. Those rows then BLOCK, because
-    a missing feed must fail closed. So the board showed nothing, not because
-    the names were illiquid but because nobody could say whether they were.
+        MSFT  37/40 legs    KO  34/40 legs    NVDA  10/40 legs
 
-    `option_quote_daily` (our own capture, started 13 Aug) holds the figure.
-    Match is exact on (expiry, strike, right) — never a nearest-strike guess,
-    since OI is strike-specific and a neighbouring strike's OI says nothing
-    about this one.
+    KO is the exact case the fallback was built for.
+
+    So OI now comes from the chain or is reported UNAVAILABLE, and unavailable
+    fails the liquidity gate closed, which is the honest answer. A row that
+    blocks saying "we cannot tell whether this is liquid" is worth more than a
+    row that passes on a number from a fortnight ago.
     """
     if chain_oi is not None:
         return chain_oi, "g3"
-    if not expiry or strike is None:
-        return None, "unavailable"
-    key = symbol.upper()
-    if key not in _OI_CACHE:
-        rows: list[dict] = []
-        try:
-            import requests as _rq
-            from .push_to_api import load_credentials
-            _b, _t = load_credentials()
-            if _b:
-                r = _rq.get(f"{_b.rstrip('/')}/api/options/quotes-daily/{key}?days=7",
-                            headers={"Authorization": f"Bearer {_t}"} if _t else {},
-                            timeout=20)
-                if r.status_code == 200:
-                    rows = (r.json() or {}).get("quotes") or []
-        except Exception as exc:  # noqa: BLE001 — absence is reported, not raised
-            log.debug("%s: captured-OI lookup failed: %s", symbol, exc)
-        _OI_CACHE[key] = rows
-    exp10 = str(expiry)[:10]
-    best: tuple[str, int] | None = None   # (capture_date, oi) — newest wins
-    for q in _OI_CACHE[key]:
-        if (q.get("open_interest") in (None, 0)
-                or str(q.get("right") or "").upper()[:1] != right.upper()[:1]
-                or str(q.get("expiry") or "")[:10] != exp10):
-            continue
-        try:
-            if abs(float(q.get("strike")) - float(strike)) > 1e-6:
-                continue
-        except (TypeError, ValueError):
-            continue
-        cd = str(q.get("capture_date") or "")[:10]
-        if best is None or cd > best[0]:
-            best = (cd, int(q["open_interest"]))
-    if best is not None:
-        return best[1], "own_capture"
     return None, "unavailable"
 
 

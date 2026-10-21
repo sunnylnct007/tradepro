@@ -130,3 +130,46 @@ def test_chain_sourced_healthy_oi_passes():
     d = _decide(868, "g3")
     assert not _oi_blocks(d), _oi_blocks(d)
     assert d.allowed, d.all_blocks
+
+
+# ── OI comes from the chain, or not at all (21 Oct 2026) ───────────────────
+#
+# The Yahoo fallback was removed once OPRA made the chain serve OI directly
+# (MSFT 37/40 legs, KO 34/40, measured with the market SHUT so those are floor
+# numbers). It had been serving SIXTEEN-day-old open interest as current on 9
+# of 82 rows, because the capture lane's installed schedule sat outside Yahoo's
+# post-close window and nothing noticed a fallback silently going stale.
+
+def test_open_interest_comes_from_the_chain():
+    from tradepro_strategies.cli.options_screen import resolve_open_interest
+    oi, src = resolve_open_interest("KO", expiry="2026-11-20", strike=55.0,
+                                    right="P", chain_oi=4200)
+    assert (oi, src) == (4200, "g3")
+
+
+def test_no_chain_oi_is_unavailable_never_a_stored_guess():
+    # Fails CLOSED. A row that blocks saying "we cannot tell whether this is
+    # liquid" is worth more than one that passes on a fortnight-old number.
+    from tradepro_strategies.cli.options_screen import resolve_open_interest
+    oi, src = resolve_open_interest("KO", expiry="2026-11-20", strike=55.0,
+                                    right="P", chain_oi=None)
+    assert oi is None and src == "unavailable"
+
+
+def test_a_real_zero_is_preserved_not_treated_as_missing():
+    # 0 must mean a REAL zero. Coercing it to "missing" would send it looking
+    # for a substitute; coercing missing to 0 fabricated "OI 0 — illiquid"
+    # verdicts on mega-caps whose true OI was 20k+ (AAPL, 9 Aug 2026).
+    from tradepro_strategies.cli.options_screen import resolve_open_interest
+    assert resolve_open_interest("KO", expiry="2026-11-20", strike=55.0,
+                                 right="P", chain_oi=0) == (0, "g3")
+
+
+def test_the_screen_no_longer_reaches_for_the_captured_store():
+    # The removal must be real, not merely unreached. If the HTTP lookup is
+    # still in the module it will fire again the moment someone restores a
+    # branch into it.
+    import inspect
+    from tradepro_strategies.cli import options_screen as osc
+    src = inspect.getsource(osc.resolve_open_interest)
+    assert "quotes-daily" not in src and "own_capture" not in src
