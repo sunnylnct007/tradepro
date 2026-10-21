@@ -24,9 +24,19 @@ none.
 WHAT IT DOES
 ------------
 Walks the universe slowly, pulls each chain once, and upserts the legs into
-`option_quote_daily` — the SAME store the screen's open-interest fallback
-already reads (`resolve_open_interest` → source `own_capture`). So the board
-picks these up without further wiring.
+`option_quote_daily`.
+
+THE SCREEN NO LONGER READS THIS FOR OPEN INTEREST (21 Oct 2026). With OPRA
+enabled the chain serves OI directly — MSFT 37/40 legs, KO 34/40, measured
+with the market shut — so `resolve_open_interest` takes it from the chain or
+reports it unavailable, and the `own_capture` fallback is gone. Leaving this
+sentence saying otherwise would be the kind of comment that describes a path
+which no longer exists, which this desk has been burned by before.
+
+The store itself is still live and still read: lane_sentry, preearnings_watch
+and the MCP quote tool all use it, and chains_g3 writes to it during ordinary
+screen runs. What changed is who reads it for the liquidity gate, not whether
+it is worth keeping.
 
 Provenance is preserved: rows are written with source='yfinance_chain', never
 'g3_chain'. A Yahoo quote and an IBKR quote must never be indistinguishable —
