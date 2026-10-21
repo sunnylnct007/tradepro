@@ -1869,6 +1869,34 @@ export const api = {
       market_open: boolean;
       candidates: Array<{
         symbol: string;
+        /** The structure the engine actually decided on. Until 21 Oct 2026
+         *  every row was implicitly a cash-secured put and the screen never
+         *  said so, which is why a capped trade and an uncapped one were
+         *  indistinguishable on the board. */
+        structure?: string | null;
+        /** Why it is not the structure we first wanted — regime, an earnings
+         *  print, or both. Empty on the plain path. */
+        structure_notes?: string[] | null;
+        /** Max gain / max loss / breakeven in dollars. NULL when a figure
+         *  could not be derived (see `economics_note`) — never a placeholder,
+         *  because a guessed max loss on a defined-risk structure defeats the
+         *  point of the structure. */
+        economics?: {
+          structure: string;
+          short_strike: number;
+          long_strike: number | null;
+          long_debit?: number;
+          long_abs_delta?: number;
+          width_usd?: number;
+          max_gain_usd: number;
+          max_loss_usd: number;
+          breakeven: number;
+          capital_usd: number;
+          return_on_risk_pct: number;
+          unbounded: boolean;
+          why: string;
+        } | null;
+        economics_note?: string | null;
         regime: string | null;
         iv_rank: number | null;
         iv: number | null;
