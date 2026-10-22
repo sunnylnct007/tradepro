@@ -433,38 +433,52 @@ def poison_check(closes, volumes=None):
 # from optionable + liquidity + per-position affordability. Deriving it today
 # would silently change which names get screened on a live trading surface, so
 # that is a separate reviewable step, not a side effect of consolidation.
-WHEEL_SLEEVE: tuple[str, ...] = (
-    # original core
-    "CVX", "XOM", "ABBV", "JNJ", "VZ", "MO", "PG", "DUK", "D", "PEP",
-    # affordable, liquid chains (fit a £10k/pos pot)
-    "KO", "T", "PFE", "F", "INTC", "BAC", "WFC", "CSCO", "MU", "GM",
-    "SLB", "OXY", "KMI", "DVN", "GILD", "BMY", "CMCSA", "DOW", "WMB", "HPE",
-    # mega-liquid chains — the deepest/tightest option markets there are. Their
-    # strikes only fit a RAISED pot (TRADEPRO_WHEEL_PER_POSITION_GBP): the
-    # notional gate decides affordability per the user's configured capital,
-    # the universe just makes them CANDIDATES (config-driven, not pre-filtered).
-    "NVDA", "GOOGL", "AAPL", "MSFT", "AMD", "QCOM",
-    # expansion 36 → 66 (owner 2026-08-09: "we need more symbols to compare").
-    # Same bar: liquid chains, names you'd accept assignment on.
-    # financials / healthcare / consumer / tech / energy / industrials
-    "IBM", "JPM", "C", "USB", "SCHW", "MRK", "CVS", "TGT", "SBUX", "NKE",
-    "KHC", "MDLZ", "ORCL", "DELL", "HPQ", "HAL", "FCX", "NEM", "DAL", "UPS", "ON",
-    # ETFs — natural wheel underlyings: deep chains and STRUCTURALLY no
-    # earnings event inside any expiry window (see _ETF_UNDERLYINGS).
-    "XLE", "XLF", "XLI", "XLU", "GDX", "SLV", "TLT", "IWM", "KRE",
-    # owner's IBKR "TradePro-Screen" watchlist merge (10 Aug 2026 — "is the
-    # list based on my IBKR watchlist?" — it is now): the equities from that
-    # watchlist not already above. Watchlist edits still need a manual sync
-    # here (auto-sync = future work; the MCP watchlist API is session-side).
-    "ACN", "TSLA", "GS", "MS", "META", "UBER", "DIS", "HOOD", "MRVL",
-    "APLD", "AMZN", "PLTR", "IBKR",
-    # index ETFs (owner 11 Aug 2026: "add index on the option wheel screen").
-    # ETF form, NOT SPX-style index options — those are cash-settled/European
-    # so they can't assign shares, which breaks the wheel's assignment leg.
-    # SPY/QQQ strikes only fit a raised per-position pot; the notional gate
-    # reports that honestly rather than pre-filtering them out.
-    "SPY", "QQQ", "DIA",
-)
+#: DERIVED, NOT TYPED — switched 22 Oct 2026.
+#:
+#: This was 82 hand-typed symbols, and the comment above has asked for this
+#: change for weeks. Measured before the switch:
+#:
+#:     tradeable universe (harvested, bars kept, costs paid)   956
+#:     screened for options                                     82
+#:     harvested but NEVER looked at                           874
+#:
+#: The board saw 8.6% of the names we already pay to harvest. The owner noticed
+#: because MDB — "best put option i have see is mongo db" — was absent. It was
+#: not blocked, not illiquid, not refused. It had never been typed in.
+#:
+#: `tradepro-wheel-universe` now scans all 956 against the SAME `is_ownable`
+#: the router uses — price floor, market-cap floor, currency check — and writes
+#: the result to wheel_sleeve.json, which is committed. 642 qualify. Every
+#: future change to who gets screened arrives as a reviewable diff with the
+#: measurement beside it, rather than as someone remembering to edit a tuple.
+#:
+#: TWO NAMES LEFT THE BOARD in the switch, both correctly and both checked
+#: against the book first (only SLV was held, and it stays):
+#:   F     $11.90  — under the $20 price floor
+#:   APLD  $6.3bn  — under the $10bn size floor, AND on record as a risk the
+#:                   owner ACCEPTED. The gate cannot know that. If APLD belongs
+#:                   on the board it is a named exception the owner adds, not
+#:                   something quietly re-encoded here.
+#:
+#: FAILS LOUDLY IF THE FILE IS MISSING. A silent fallback to a stale hand list
+#: is how a screen ends up describing the past — which is the whole fault being
+#: fixed. No file, no sleeve, and the caller finds out immediately.
+def _load_wheel_sleeve() -> tuple[str, ...]:
+    import json as _json
+    p = Path(__file__).resolve().parents[1] / "universe" / "wheel_sleeve.json"
+    if not p.exists():
+        raise FileNotFoundError(
+            f"{p} is missing — the option sleeve is DERIVED, not typed. "
+            f"Run `tradepro-wheel-universe --write` and commit the result. "
+            f"Refusing to fall back to a hand list that would silently screen "
+            f"the wrong names.")
+    syms = _json.loads(p.read_text())["symbols"]
+    if not syms:
+        raise ValueError(f"{p} contains no symbols — refusing an empty sleeve")
+    return tuple(syms)
+
+
+WHEEL_SLEEVE: tuple[str, ...] = _load_wheel_sleeve()
 
 
 def universe_by_tag(tag: str, *, strict: bool = False) -> list[str]:

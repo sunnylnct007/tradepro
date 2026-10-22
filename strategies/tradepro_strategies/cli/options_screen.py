@@ -1688,6 +1688,15 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                         "capital_usd": round(_e.capital, 2),
                         "return_on_risk_pct": round(_e.return_on_risk * 100, 1),
                         "unbounded": _e.unbounded,
+                        # NET of the long leg — see _net_theta_per_day. The
+                        # row's own theta_per_day is the short leg alone and
+                        # overstates this on every spread.
+                        "net_theta_per_day": (_nt := _net_theta_per_day(
+                            pricer, _spot_for_leg, dte,
+                            short_strike=strike, short_iv=(chain_iv or ivr.iv),
+                            long_strike=_long.strike, long_iv=_long.iv)),
+                        "daily_income_usd": (None if _nt is None
+                                             else round(_nt * 100, 2)),
                         "why": (
                             f"Sell the ${strike:,.2f} put, buy the "
                             f"${_long.strike:,.2f}. Worst case ${_e.max_loss:,.0f} "
@@ -1708,6 +1717,13 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                     "capital_usd": round(_e.capital, 2),
                     "return_on_risk_pct": round(_e.return_on_risk * 100, 1),
                     "unbounded": _e.unbounded,
+                    # Naked short: no long leg bleeding against it, so the
+                    # seller keeps the whole decay.
+                    "net_theta_per_day": (_nt := _net_theta_per_day(
+                        pricer, ref_close, dte,
+                        short_strike=strike, short_iv=(chain_iv or ivr.iv))),
+                    "daily_income_usd": (None if _nt is None
+                                         else round(_nt * 100, 2)),
                     "why": (
                         f"Sell the ${strike:,.2f} put naked and secure it with "
                         f"cash. Keep ${_e.max_gain:,.0f} if it expires above "
@@ -2406,6 +2422,43 @@ def _expiry_kind(expiry: str | None) -> str | None:
         return "weekly"
     # Third Friday: the first Friday is day 1-7, so the third falls on 15-21.
     return "monthly" if 15 <= d.day <= 21 else "weekly"
+
+
+def _net_theta_per_day(pricer, spot, dte, *, short_strike, short_iv,
+                       long_strike=None, long_iv=None) -> float | None:
+    """What the POSITION actually earns per calendar day, per share.
+
+    THE ROW'S `theta_per_day` IS THE SHORT LEG ALONE, and for a spread that
+    overstates the income — on the 21 Oct board, 62 of 82 rows. The long leg
+    you BOUGHT decays too, and its decay works against you:
+
+        short put   we are short it, so we GAIN its decay    -theta_short
+        long put    we are long it, so we LOSE its decay     +theta_long
+        net                                                   theta_long - theta_short
+
+    Both thetas are negative, so the subtraction is what makes the net smaller
+    than the short leg: with theta_short -0.17 and theta_long -0.05 the honest
+    figure is 0.12/share/day, not 0.17.
+
+    Returns None rather than a zero when anything is missing. A zero reads as
+    "this trade earns nothing", which is a claim about the trade; absent means
+    we could not compute it. The screen must not conflate the two.
+    """
+    try:
+        if not spot or not dte or dte <= 0 or not short_strike or not short_iv:
+            return None
+        t = max(int(dte), 1) / 365.0
+        th_s = pricer.greeks(float(spot), float(short_strike), t,
+                             float(short_iv), "put").theta_per_year / 365.0
+        if long_strike is None:
+            return round(-th_s, 4)          # naked short: we keep all of it
+        if not long_iv or long_iv <= 0:
+            return None                      # a spread we cannot price honestly
+        th_l = pricer.greeks(float(spot), float(long_strike), t,
+                             float(long_iv), "put").theta_per_year / 365.0
+        return round(th_l - th_s, 4)
+    except Exception:  # noqa: BLE001 — a missing number, never a wrong one
+        return None
 
 
 def _derived_greeks(pricer, spot, strike, dte, iv) -> dict:

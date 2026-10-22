@@ -83,11 +83,38 @@ def test_universe_by_tag_is_empty_not_explosive_before_a_rebuild():
     assert isinstance(universe_tags(), dict)
 
 
-def test_the_wheel_list_exists_in_exactly_one_place():
-    """Structural. A second copy is the whole defect — and was nearly
-    reintroduced by the change that removed it."""
+def test_no_python_file_carries_a_hand_typed_wheel_list():
+    """Structural, and STRONGER than the rule it replaces.
+
+    This used to assert the literal list appeared in exactly ONE .py file. As
+    of 22 Oct 2026 it must appear in NONE: the sleeve is derived by
+    `tradepro-wheel-universe` into a committed wheel_sleeve.json, because a
+    hand list had grown 82 names while the tradeable universe held 956 — the
+    board was screening 8.6% of what we harvest, and MDB was absent purely
+    because nobody typed it in.
+
+    A second copy was always the defect. A FIRST copy typed by hand turned out
+    to be one too, so the grep now looks for any reappearance of the old list
+    anywhere in the package.
+    """
     literal = re.compile(r'"CVX"\s*,\s*"XOM"')
     holders = [f.relative_to(_PKG).as_posix()
                for f in _PKG.rglob("*.py") if literal.search(f.read_text())]
-    assert holders == ["universe.py"], (
-        f"the wheel sleeve is defined in more than one place: {holders}")
+    assert holders == [], (
+        f"a hand-typed wheel sleeve has come back in: {holders}. The list is "
+        f"DERIVED — run `tradepro-wheel-universe --write` and commit the JSON.")
+
+
+def test_the_derived_sleeve_is_the_single_source():
+    """And it must actually be there. A missing file is a loud failure, never
+    a silent fallback to a stale hand list — that fallback is precisely how a
+    screen ends up describing the past."""
+    import json
+    from tradepro_strategies.universe import WHEEL_SLEEVE
+    p = _PKG.parent / "universe" / "wheel_sleeve.json"
+    assert p.exists(), f"{p} missing — the sleeve has no source"
+    syms = json.loads(p.read_text())["symbols"]
+    assert tuple(syms) == WHEEL_SLEEVE
+    assert len(WHEEL_SLEEVE) > 100, (
+        f"only {len(WHEEL_SLEEVE)} names — the derivation scanned 956 and "
+        f"qualified 642; a sudden collapse means a partial scan was written")
