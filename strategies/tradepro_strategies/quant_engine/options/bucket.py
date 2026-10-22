@@ -69,16 +69,28 @@ MIN_PRICE_USD = 20.0
 
 # THE SIZE FLOOR, which is what "would I own this" actually turns on.
 #
-# $10bn is the conventional large-cap boundary, not a number invented here.
-# The owner's requirement was "i do not want to do any penny stock trading"
-# and "or a small cap ones" — small cap conventionally ends at $2bn and mid
-# cap at $10bn, so this is their sentence expressed in the market's own
-# vocabulary rather than a threshold tuned until the answers looked right.
+# $30bn, RAISED FROM $10bn on 22 Oct 2026 — and the reason is the owner's, not
+# a tuning exercise.
+#
+# $10bn is the conventional large-cap boundary, and applied to the derived
+# universe it qualified 642 names. The owner's reply was immediate and right:
+# "this is the thing we shdnbt expand to 8 timres ... too many symbols are
+# noise". The board already showed 82 rows to surface 34, and the card that
+# ranks them carries its own complaint about exactly that.
+#
+# $30bn is where the owner's OWN examples sit. Every name they have named is at
+# or above it — PG $370bn, KO $402bn, MSFT $3,949bn, NVDA $5,227bn, GOOGL
+# $4,162bn — and MDB at $31bn is the smallest they have called good ("best put
+# option i have see is mongo db"). So the floor is drawn at the edge of the
+# set they described, not fitted to make a count look tidy.
+#
+# Measured effect: 642 -> 338 names, and MDB survives. $50bn would cut to 256
+# and lose MDB, which is the name that started this.
 #
 # Sanity-checked against the names the owner NAMED, 21 Oct 2026:
 #   PG $370bn · KO $402bn · MSFT $3,949bn · NVDA $5,227bn · GOOGL $4,162bn
 #   CRWV $34bn — "core weave is fine ... its a good name" — passes comfortably
-MIN_MARKET_CAP_USD = 10_000_000_000.0
+MIN_MARKET_CAP_USD = 30_000_000_000.0
 
 #: A dividend is not required — GOOGL and NVDA pay little or nothing and are
 #: exactly the names named. It is recorded as context, never as a gate.

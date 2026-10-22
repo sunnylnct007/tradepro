@@ -251,6 +251,23 @@ export function ActionBoard() {
   const putsWorth = puts.filter((p) => (p.ev ?? -1) > 0);
   const putsThin = puts.filter((p) => (p.ev ?? -1) <= 0);
 
+  // SHOW THE BEST ONES, COUNT THE REST.
+  //
+  // Owner, 22 Oct 2026: "too many symbols are noise". Screening more names and
+  // printing all of them are different decisions, and only the second makes a
+  // board unreadable: 82 names already produced 34 positive-expectancy rows,
+  // and this card's own header has complained since September that the boards
+  // "showed 82 option rows to surface 18".
+  //
+  // Rows are already sorted by expectancy, so the top of the list IS the
+  // answer to "what should I do today". The tail is one click away and its
+  // size is stated — never silently dropped, which is this card's first rule
+  // and the reason this is a toggle rather than a filter.
+  const TOP_N = 12;
+  const [showAllPuts, setShowAllPuts] = useState(false);
+  const putsShown = showAllPuts ? putsWorth : putsWorth.slice(0, TOP_N);
+  const putsHidden = putsWorth.length - putsShown.length;
+
   return (
     <div style={{
       border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px",
@@ -301,7 +318,21 @@ export function ActionBoard() {
 
       {putsWorth.length > 0 && (
         <div style={{ marginTop: buys.length ? 14 : 12 }}>
-          {putsWorth.map((a) => <Line key={a.key} a={a} />)}
+          {putsShown.map((a) => <Line key={a.key} a={a} />)}
+          {(putsHidden > 0 || showAllPuts) && (
+            <div
+              onClick={() => setShowAllPuts((v) => !v)}
+              style={{
+                fontSize: 11.5, color: TONE.dim, cursor: "pointer",
+                padding: "6px 0 2px", userSelect: "none",
+              }}
+            >
+              {showAllPuts
+                ? `▲ show only the best ${TOP_N}`
+                : `▼ ${putsHidden} more worth selling, ranked below these — `
+                  + `show all ${putsWorth.length}`}
+            </div>
+          )}
         </div>
       )}
 
