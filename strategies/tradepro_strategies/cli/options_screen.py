@@ -22,6 +22,7 @@ import json
 import os
 import pathlib
 import time
+import time as _time_mod
 
 import requests
 from datetime import datetime, timezone
@@ -2718,9 +2719,40 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     except Exception as e:  # noqa: BLE001 — no carry is a degraded, not failed, run
         log.warning("carry-forward map unavailable (%s) — dark rows won't carry", e)
 
+    # ── WALL-CLOCK BUDGET ────────────────────────────────────────────────
+    #
+    # The universe went from 82 names to 642 on 22 Oct 2026, and this loop has
+    # never had a deadline. At the 11s/symbol measured in-session that is ~2
+    # hours, which is fine for a board read the next morning. At the 75s/symbol
+    # measured PRE-OPEN — when G3 cannot read spot and every name burns two 22s
+    # retry cycles — it is thirteen hours: past the close, into the next
+    # session, publishing a board stamped with the day it started.
+    #
+    # That is not hypothetical. The capture lane carries MAX_RUN_S because one
+    # of its runs took 22 hours and ate a whole day unnoticed. Making this job
+    # eight times bigger without the same guard would be repeating that.
+    #
+    # ON EXPIRY WE PUBLISH WHAT WE HAVE, loudly, rather than nothing. A partial
+    # board that says it is partial beats the alternative this desk actually
+    # lived through: two consecutive days where the screen ran, failed at the
+    # very end, and left the owner reading a board dated 19 Oct.
+    budget_s = float(os.environ.get("TRADEPRO_SCREEN_MAX_RUN_S", 3 * 3600))
+    started = _time_mod.monotonic()
+    truncated_at = None
+
     rows = []
     try:
-        for sym in universe:
+        for i, sym in enumerate(universe, 1):
+            if _time_mod.monotonic() - started > budget_s:
+                truncated_at = i - 1
+                log.error(
+                    "WALL-CLOCK BUDGET REACHED after %.0f min — screened %d of "
+                    "%d names and publishing those. The remaining %d are NOT on "
+                    "the board and are NOT refusals: they were never reached. "
+                    "Raise TRADEPRO_SCREEN_MAX_RUN_S or shrink the universe.",
+                    (_time_mod.monotonic() - started) / 60.0, truncated_at,
+                    len(universe), len(universe) - truncated_at)
+                break
             rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp,
                                        carry_row=carry.get(sym), portfolio=portfolio, book=book))
             log.info("screened %s", sym)
@@ -2756,6 +2788,16 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         "eligible_count": len(eligible_rows),
         "short_eligible": short_eligible,
         "data_health": data_health,
+        # A PARTIAL BOARD MUST SAY SO. None = the whole universe was screened.
+        # Without this a truncated run is indistinguishable from a universe
+        # that simply got smaller, and "not reached" would read as "refused".
+        "truncated": (None if truncated_at is None else {
+            "screened": truncated_at,
+            "universe": len(universe),
+            "not_reached": len(universe) - truncated_at,
+            "why": (f"wall-clock budget of {budget_s/3600:.1f}h reached; the "
+                    f"remaining names were never screened and are not refusals"),
+        }),
         # The book the gates were evaluated against — so a reader can see WHY
         # capital gates fired (or that they could not be enforced at all).
         "book": book,
