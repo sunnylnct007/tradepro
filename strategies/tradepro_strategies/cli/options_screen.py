@@ -2587,6 +2587,26 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
 _PUBLISH_ATTEMPTS = int(os.environ.get("TRADEPRO_PUBLISH_ATTEMPTS", "4"))
 _PUBLISH_BACKOFF_S = float(os.environ.get("TRADEPRO_PUBLISH_BACKOFF_S", "5"))
 
+#: HARD wall-clock ceiling for ONE publish attempt, DNS lookup included.
+#:
+#: requests' `timeout` governs connect and read on a SOCKET. It does not
+#: govern getaddrinfo, which is a blocking C call the socket layer cannot
+#: interrupt — so when DNS itself hangs, `timeout=30` does nothing.
+#:
+#: Measured on the 23 Oct failure, from the lane's own log:
+#:     attempt 1  16:43:04
+#:     attempt 2  17:11:20     <- 28 MINUTES for a "5s" backoff
+#: Four attempts were supposed to span about half a minute. They spanned
+#: thirty-eight, all of it inside the outage, which is why the retry added on
+#: 20 Oct did not save the 23 Oct board.
+#:
+#: The attempt therefore runs in a worker thread and is ABANDONED at this
+#: deadline. The thread may still be stuck in getaddrinfo — nothing can fix
+#: that — but it no longer holds up the retry, so four attempts now actually
+#: span four attempts.
+_PUBLISH_ATTEMPT_DEADLINE_S = float(
+    os.environ.get("TRADEPRO_PUBLISH_ATTEMPT_DEADLINE_S", "20"))
+
 #: Where a payload goes when it cannot be published at all. A LOCAL file, which
 #: this desk's storage policy otherwise forbids (Postgres + S3, never local) —
 #: and the exception is the entire point: the only reason we are here is that
@@ -2595,6 +2615,75 @@ _PUBLISH_BACKOFF_S = float(os.environ.get("TRADEPRO_PUBLISH_BACKOFF_S", "5"))
 #: it automatically; it exists so a day's work is recoverable by hand instead
 #: of destroyed.
 _PUBLISH_SPOOL = pathlib.Path.home() / ".tradepro" / "unpublished"
+
+
+def _drain_spool(url: str, headers: dict) -> int:
+    """Publish any board a previous run computed but could not deliver.
+
+    THE SPOOL WAS A MORGUE, NOT A QUEUE. A payload written there stayed there
+    until someone noticed and republished it by hand. On 23 Oct 2026 the screen
+    computed all 338 names, lost the publish to a DNS outage, spooled the
+    result — and the owner read a board dated 21 Oct for two days, with the
+    correct one sitting on disk the whole time.
+
+    So the spool is drained at the START of every run, BEFORE the expensive
+    work. If the network has recovered since, the board self-heals without
+    anyone looking at a log.
+
+    ONLY EVER FORWARD. A spooled payload is published only when it is NEWER
+    than what is already live — a stale file must never overwrite a fresher
+    board, which is the one way this could do harm. Compared on
+    generated_at_utc, the payload's own stamp, not the file's mtime.
+
+    Failures here are logged and swallowed: a spool that cannot drain must not
+    stop today's screen from running. Best-effort recovery, never a new way to
+    fail.
+    """
+    if not _PUBLISH_SPOOL.is_dir():
+        return 0
+    pending = sorted(_PUBLISH_SPOOL.glob("options-candidates-*.json"))
+    if not pending:
+        return 0
+
+    live_stamp = ""
+    try:
+        r = requests.get(url, headers=headers, timeout=(5, 20))
+        if r.status_code == 200:
+            live_stamp = str((r.json() or {}).get("generated_at_utc") or "")
+    except Exception as exc:  # noqa: BLE001 — unknown live board, so publish none
+        log.warning("spool: cannot read the live board (%s) — leaving %d "
+                    "pending file(s) alone rather than risk overwriting a "
+                    "fresher one", str(exc)[:80], len(pending))
+        return 0
+
+    published = 0
+    for f in pending:
+        try:
+            payload = json.loads(f.read_text())
+            stamp = str(payload.get("generated_at_utc") or "")
+            if stamp <= live_stamp:
+                log.info("spool: %s is not newer than the live board (%s) — "
+                         "discarding rather than publishing backwards",
+                         f.name, live_stamp[:19])
+                f.rename(f.with_suffix(".json.superseded"))
+                continue
+            resp = requests.post(url, json=payload, headers=headers,
+                                 timeout=(5, 60))
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}")
+            rows = payload.get("candidates") or []
+            log.warning(
+                "spool: RECOVERED a board from %s — %d rows, %d eligible, "
+                "computed %s. It was lost to a failed publish and is now live.",
+                f.name, len(rows), sum(1 for x in rows if x.get("eligible")),
+                stamp[:19])
+            f.rename(f.with_suffix(".json.published"))
+            live_stamp = stamp
+            published += 1
+        except Exception as exc:  # noqa: BLE001 — never block the screen
+            log.warning("spool: could not republish %s (%s) — left in place",
+                        f.name, str(exc)[:80])
+    return published
 
 
 def _publish_with_retry(url: str, payload: dict, headers: dict, rows: list):
@@ -2618,10 +2707,39 @@ def _publish_with_retry(url: str, payload: dict, headers: dict, rows: list):
     swallowing it would turn a visible failure into a silently stale board,
     which is the worse of the two outcomes by a wide margin.
     """
+    import concurrent.futures as _cf
+
     last: Exception | None = None
     for attempt in range(1, max(_PUBLISH_ATTEMPTS, 1) + 1):
         try:
-            return requests.post(url, json=payload, headers=headers, timeout=30)
+            # (connect, read) explicitly, AND a hard deadline around the whole
+            # call — see _PUBLISH_ATTEMPT_DEADLINE_S for why the timeout
+            # argument alone is not enough when DNS is what hangs.
+            # NOT a `with` block — that was the bug, caught by its own test.
+            # ThreadPoolExecutor.__exit__ calls shutdown(wait=True), which
+            # JOINS the hung worker on the way out: the deadline fired on time
+            # and the context manager then waited for the thread anyway, so
+            # the attempt still took as long as the hang. The executor is
+            # abandoned explicitly instead.
+            _ex = _cf.ThreadPoolExecutor(max_workers=1)
+            fut = _ex.submit(requests.post, url, json=payload,
+                             headers=headers, timeout=(5, 30))
+            try:
+                resp = fut.result(timeout=_PUBLISH_ATTEMPT_DEADLINE_S)
+                _ex.shutdown(wait=False)
+                return resp
+            except _cf.TimeoutError:
+                # A thread stuck in getaddrinfo cannot be cancelled. Let it
+                # leak and move on — the process is short-lived and the
+                # alternative is the 28-minute stall this exists to end.
+                _ex.shutdown(wait=False)
+                raise TimeoutError(
+                    f"publish attempt exceeded "
+                    f"{_PUBLISH_ATTEMPT_DEADLINE_S:.0f}s (DNS or connect "
+                    f"hung — the socket timeout cannot interrupt it)")
+            except Exception:
+                _ex.shutdown(wait=False)
+                raise
         except Exception as exc:  # noqa: BLE001 — retry ANY transport failure
             last = exc
             if attempt < _PUBLISH_ATTEMPTS:
@@ -2739,6 +2857,16 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     budget_s = float(os.environ.get("TRADEPRO_SCREEN_MAX_RUN_S", 3 * 3600))
     started = _time_mod.monotonic()
     truncated_at = None
+
+    # Recover anything a previous run computed but could not deliver, before
+    # spending an hour computing today's. See _drain_spool.
+    try:
+        _b0, _t0 = _pta.load_credentials()
+        if _b0:
+            _drain_spool(f"{_b0.rstrip('/')}/api/options/candidates",
+                         {"Authorization": f"Bearer {_t0}"} if _t0 else {})
+    except Exception as exc:  # noqa: BLE001 — recovery must never block a run
+        log.warning("spool drain skipped: %s", str(exc)[:100])
 
     rows = []
     try:
