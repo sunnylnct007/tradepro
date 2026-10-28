@@ -1863,6 +1863,37 @@ export const api = {
   // Options Desk — wheel candidate screen. Produced by the Mac
   // tradepro-options-screen job (IV-Rank + regime + risk engine) and
   // pushed to /api/options/candidates. Empty until the first screen runs.
+  /** The live option chain for one symbol — real contracts, real quotes.
+   *  Used by the spread builder, which has to price strikes the screen did
+   *  not pick. Quote fields are null outside market hours; the caller must
+   *  say so rather than render a spread it cannot price. */
+  optionChain: (symbol: string, opts?: { expiry?: string; targetDte?: number }) =>
+    get<{
+      symbol: string;
+      spot: number | null;
+      month: string | null;
+      availableExpiries: string[] | null;
+      error?: string | null;
+      legs: Array<{
+        conId: number;
+        strike: number;
+        right: string;
+        bid: number | null;
+        ask: number | null;
+        last: number | null;
+        delta: number | null;
+        theta: number | null;
+        impliedVolPct: number | null;
+        openInterest: number | null;
+        priorClose: number | null;
+        maturityDate: string | null;
+      }>;
+    }>(`/api/ibkr/chain/${encodeURIComponent(symbol)}`, {
+      right: "P",
+      ...(opts?.expiry ? { expiry: opts.expiry } : {}),
+      ...(opts?.targetDte ? { targetDte: opts.targetDte } : {}),
+    }),
+
   optionsCandidates: () =>
     get<{
       generated_at_utc: string | null;
