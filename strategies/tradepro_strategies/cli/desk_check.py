@@ -327,6 +327,19 @@ def check_host_power() -> list[Check]:
     pct = int(m.group(1)) if m else None
     charging = "discharging" not in out
 
+    # AC ATTACHED IS NOT THE SAME AS KEEPING UP, and reading it that way was a
+    # false OK in the first version of this check — caught within minutes of
+    # shipping it, on the very machine it was written for. An underpowered
+    # adapter leaves the host on mains AND still draining, which ends in the
+    # same sleep as no adapter at all, reported as healthy on the way down.
+    if on_ac and not charging and pct is not None and pct <= 20:
+        return [Check(
+            "Host power", WARN,
+            f"on mains but still DISCHARGING at {pct}% — the adapter is not "
+            f"keeping up, so the host will sleep anyway. Being plugged in is "
+            f"not the same as being powered.",
+            "check the adapter and the cable — a low-wattage charger will not "
+            "hold this machine through a screen run")]
     if on_ac or charging:
         return [Check("Host power", OK,
                       f"on mains{f' at {pct}%' if pct is not None else ''} — "
