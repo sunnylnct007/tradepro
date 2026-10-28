@@ -287,6 +287,62 @@ DEPLOY_SCRIPTS = pathlib.Path("/Users/skumar/tradepro-deploy/strategies/scripts"
 LAUNCH_AGENTS = pathlib.Path.home() / "Library" / "LaunchAgents"
 
 
+def check_host_power() -> list[Check]:
+    """Is the machine every lane runs on actually going to stay awake?
+
+    WHAT THIS MISSED, 19-28 Oct 2026. Four boards were lost and I diagnosed it
+    three times — a DNS blink, then a DNS outage, then a monotonic() bug — and
+    all three were downstream of one fact nothing reported: THE LAPTOP WAS ON
+    BATTERY.
+
+    On battery this Mac sleeps after ONE MINUTE idle (pmset: `sleep 1`), and
+    the caffeinate we hold is `-s -i`, which prevents system sleep only on AC.
+    So the 27 Oct screen run limped across a night of Sleep/DarkWake cycles at
+    3% charge, took 16h48m of wall clock for ~3h of work, and finished the next
+    morning in a different network state — which surfaced as a DNS failure and
+    sent me chasing the network twice.
+
+    Every scheduled lane on this desk assumes a machine that is awake at 16:00
+    and still awake an hour later. Nothing checked whether that was true.
+
+    Reports the charge and the source, because a warning without its number is
+    a mood. Discharging is a WARNING rather than a block: a laptop on battery
+    mid-afternoon is normal and will probably be plugged in by the evening —
+    but it is the single fact that most reliably predicts a lane failing, and
+    it has to be visible before the run rather than inferred from the wreckage.
+    """
+    import subprocess
+    try:
+        out = subprocess.run(["pmset", "-g", "batt"], capture_output=True,
+                             text=True, timeout=10).stdout
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Host power", UNKNOWN,
+                      f"could not read the power source ({type(exc).__name__})",
+                      "run this on the Mac that hosts the lanes")]
+    if not out.strip():
+        return [Check("Host power", UNKNOWN, "pmset returned nothing")]
+
+    on_ac = "'AC Power'" in out
+    m = re.search(r"(\d+)%", out)
+    pct = int(m.group(1)) if m else None
+    charging = "discharging" not in out
+
+    if on_ac or charging:
+        return [Check("Host power", OK,
+                      f"on mains{f' at {pct}%' if pct is not None else ''} — "
+                      f"the lanes can stay awake")]
+
+    detail = (f"running on BATTERY at {pct}%" if pct is not None
+              else "running on BATTERY")
+    return [Check(
+        "Host power", WARN,
+        f"{detail} — on battery this Mac sleeps after 1 minute idle "
+        f"(pmset `sleep 1`), and our caffeinate only prevents sleep on AC. A "
+        f"scheduled run WILL be interrupted: the 27 Oct screen took 16h48m of "
+        f"wall clock for ~3h of work and lost its publish.",
+        "plug the Mac in — no code change substitutes for this")]
+
+
 def check_lane_schedules() -> list[Check]:
     """Does launchd run the schedule that is in the repo?
 
@@ -836,7 +892,8 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_option_legs_vs_book(base, token),
                lambda: check_idle_machinery(base, token),
                check_code_version,
-               check_lane_schedules):
+               check_lane_schedules,
+               check_host_power):
         try:
             checks.extend(fn())
         except Exception as exc:  # noqa: BLE001
