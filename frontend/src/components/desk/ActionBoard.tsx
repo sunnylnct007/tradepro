@@ -36,6 +36,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api/client";
+import { SpreadBuilder } from "./SpreadBuilder";
 
 const TONE = {
   ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30",
@@ -69,6 +70,8 @@ type Act = {
   notes: string[];
   /** The full sentences behind `notes`, for the tooltip. */
   noteDetail?: string;
+  /** Enough to open the spread builder on this row's actual contract. */
+  build?: { symbol: string; dte: number | null; shortK: number | null; longK: number | null };
   strategy: string;
   gated: boolean;
   /** Expectancy per cycle, % of collateral, net of the measured spread.
@@ -201,6 +204,11 @@ export function ActionBoard() {
             ? `${econ.short_strike}/${econ.long_strike} put spread`
             : `${c.suggested_strike} strike`;
           out.push({
+            build: {
+              symbol: c.symbol, dte: dte ?? null,
+              shortK: econ?.short_strike ?? c.suggested_strike ?? null,
+              longK: econ?.long_strike ?? null,
+            },
             key: `wheel-${c.symbol}`, kind: "put",
             verb: isSpread ? "SELL A PUT SPREAD" : "SELL A PUT",
             symbol: c.symbol,
@@ -265,6 +273,7 @@ export function ActionBoard() {
   // and the reason this is a toggle rather than a filter.
   const TOP_N = 12;
   const [showAllPuts, setShowAllPuts] = useState(false);
+  const [building, setBuilding] = useState<Act["build"] | null>(null);
   const putsShown = showAllPuts ? putsWorth : putsWorth.slice(0, TOP_N);
   const putsHidden = putsWorth.length - putsShown.length;
 
@@ -316,9 +325,18 @@ export function ActionBoard() {
         </div>
       )}
 
+      {building && (
+        <SpreadBuilder
+          symbol={building.symbol} dte={building.dte}
+          initialShort={building.shortK} initialLong={building.longK}
+          onClose={() => setBuilding(null)}
+        />
+      )}
       {putsWorth.length > 0 && (
         <div style={{ marginTop: buys.length ? 14 : 12 }}>
-          {putsShown.map((a) => <Line key={a.key} a={a} />)}
+          {putsShown.map((a) => (
+            <Line key={a.key} a={a} onBuild={a.build ? () => setBuilding(a.build!) : undefined} />
+          ))}
           {(putsHidden > 0 || showAllPuts) && (
             <div
               onClick={() => setShowAllPuts((v) => !v)}
@@ -377,9 +395,13 @@ export function ActionBoard() {
   );
 }
 
-function Line({ a }: { a: Act }) {
+function Line({ a, onBuild }: { a: Act; onBuild?: () => void }) {
   return (
-    <div style={{
+    <div
+      onClick={onBuild}
+      title={onBuild ? "open the spread builder — move the strikes and see what changes" : undefined}
+      style={{
+      cursor: onBuild ? "pointer" : undefined,
       display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap",
       padding: "6px 0", borderBottom: "1px solid var(--border-subtle, transparent)",
     }}>
