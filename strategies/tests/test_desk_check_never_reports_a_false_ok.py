@@ -159,6 +159,7 @@ def test_a_check_that_crashes_becomes_UNKNOWN_rather_than_vanishing(monkeypatch)
     # what it is for. It also reads the real filesystem, so leaving it unstubbed
     # would make this assertion depend on the machine it runs on.
     monkeypatch.setattr(dc, "check_lane_schedules", lambda *a, **k: [])
+    monkeypatch.setattr(dc, "check_host_power", lambda *a, **k: [])
     checks = dc.run_checks("http://x", None)
     assert [c.status for c in checks] == [UNKNOWN]
     assert "kaboom" in checks[0].detail
