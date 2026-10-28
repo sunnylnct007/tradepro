@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import pathlib
 import sys
 import time
@@ -67,6 +68,28 @@ DERIVED_PATH = pathlib.Path(__file__).resolve().parents[2] / "universe" / "wheel
 
 #: Be kind to the fundamentals source — this walks ~950 symbols.
 PACE_S = 0.35
+
+#: HOW MANY NAMES THE SCREEN ACTUALLY RUNS. Owner's call, 28 Oct 2026:
+#: "we can reduce symbols to max 60-100 i think ... we dont have to verstrecth".
+#:
+#: This is a RUNTIME ceiling before it is a taste judgement. At ~180s/symbol
+#: measured, 338 names is about three hours of compute — and this Mac sleeps
+#: through the night, so a run that long straddles the sleep boundary, finishes
+#: the next morning in a different network state, and loses its publish. Four
+#: boards went that way in a week. A hundred names finishes inside the evening
+#: and none of that happens.
+#:
+#: Ranked by market cap, biggest first. The owner chose this over a hybrid with
+#: a hand-kept exception list, explicitly for having nothing to maintain —
+#: THE COST IS REAL AND IS NOT HIDDEN: the floor lands near $150bn, so MDB
+#: ($31bn) and every mid-cap drop off the board. MDB is the name that prompted
+#: deriving the universe at all. Raise --max-names, or switch to a hybrid, if
+#: that trade stops being worth it.
+#:
+#: ETFs are kept outside the cap: there are 15, they carry no market cap to
+#: rank by, and they are the index and sector underlyings the sleeve holds
+#: deliberately.
+MAX_NAMES = int(os.environ.get("TRADEPRO_WHEEL_MAX_NAMES", "100"))
 
 
 def _candidates() -> list[str]:
@@ -113,6 +136,8 @@ def main() -> int:
     ap.add_argument("--write", action="store_true", help="emit the derived list")
     ap.add_argument("--dry-run", action="store_true", help="report only (default)")
     ap.add_argument("--limit", type=int, help="stop after N symbols (for a quick look)")
+    ap.add_argument("--max-names", type=int, default=MAX_NAMES,
+                    help=f"cap the sleeve at N names, biggest first (default {MAX_NAMES})")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -154,8 +179,22 @@ def main() -> int:
             print(f"  [{i}/{len(syms)}] {len(keep)} qualifying so far")
         time.sleep(PACE_S)
 
-    keep.sort(key=lambda r: -(r.get("market_cap_usd") or 0))
+    # ETFs first and unranked (no market cap), then the biggest companies up
+    # to the cap. Sorting before the cut is what makes "biggest first" true.
+    etf_rows = [r for r in keep if not r.get("market_cap_usd")]
+    co_rows = sorted((r for r in keep if r.get("market_cap_usd")),
+                     key=lambda r: -r["market_cap_usd"])
+    room = max(a.max_names - len(etf_rows), 0)
+    capped_out = co_rows[room:]
+    keep = etf_rows + co_rows[:room]
     derived = [r["symbol"] for r in keep]
+    if capped_out:
+        floor = co_rows[room - 1]["market_cap_usd"] / 1e9 if room else 0
+        print(f"\ncapped at {a.max_names} names: {len(capped_out)} qualifying "
+              f"name(s) left OFF the board, everything below ${floor:,.0f}bn. "
+              f"They passed every gate and are excluded for RUNTIME, not merit.")
+        notable = [r["symbol"] for r in capped_out[:12]]
+        print(f"  biggest excluded: {', '.join(notable)}")
     added = sorted(set(derived) - set(WHEEL_SLEEVE))
     # Under --limit, "removed" is dominated by names never reached, so the
     # comparison is suppressed rather than printed with a caveat nobody reads.
