@@ -115,6 +115,12 @@ def test_the_derived_sleeve_is_the_single_source():
     assert p.exists(), f"{p} missing — the sleeve has no source"
     syms = json.loads(p.read_text())["symbols"]
     assert tuple(syms) == WHEEL_SLEEVE
-    assert len(WHEEL_SLEEVE) > 100, (
-        f"only {len(WHEEL_SLEEVE)} names — the derivation scanned 956 and "
-        f"qualified 642; a sudden collapse means a partial scan was written")
+    # Guards a PARTIAL SCAN being written, which would silently shrink the
+    # board. Measured against the configured cap rather than a fixed number —
+    # the sleeve is deliberately capped (100 on 28 Oct 2026, for runtime), so
+    # an absolute floor here would have to be edited every time the cap moves
+    # and would stop guarding anything in between.
+    from tradepro_strategies.cli.wheel_universe import MAX_NAMES
+    assert len(WHEEL_SLEEVE) >= MAX_NAMES * 0.8, (
+        f"only {len(WHEEL_SLEEVE)} names against a cap of {MAX_NAMES} — a "
+        f"collapse this far below the cap means a partial scan was written")

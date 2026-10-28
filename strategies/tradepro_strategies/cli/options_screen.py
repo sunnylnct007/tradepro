@@ -2854,8 +2854,22 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     # board that says it is partial beats the alternative this desk actually
     # lived through: two consecutive days where the screen ran, failed at the
     # very end, and left the owner reading a board dated 19 Oct.
+    # WALL CLOCK, NOT monotonic() — the bug that let a 3-hour budget run for
+    # seventeen hours.
+    #
+    # time.monotonic() does not advance while macOS is asleep, and this Mac
+    # sleeps repeatedly through the night (pmset log, 27 Oct: Sleep/DarkWake
+    # cycles from 00:06 onward, on battery at 3% charge). So the budget was
+    # measuring AWAKE time only. The 27 Oct run started 16:01, finished 08:49
+    # the next morning — 16h48m of wall clock, roughly 3h of actual work — and
+    # the check never once fired because monotonic() had not reached 3h.
+    #
+    # That is also the real cause of the publish failures blamed on DNS all
+    # week. The run limped across the night and finished in a different
+    # network state from the one it started in. Fix the duration and the DNS
+    # symptom goes with it.
     budget_s = float(os.environ.get("TRADEPRO_SCREEN_MAX_RUN_S", 3 * 3600))
-    started = _time_mod.monotonic()
+    started = _time_mod.time()
     truncated_at = None
 
     # Recover anything a previous run computed but could not deliver, before
@@ -2871,14 +2885,14 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     rows = []
     try:
         for i, sym in enumerate(universe, 1):
-            if _time_mod.monotonic() - started > budget_s:
+            if _time_mod.time() - started > budget_s:
                 truncated_at = i - 1
                 log.error(
                     "WALL-CLOCK BUDGET REACHED after %.0f min — screened %d of "
                     "%d names and publishing those. The remaining %d are NOT on "
                     "the board and are NOT refusals: they were never reached. "
                     "Raise TRADEPRO_SCREEN_MAX_RUN_S or shrink the universe.",
-                    (_time_mod.monotonic() - started) / 60.0, truncated_at,
+                    (_time_mod.time() - started) / 60.0, truncated_at,
                     len(universe), len(universe) - truncated_at)
                 break
             rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp,
