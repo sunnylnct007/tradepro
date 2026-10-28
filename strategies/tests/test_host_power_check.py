@@ -52,3 +52,35 @@ def test_empty_output_is_unknown_not_ok(monkeypatch):
     _pmset(monkeypatch, "")
     (c,) = dc.check_host_power()
     assert c.status == dc.UNKNOWN
+
+
+def test_on_mains_but_still_draining_is_NOT_ok(monkeypatch):
+    """A FALSE OK IN THE FIRST VERSION, caught minutes after shipping.
+
+    An underpowered adapter leaves the host on mains AND discharging, which
+    ends in exactly the same sleep as no adapter — reported as healthy the
+    whole way down. Plugged in is not the same as powered.
+    """
+    _pmset(monkeypatch,
+           "Now drawing from 'AC Power'\n -InternalBattery-0\t6%; discharging; 0:20")
+    (c,) = dc.check_host_power()
+    assert c.status == dc.WARN
+    assert "6%" in c.detail and "DISCHARGING" in c.detail
+
+
+def test_on_mains_and_charging_from_low_is_ok(monkeypatch):
+    # The ordinary recovery case: plugged in at 3% and climbing is fine, and
+    # must not nag.
+    _pmset(monkeypatch,
+           "Now drawing from 'AC Power'\n -InternalBattery-0\t3%; charging; (no estimate)")
+    (c,) = dc.check_host_power()
+    assert c.status == dc.OK
+
+
+def test_on_mains_at_a_healthy_level_is_ok_even_if_idle(monkeypatch):
+    # 'AC attached; not charging' at 95% is normal battery management, not a
+    # failing adapter — the low-charge condition is what distinguishes them.
+    _pmset(monkeypatch,
+           "Now drawing from 'AC Power'\n -InternalBattery-0\t95%; AC attached; not charging")
+    (c,) = dc.check_host_power()
+    assert c.status == dc.OK
