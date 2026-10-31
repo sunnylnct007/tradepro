@@ -2869,8 +2869,12 @@ def run_screen(symbols: list[str] | None = None) -> dict:
     # network state from the one it started in. Fix the duration and the DNS
     # symptom goes with it.
     budget_s = float(os.environ.get("TRADEPRO_SCREEN_MAX_RUN_S", 3 * 3600))
+    #: Per-symbol ceiling — see the note in the loop. Healthy is 16-20s.
+    per_symbol_s = float(os.environ.get("TRADEPRO_SCREEN_PER_SYMBOL_S", "90"))
+    import concurrent.futures as _cf_mod
     started = _time_mod.time()
     truncated_at = None
+    skipped_slow: list[str] = []
 
     # Recover anything a previous run computed but could not deliver, before
     # spending an hour computing today's. See _drain_spool.
@@ -2895,9 +2899,46 @@ def run_screen(symbols: list[str] | None = None) -> dict:
                     (_time_mod.time() - started) / 60.0, truncated_at,
                     len(universe), len(universe) - truncated_at)
                 break
-            rows.append(_screen_symbol(ib if connected else None, ib_insync, sym, cfg, market_open, nav_gbp,
-                                       carry_row=carry.get(sym), portfolio=portfolio, book=book))
-            log.info("screened %s", sym)
+            # ── PER-SYMBOL DEADLINE ──────────────────────────────────────
+            #
+            # ONE SLOW CHAIN MUST NOT COST THE BOARD. On 30 Oct 2026 three
+            # symbols consumed the entire 217-minute budget — DIA ~16 min,
+            # EEM ~90, GDX ~92, each on repeated "Read timed out" from the G3
+            # chain — and the other 97 names were never looked at. The board
+            # published 3 rows and 0 eligible, which the owner reasonably read
+            # as the desk being broken.
+            #
+            # The fetch already has a 30s timeout; 90 minutes means retries
+            # compounding across the expiry list, the month, the DTE-band
+            # fallback and the spot priming. Rather than chase each site, the
+            # cost is capped HERE, where no retry I failed to find can get
+            # around it. Measured healthy latency is 16-20s, so 90s is roughly
+            # five times headroom and still bounds a pathological run to all
+            # 100 names rather than three.
+            #
+            # The worker is abandoned, not joined — joining it is what the
+            # deadline exists to avoid. It leaks a thread that will expire on
+            # its own HTTP timeout; a screen that loses 97 names is worse.
+            _sym_started = _time_mod.time()
+            _ex1 = _cf_mod.ThreadPoolExecutor(max_workers=1)
+            try:
+                _fut = _ex1.submit(
+                    _screen_symbol, ib if connected else None, ib_insync, sym, cfg,
+                    market_open, nav_gbp, carry_row=carry.get(sym),
+                    portfolio=portfolio, book=book)
+                rows.append(_fut.result(timeout=per_symbol_s))
+                log.info("screened %s in %.0fs", sym, _time_mod.time() - _sym_started)
+            except _cf_mod.TimeoutError:
+                # NOT a refusal — it was never assessed. Said plainly so the
+                # row is not later read as "this name failed a gate".
+                skipped_slow.append(sym)
+                log.warning(
+                    "%s ABANDONED after %.0fs — the chain did not answer inside "
+                    "the per-symbol budget. NOT a refusal: this name was never "
+                    "assessed. Continuing so the rest of the board survives.",
+                    sym, per_symbol_s)
+            finally:
+                _ex1.shutdown(wait=False)
     finally:
         if connected:
             ib.disconnect()
@@ -2933,6 +2974,14 @@ def run_screen(symbols: list[str] | None = None) -> dict:
         # A PARTIAL BOARD MUST SAY SO. None = the whole universe was screened.
         # Without this a truncated run is indistinguishable from a universe
         # that simply got smaller, and "not reached" would read as "refused".
+        # Names the chain would not answer for. Reported separately from
+        # refusals because they are not the same thing: a refusal is a
+        # judgement, this is an absence of one.
+        "not_assessed": ({"symbols": skipped_slow, "count": len(skipped_slow),
+                          "why": f"the chain did not answer within "
+                                 f"{per_symbol_s:.0f}s; these were never assessed "
+                                 f"and are NOT refusals"}
+                         if skipped_slow else None),
         "truncated": (None if truncated_at is None else {
             "screened": truncated_at,
             "universe": len(universe),
