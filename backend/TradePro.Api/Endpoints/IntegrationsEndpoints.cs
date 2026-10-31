@@ -1638,13 +1638,50 @@ public static class IntegrationsEndpoints
 
             // Position book in the ingest shape (snake_case field names the
             // /api/ingest/account-state handler + broker_account_state store read).
+            // AN OPTION IS NOT A STOCK, and this block said it was.
+            //
+            // secType was hardcoded "STK" with the comment "Web API positions
+            // here are equities". True when written; false the moment the desk
+            // began booking options. On 31 Oct 2026, 40 of 60 positions were
+            // option legs reported as stock, and every downstream surface
+            // believed it:
+            //
+            //   * the cockpit raised "22 equity SHORT ... no strategy or
+            //     manual order created it. Reconcile in the broker" — about
+            //     trades TradePro had placed itself that afternoon
+            //   * P&L% read -99% on legs that were fine
+            //   * deployed capital counted an option premium as share value
+            //
+            // IBKRPosition has carried AssetClass, ContractDesc and Multiplier
+            // since 31 Aug 2026, added for precisely this, and its own comment
+            // predicted today's symptom: "Comparing them directly produced
+            // '-99.06%' on a position that was up $38.63." The fields existed;
+            // this endpoint simply never read them.
+            //
+            // MULTIPLIER IS WHY THE PERCENTAGES WERE NONSENSE. IBKR reports an
+            // option's avgCost as premium x multiplier while marketPrice is PER
+            // SHARE, so marketValue must apply the multiplier or a $1.57 put
+            // shows a market value of $1.57 against a $220 cost basis.
             var positions = pos.Positions.Select(p =>
             {
-                decimal? marketValue = (p.Quantity is decimal q && p.MarketPrice is decimal mp) ? q * mp : (decimal?)null;
+                var cls = (p.AssetClass ?? "").Trim().ToUpperInvariant();
+                var isOpt = cls is "OPT" or "FOP";
+                // Default 1 rather than 100: a wrong multiplier silently
+                // misstates every figure, and only an option should ever carry
+                // one. Unknown asset class stays STK, which is what it was
+                // before — this change must not reclassify anything it cannot
+                // positively identify.
+                var mult = p.Multiplier is decimal m && m > 0 ? m : (isOpt ? 100m : 1m);
+                decimal? marketValue = (p.MarketPrice is decimal mp)
+                    ? p.Quantity * mp * mult : (decimal?)null;
                 return new
                 {
-                    symbol = p.Symbol,
-                    secType = "STK",              // Web API positions here are equities
+                    // The CONTRACT when we have it — "SPY" tells you nothing
+                    // about which strike or expiry you are short.
+                    symbol = string.IsNullOrWhiteSpace(p.ContractDesc) ? p.Symbol : p.ContractDesc,
+                    underlying = p.Symbol,
+                    secType = isOpt ? "OPT" : string.IsNullOrWhiteSpace(cls) ? "STK" : cls,
+                    multiplier = mult,
                     qty = p.Quantity,
                     mark = p.MarketPrice,
                     marketValue,

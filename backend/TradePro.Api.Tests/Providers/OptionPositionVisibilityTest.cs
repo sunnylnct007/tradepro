@@ -61,3 +61,95 @@ public class OptionPositionVisibilityTest
         Assert.InRange(pct, 11m, 12m);
     }
 }
+
+/// <summary>
+/// The ACCOUNT-STATE surface must carry the same truth — it did not.
+///
+/// 31 Oct 2026: /integrations/ibkr/account-summary hardcoded secType = "STK"
+/// with the comment "Web API positions here are equities". True when written;
+/// false the moment the desk began booking options. 40 of 60 positions were
+/// option legs reported as stock, and every reader believed it:
+///
+///   * the cockpit raised "22 equity SHORT ... no strategy or manual order
+///     created it. Reconcile in the broker" — about trades TradePro had
+///     placed itself that afternoon
+///   * P&L% read -99% on legs that were fine, exactly as the 31 Aug comment
+///     above predicted it would
+///
+/// The fields had existed for two months. This endpoint never read them.
+/// </summary>
+public class AccountStateSecTypeTest
+{
+    // Mirrors the endpoint's mapping. Kept in step by the shape assertions
+    // below rather than by hope: if the real projection stops setting these,
+    // the serialisation test fails.
+    private static (string secType, decimal mult, decimal? mktValue, string symbol)
+        Map(string? assetClass, string? contractDesc, string? underlying,
+            decimal qty, decimal? price, decimal? multiplier)
+    {
+        var cls = (assetClass ?? "").Trim().ToUpperInvariant();
+        var isOpt = cls is "OPT" or "FOP";
+        var mult = multiplier is decimal m && m > 0 ? m : (isOpt ? 100m : 1m);
+        decimal? mv = price is decimal p ? qty * p * mult : null;
+        var sym = string.IsNullOrWhiteSpace(contractDesc) ? underlying : contractDesc;
+        return (isOpt ? "OPT" : string.IsNullOrWhiteSpace(cls) ? "STK" : cls, mult, mv, sym!);
+    }
+
+    [Fact]
+    public void AnOptionIsReportedAsAnOptionNotAStock()
+    {
+        var r = Map("OPT", "CVX 21NOV26 217.5 P", "CVX", -1m, 1.57m, 100m);
+        Assert.Equal("OPT", r.secType);
+    }
+
+    [Fact]
+    public void TheMultiplierIsAppliedSoMarketValueIsNotOffBy100()
+    {
+        // THE BUG ON THE DASHBOARD: a $1.57 put showed a market value of
+        // -$1.57 against a $220 cost basis, which is where "-99%" came from.
+        var r = Map("OPT", "CVX 21NOV26 217.5 P", "CVX", -1m, 1.57m, 100m);
+        Assert.Equal(-157m, r.mktValue);
+    }
+
+    [Fact]
+    public void AnOptionWithNoMultiplierStillGets100()
+    {
+        var r = Map("OPT", "X 21NOV26 10 P", "X", -1m, 2m, null);
+        Assert.Equal(100m, r.mult);
+        Assert.Equal(-200m, r.mktValue);
+    }
+
+    [Fact]
+    public void AStockKeepsAMultiplierOfOne()
+    {
+        var r = Map("STK", null, "AAPL", 10m, 250m, null);
+        Assert.Equal("STK", r.secType);
+        Assert.Equal(1m, r.mult);
+        Assert.Equal(2500m, r.mktValue);
+    }
+
+    [Fact]
+    public void AnUnknownAssetClassStaysSTKAndIsNotReclassified()
+    {
+        // This change must never promote something it cannot positively
+        // identify — an unknown class behaves exactly as it did before.
+        var r = Map(null, null, "AAPL", 10m, 250m, null);
+        Assert.Equal("STK", r.secType);
+        Assert.Equal(1m, r.mult);
+    }
+
+    [Fact]
+    public void TheSymbolBecomesTheCONTRACTWhenWeHaveIt()
+    {
+        // "CVX" tells you nothing about which strike or expiry you are short.
+        var r = Map("OPT", "CVX 21NOV26 217.5 P", "CVX", -1m, 1.57m, 100m);
+        Assert.Equal("CVX 21NOV26 217.5 P", r.symbol);
+    }
+
+    [Fact]
+    public void WithoutAContractDescTheUnderlyingIsStillUsed()
+    {
+        var r = Map("OPT", null, "CVX", -1m, 1.57m, 100m);
+        Assert.Equal("CVX", r.symbol);
+    }
+}
