@@ -52,3 +52,54 @@ def test_not_reached_is_not_reported_as_refused():
     src = _run_screen_src()
     assert "not_reached" in src
     assert "not refusals" in src or "NOT refusals" in src
+
+
+# ── one slow chain must not cost the board (30 Oct 2026) ──────────────────
+#
+# Three symbols consumed the entire 217-minute budget — DIA ~16 min, EEM ~90,
+# GDX ~92, each on repeated "Read timed out" from the G3 chain — and the other
+# 97 were never looked at. The board published 3 rows, 0 eligible, which reads
+# as the desk being broken rather than one endpoint being slow.
+
+def test_each_symbol_has_its_own_deadline():
+    src = _run_screen_src()
+    assert "TRADEPRO_SCREEN_PER_SYMBOL_S" in src, (
+        "without a per-symbol cap, one hanging chain consumes the whole run — "
+        "measured 30 Oct: 3 names, 217 minutes")
+
+
+def test_a_slow_symbol_is_abandoned_not_waited_on():
+    src = _run_screen_src()
+    # Joining the worker is exactly what the deadline exists to avoid; the
+    # publish path shipped with that bug and its test caught it.
+    assert "shutdown(wait=False)" in src
+
+
+def test_the_run_CONTINUES_after_a_slow_symbol():
+    # The whole point: losing one name must not lose the other 99.
+    src = _run_screen_src()
+    i_timeout = src.index("TimeoutError")
+    assert "break" not in src[i_timeout:i_timeout + 400], (
+        "a slow symbol must be skipped, not end the loop")
+
+
+def test_an_abandoned_symbol_is_NOT_reported_as_a_refusal():
+    """The distinction that keeps the board honest.
+
+    A refusal is a judgement — we looked and said no, with a reason. An
+    abandoned symbol was never assessed. Blurring them would let "the chain
+    timed out" read as "this name failed a gate", which is the false-clear
+    shape this desk keeps removing.
+    """
+    src = _run_screen_src()
+    assert "not_assessed" in src
+    assert "NOT a refusal" in src or "NOT refusals" in src
+
+
+def test_the_default_leaves_real_headroom():
+    import os
+    from tradepro_strategies.cli import options_screen  # noqa: F401
+    d = float(os.environ.get("TRADEPRO_SCREEN_PER_SYMBOL_S", "90"))
+    # Healthy latency measured 31 Oct: MSFT 15.8s, KO 16.4s, DIA 19.5s.
+    assert d >= 60, f"{d}s would abandon healthy symbols (~20s measured)"
+    assert d <= 180, f"{d}s x 100 names is too slow to finish in an evening"
