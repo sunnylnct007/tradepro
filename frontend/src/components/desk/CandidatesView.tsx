@@ -107,6 +107,9 @@ const num = (v: number | null | undefined, d = 2, suf = "") =>
     ? <span style={{ color: MUTED }}>—</span>
     : `${v.toFixed(d)}${suf}`;
 
+/** Sleeves running --wind-down: exits only, so no row of theirs is a BUY. */
+const WINDING_DOWN = new Set(["Swing", "Momentum"]);
+
 /** Age of an artifact in hours, or null when it carries no as_of. */
 function plainAction(r: Row): { text: string; tone: string; strong: boolean } {
   /** What the reader should DO, in words a person uses.
@@ -119,15 +122,45 @@ function plainAction(r: Row): { text: string; tone: string; strong: boolean } {
   const a = String(r.action || "").toLowerCase();
   const failed = r.tierRaw === "failed";
 
+  // A SLEEVE IN WIND-DOWN DOES NOT BUY, and this table said it did.
+  //
+  // Swing and Momentum have run --wind-down (exits only) since 20 Oct 2026,
+  // after ENTRY_EDGE_GATES_V1 graded their entries NEGATIVE against both
+  // controls on 8 of 8 combinations. The engine filters every BUY at the order
+  // chokepoint. This table went on printing "BUY today" in green for
+  // SEVENTEEN momentum names that could never be placed.
+  //
+  // The ActionBoard was fixed for exactly this in #324 and this table was not
+  // — one fact, two render sites, landed at one. Again.
   if (a === "buy" || a === "consider") {
+    if (WINDING_DOWN.has(r.strategy)) {
+      return { text: "exits only — this sleeve is winding down, no new entries",
+               tone: TONE.warn, strong: false };
+    }
     return failed
       ? { text: "BUY — but this strategy failed its own backtest", tone: TONE.warn, strong: true }
       : { text: "BUY today", tone: TONE.ok, strong: true };
   }
-  if (a === "sell put") {
+  // AN UNPRICEABLE CONTRACT IS NOT AN INSTRUCTION.
+  //
+  // The board was printing "SELL A PUT today" in green beside its own reason
+  // column saying "chain returned the leg but no bid/ask after 6 poll(s) over
+  // ~25s" and "chain served no expiry list", with the %/yr column empty. It
+  // was telling the owner to sell a contract that HAS NO PRICE — and doing it
+  // in the same tone as a fully-quoted trade.
+  //
+  // Owner, 31 Oct 2026: "candidate list liek giving me no cliue". This is why.
+  // A row you cannot act on must not look like one you can.
+  if (a === "sell put" || a === "sell put spread") {
+    const unpriced = r.metric == null;
+    const spread = a === "sell put spread";
+    const what = spread ? "SELL A PUT SPREAD" : "SELL A PUT";
+    if (unpriced) {
+      return { text: `${what} — NOT PRICED, cannot act`, tone: TONE.warn, strong: false };
+    }
     return failed
-      ? { text: "SELL A PUT — strategy unproven, size small", tone: TONE.warn, strong: true }
-      : { text: "SELL A PUT today", tone: TONE.ok, strong: true };
+      ? { text: `${what} — strategy unproven, size small`, tone: TONE.warn, strong: true }
+      : { text: `${what} today`, tone: TONE.ok, strong: true };
   }
   // A SPREAD IS NOT A NAKED PUT, and this table said it was.
   //
