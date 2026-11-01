@@ -69,6 +69,32 @@ public static class SecretsBundleLoader
     };
 
     /// <summary>
+    /// Map for the standalone <c>tradepro/ibkr-flex</c> secret.
+    ///
+    /// SEPARATE FROM tradepro/ibkr ON PURPOSE, and the separation is the
+    /// safety property rather than tidiness. A Flex token can pull reports
+    /// and NOTHING else — it cannot place, modify or cancel an order. So the
+    /// live account can be READ for risk without the credential that could
+    /// trade it ever existing on this box, which is the owner's standing rule
+    /// ("by no means we can hit live ibkr") kept by construction rather than
+    /// by a flag someone could flip.
+    ///
+    /// It also survives what the trading session does not: measured 2 Oct
+    /// 2026 across 285 probes, the Client Portal session was healthy only 46%
+    /// of the time. Flex is a file over HTTPS with its own token and its own
+    /// expiry, so it answers when that session is dark.
+    ///
+    /// The query ids are not secrets — they are report numbers — but they
+    /// live here so all three rotate together and there is one place to look.
+    /// </summary>
+    private static readonly Dictionary<string, string> IbkrFlexKeyMap = new()
+    {
+        ["token"]               = "IBKRFlex:Token",
+        ["positions_query_id"]  = "IBKRFlex:PositionsQueryId",
+        ["trades_query_id"]     = "IBKRFlex:TradesQueryId",
+    };
+
+    /// <summary>
     /// Map for the standalone <c>tradepro/ibkr</c> secret (snake_case
     /// inside the secret → IBKR:* config). Kept separate from KeyMap +
     /// IgKeyMap so the IBKR creds rotate independently. The private/public
@@ -209,6 +235,13 @@ public static class SecretsBundleLoader
         // RSA signing pair. Same independent-rotation pattern as IG. Loads
         // unconditionally; absent secret just means IBKR stays disabled.
         LoadSecondary(builder, existing, region, "tradepro/ibkr", IbkrKeyMap, log);
+
+        // Standalone IBKR FLEX secret (tradepro/ibkr-flex) — read-only report
+        // access to the LIVE account. The endpoint's "not configured" message
+        // has named this secret since Flex was built; nothing ever loaded it,
+        // so populating it did nothing. Absent secret just means Flex stays
+        // disabled and says so.
+        LoadSecondary(builder, existing, region, "tradepro/ibkr-flex", IbkrFlexKeyMap, log);
     }
 
     private static void LoadSecondary(
