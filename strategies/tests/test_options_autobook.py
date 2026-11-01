@@ -30,13 +30,64 @@ def test_an_oversized_position_is_refused_with_its_number():
     assert "96,500" in p["reason"] and "per-position" in p["reason"]
 
 
-def test_the_day_has_a_ceiling_not_just_the_position():
-    # Twenty individually-affordable trades can still be an unaffordable book.
+def test_the_day_has_a_ceiling_not_just_the_position(monkeypatch):
+    """Twenty individually-affordable trades can still be an unaffordable book.
+
+    Each row gets its OWN sector so the DAY ceiling is the rule under test.
+    Without that they all fall into "unknown" together and the sector cap
+    fires first — which is correct behaviour and exactly what broke this test
+    when the cap landed, but it is a different rule and deserves its own.
+    """
     rows = [_row(f"S{i}", 10_000, ror=20 - i) for i in range(12)]
+    monkeypatch.setattr(ab, "_sectors", lambda: {f"S{i}": f"sector{i}" for i in range(12)})
     plan = ab._plan(rows)
     booked = [p for p in plan if p["book"]]
     assert sum(p["capital_usd"] for p in booked) <= ab.MAX_DEPLOY_USD
     assert any("ceiling" in p["reason"] for p in plan if not p["book"])
+
+
+# ── sector concentration (31 Oct 2026) ────────────────────────────────────
+#
+# Of 18 spreads booked on 28 Oct, ELEVEN were tech or semis — 61% of the book
+# in one theme — and the sell-off that followed took DELL -14.1%, GOOGL -13.9%,
+# ARM -12.7% while XOM, KO, CVX, MRK, ABBV, V and JPM were untouched. Every
+# position was inside its own limit; the BOOK was not diversified at all.
+
+def test_one_sector_cannot_take_the_whole_book(monkeypatch):
+    rows = [_row(f"T{i}", 8_000, ror=20 - i) for i in range(8)]
+    monkeypatch.setattr(ab, "_sectors", lambda: {f"T{i}": "Technology" for i in range(8)})
+    plan = ab._plan(rows)
+    tech = sum(p["capital_usd"] for p in plan if p["book"])
+    assert tech <= ab.MAX_SECTOR_SHARE * ab.MAX_DEPLOY_USD
+    assert any("sector cap" in p["reason"] for p in plan if not p["book"])
+
+
+def test_the_sector_refusal_says_it_is_about_the_BOOK_not_the_trade(monkeypatch):
+    # A refusal that reads as "this is a bad trade" would be false — the trade
+    # is fine, the book already leans. The distinction has to survive onto the
+    # row or the owner learns to distrust the gate.
+    rows = [_row(f"T{i}", 8_000, ror=20 - i) for i in range(8)]
+    monkeypatch.setattr(ab, "_sectors", lambda: {f"T{i}": "Technology" for i in range(8)})
+    refused = [p for p in ab._plan(rows) if not p["book"]]
+    assert refused and any("Diversification, not merit" in p["reason"] for p in refused)
+
+
+def test_different_sectors_are_not_capped_against_each_other(monkeypatch):
+    rows = [_row(f"S{i}", 8_000, ror=20 - i) for i in range(4)]
+    monkeypatch.setattr(ab, "_sectors",
+                        lambda: {"S0": "Technology", "S1": "Energy",
+                                 "S2": "Healthcare", "S3": "Financials"})
+    plan = ab._plan(rows)
+    assert all(p["book"] for p in plan), [p["reason"] for p in plan if not p["book"]]
+
+
+def test_an_unknown_sector_does_not_get_a_free_pass(monkeypatch):
+    # Grouping unknowns together is deliberate: an unclassified name must not
+    # be the way round the cap.
+    rows = [_row(f"U{i}", 8_000, ror=20 - i) for i in range(8)]
+    monkeypatch.setattr(ab, "_sectors", lambda: {})
+    plan = ab._plan(rows)
+    assert any("sector cap" in p["reason"] for p in plan if not p["book"])
 
 
 def test_unpriced_capital_is_refused_never_assumed_zero():

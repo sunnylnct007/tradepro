@@ -24,91 +24,91 @@
   "XLF",
   "XLI",
   "XLU",
-  "NVDA",
   "AAPL",
+  "NVDA",
   "MSFT",
   "GOOGL",
   "GOOG",
   "AMZN",
-  "AVGO",
   "TSLA",
   "META",
-  "BRK-B",
+  "AVGO",
   "LLY",
+  "BRK-B",
   "MU",
   "WMT",
-  "AMD",
   "JPM",
+  "AMD",
   "V",
-  "XOM",
   "JNJ",
   "MA",
   "ABBV",
-  "INTC",
-  "PLTR",
   "CVX",
   "COST",
+  "PLTR",
   "CSCO",
-  "ORCL",
   "KO",
+  "ORCL",
   "PG",
-  "UNH",
-  "BAC",
   "MRK",
-  "PANW",
-  "CAT",
-  "DELL",
+  "UNH",
+  "INTC",
+  "BAC",
   "HD",
   "PM",
-  "AMAT",
   "GE",
+  "AMAT",
+  "PANW",
   "LRCX",
   "MS",
+  "CAT",
   "TXN",
-  "CRWD",
-  "GS",
+  "DELL",
   "RTX",
+  "GS",
   "NFLX",
   "TMO",
-  "WFC",
+  "CRWD",
   "AMGN",
-  "ARM",
-  "GEV",
+  "WFC",
   "IBM",
-  "ANET",
   "LIN",
-  "MRVL",
-  "SHOP",
+  "GEV",
+  "ARM",
   "AXP",
-  "ADI",
-  "C",
-  "KLAC",
-  "CRM",
+  "ANET",
   "GILD",
-  "QCOM",
+  "KLAC",
+  "C",
+  "SHOP",
+  "ADI",
   "APH",
   "DIS",
+  "CRM",
+  "PEP",
   "BLK",
   "VZ",
-  "PEP",
-  "ABT",
-  "UNP",
   "COP",
+  "ABT",
   "MCD",
-  "NEE",
   "DE",
+  "UNP",
+  "MRVL",
+  "QCOM",
+  "NEE",
   "PFE",
   "WELL",
-  "DHR",
-  "NOW",
-  "ISRG",
   "TMUS",
+  "DHR",
+  "ACN",
   "TJX",
+  "ISRG",
   "SCHW",
   "STX",
-  "ETN",
   "LMT",
-  "ACN"
+  "T",
+  "ETN",
+  "BX"
  ],
  "detail": [
   {
@@ -117,6 +117,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -125,6 +126,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -133,6 +135,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -141,6 +144,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -149,6 +153,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -157,6 +162,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -165,6 +171,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -173,6 +180,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -181,6 +189,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -189,6 +198,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -197,6 +207,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -205,6 +216,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -213,6 +225,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -221,6 +234,7 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
@@ -229,687 +243,773 @@
    "price": null,
    "market_cap_usd": null,
    "reporting_currency": null,
+   "sector": "ETF",
    "why": "ETF \u2014 kept by identity; a fund has no market cap and is not judged by a company-size gate"
   },
   {
-   "symbol": "NVDA",
-   "price": 217.94,
-   "market_cap_usd": 5262596898816,
-   "reporting_currency": "USD",
-   "name": "NVIDIA Corporation",
-   "why": "$5,263bn market cap at $217.94 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
    "symbol": "AAPL",
-   "price": 347.1,
-   "market_cap_usd": 5065640247296,
+   "price": 344.63,
+   "market_cap_usd": 5029592301568,
    "reporting_currency": "USD",
    "name": "Apple Inc.",
-   "why": "$5,066bn market cap at $347.10 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$5,030bn market cap at $344.63 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "NVDA",
+   "price": 204.64,
+   "market_cap_usd": 4941441662976,
+   "reporting_currency": "USD",
+   "name": "NVIDIA Corporation",
+   "sector": "Technology",
+   "why": "$4,941bn market cap at $204.64 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "MSFT",
-   "price": 531.33,
-   "market_cap_usd": 3945415311360,
+   "price": 521.91,
+   "market_cap_usd": 3875804807168,
    "reporting_currency": "USD",
    "name": "Microsoft Corporation",
-   "why": "$3,945bn market cap at $531.33 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$3,876bn market cap at $521.91 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "GOOGL",
-   "price": 320.58,
-   "market_cap_usd": 3920672325632,
+   "price": 279.84,
+   "market_cap_usd": 3440352690176,
    "reporting_currency": "USD",
    "name": "Alphabet Inc.",
-   "why": "$3,921bn market cap at $320.58 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Communication Services",
+   "why": "$3,440bn market cap at $279.84 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "GOOG",
-   "price": 316.83,
-   "market_cap_usd": 3874810232832,
+   "price": 278.22,
+   "market_cap_usd": 3420436561920,
    "reporting_currency": "USD",
    "name": "Alphabet Inc.",
-   "why": "$3,875bn market cap at $316.83 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Communication Services",
+   "why": "$3,420bn market cap at $278.22 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "AMZN",
-   "price": 253.1,
-   "market_cap_usd": 2730015850496,
+   "price": 240.35,
+   "market_cap_usd": 2598937821184,
    "reporting_currency": "USD",
    "name": "Amazon.com, Inc.",
-   "why": "$2,730bn market cap at $253.10 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "AVGO",
-   "price": 342.33,
-   "market_cap_usd": 1634156675072,
-   "reporting_currency": "USD",
-   "name": "Broadcom Inc.",
-   "why": "$1,634bn market cap at $342.33 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Cyclical",
+   "why": "$2,599bn market cap at $240.35 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "TSLA",
-   "price": 407.46,
-   "market_cap_usd": 1610579312640,
+   "price": 399.81,
+   "market_cap_usd": 1580341002240,
    "reporting_currency": "USD",
    "name": "Tesla, Inc.",
-   "why": "$1,611bn market cap at $407.46 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Cyclical",
+   "why": "$1,580bn market cap at $399.81 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "META",
-   "price": 620.19,
-   "market_cap_usd": 1585722294272,
+   "price": 614.99,
+   "market_cap_usd": 1572426743808,
    "reporting_currency": "USD",
    "name": "Meta Platforms, Inc.",
-   "why": "$1,586bn market cap at $620.19 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Communication Services",
+   "why": "$1,572bn market cap at $614.99 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "BRK-B",
-   "price": 542.99,
-   "market_cap_usd": 1162383982592,
+   "symbol": "AVGO",
+   "price": 326.08,
+   "market_cap_usd": 1556585250816,
    "reporting_currency": "USD",
-   "name": "Berkshire Hathaway Inc. New",
-   "why": "$1,162bn market cap at $542.99 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Broadcom Inc.",
+   "sector": "Technology",
+   "why": "$1,557bn market cap at $326.08 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "LLY",
-   "price": 1281.91,
-   "market_cap_usd": 1142639558656,
+   "price": 1417.54,
+   "market_cap_usd": 1262666776576,
    "reporting_currency": "USD",
    "name": "Eli Lilly and Company",
-   "why": "$1,143bn market cap at $1,281.91 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$1,263bn market cap at $1,417.54 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "BRK-B",
+   "price": 542.49,
+   "market_cap_usd": 1161313648640,
+   "reporting_currency": "USD",
+   "name": "Berkshire Hathaway Inc. New",
+   "sector": "Financial Services",
+   "why": "$1,161bn market cap at $542.49 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "MU",
-   "price": 928.76,
-   "market_cap_usd": 1050820673536,
+   "price": 884.74,
+   "market_cap_usd": 1001015410688,
    "reporting_currency": "USD",
    "name": "Micron Technology, Inc.",
-   "why": "$1,051bn market cap at $928.76 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$1,001bn market cap at $884.74 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "WMT",
-   "price": 119.32,
-   "market_cap_usd": 946654609408,
+   "price": 123.51,
+   "market_cap_usd": 979897024512,
    "reporting_currency": "USD",
    "name": "Walmart Inc.",
-   "why": "$947bn market cap at $119.32 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "AMD",
-   "price": 560.26,
-   "market_cap_usd": 914610454528,
-   "reporting_currency": "USD",
-   "name": "Advanced Micro Devices, Inc.",
-   "why": "$915bn market cap at $560.26 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Defensive",
+   "why": "$980bn market cap at $123.51 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "JPM",
-   "price": 335.79,
-   "market_cap_usd": 891723972608,
+   "price": 337.04,
+   "market_cap_usd": 895043502080,
    "reporting_currency": "USD",
    "name": "JP Morgan Chase & Co.",
-   "why": "$892bn market cap at $335.79 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Financial Services",
+   "why": "$895bn market cap at $337.04 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "AMD",
+   "price": 504.8,
+   "market_cap_usd": 824073388032,
+   "reporting_currency": "USD",
+   "name": "Advanced Micro Devices, Inc.",
+   "sector": "Technology",
+   "why": "$824bn market cap at $504.80 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "V",
-   "price": 401.86,
-   "market_cap_usd": 754433982464,
+   "price": 413.59,
+   "market_cap_usd": 773002166272,
    "reporting_currency": "USD",
    "name": "Visa Inc.",
-   "why": "$754bn market cap at $401.86 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "XOM",
-   "price": 179.91,
-   "market_cap_usd": 739774103552,
-   "reporting_currency": "USD",
-   "name": "ExxonMobil Holdings Corporation",
-   "why": "$740bn market cap at $179.91 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Financial Services",
+   "why": "$773bn market cap at $413.59 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "JNJ",
-   "price": 268.73,
-   "market_cap_usd": 646916538368,
+   "price": 273.2,
+   "market_cap_usd": 657677221888,
    "reporting_currency": "USD",
    "name": "Johnson & Johnson",
-   "why": "$647bn market cap at $268.73 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$658bn market cap at $273.20 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "MA",
-   "price": 609.85,
-   "market_cap_usd": 534234628096,
+   "price": 638.01,
+   "market_cap_usd": 555819073536,
    "reporting_currency": "USD",
    "name": "Mastercard Incorporated",
-   "why": "$534bn market cap at $609.85 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Financial Services",
+   "why": "$556bn market cap at $638.01 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "ABBV",
-   "price": 286.39,
-   "market_cap_usd": 506084753408,
+   "price": 294.89,
+   "market_cap_usd": 521105244160,
    "reporting_currency": "USD",
    "name": "AbbVie Inc.",
-   "why": "$506bn market cap at $286.39 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "INTC",
-   "price": 93.74,
-   "market_cap_usd": 495519465472,
-   "reporting_currency": "USD",
-   "name": "Intel Corporation",
-   "why": "$496bn market cap at $93.74 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "PLTR",
-   "price": 198.73,
-   "market_cap_usd": 477559783424,
-   "reporting_currency": "USD",
-   "name": "Palantir Technologies Inc.",
-   "why": "$478bn market cap at $198.73 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$521bn market cap at $294.89 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "CVX",
-   "price": 228.23,
-   "market_cap_usd": 447696732160,
+   "price": 235.52,
+   "market_cap_usd": 459499536384,
    "reporting_currency": "USD",
    "name": "Chevron Corporation",
-   "why": "$448bn market cap at $228.23 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Energy",
+   "why": "$459bn market cap at $235.52 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "COST",
-   "price": 992.13,
-   "market_cap_usd": 439641931776,
+   "price": 1012.28,
+   "market_cap_usd": 448570982400,
    "reporting_currency": "USD",
    "name": "Costco Wholesale Corporation",
-   "why": "$440bn market cap at $992.13 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Defensive",
+   "why": "$449bn market cap at $1,012.28 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "PLTR",
+   "price": 184.11,
+   "market_cap_usd": 442427080704,
+   "reporting_currency": "USD",
+   "name": "Palantir Technologies Inc.",
+   "sector": "Technology",
+   "why": "$442bn market cap at $184.11 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "CSCO",
-   "price": 111.38,
-   "market_cap_usd": 439125311488,
+   "price": 104.51,
+   "market_cap_usd": 412039774208,
    "reporting_currency": "USD",
    "name": "Cisco Systems, Inc.",
-   "why": "$439bn market cap at $111.38 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "ORCL",
-   "price": 130.53,
-   "market_cap_usd": 395701813248,
-   "reporting_currency": "USD",
-   "name": "Oracle Corporation",
-   "why": "$396bn market cap at $130.53 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$412bn market cap at $104.51 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "KO",
-   "price": 91.18,
-   "market_cap_usd": 392306425856,
+   "price": 94.08,
+   "market_cap_usd": 404722974720,
    "reporting_currency": "USD",
    "name": "Coca-Cola Company (The)",
-   "why": "$392bn market cap at $91.18 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Defensive",
+   "why": "$405bn market cap at $94.08 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "ORCL",
+   "price": 130.67,
+   "market_cap_usd": 396126224384,
+   "reporting_currency": "USD",
+   "name": "Oracle Corporation",
+   "sector": "Technology",
+   "why": "$396bn market cap at $130.67 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "PG",
-   "price": 159.23,
-   "market_cap_usd": 369060577280,
+   "price": 161.57,
+   "market_cap_usd": 374484238336,
    "reporting_currency": "USD",
    "name": "Procter & Gamble Company (The)",
-   "why": "$369bn market cap at $159.23 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "UNH",
-   "price": 410.39,
-   "market_cap_usd": 368363962368,
-   "reporting_currency": "USD",
-   "name": "UnitedHealth Group Incorporated",
-   "why": "$368bn market cap at $410.39 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "BAC",
-   "price": 50.68,
-   "market_cap_usd": 350842191872,
-   "reporting_currency": "USD",
-   "name": "Bank of America Corporation",
-   "why": "$351bn market cap at $50.68 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Defensive",
+   "why": "$374bn market cap at $161.57 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "MRK",
-   "price": 141.82,
-   "market_cap_usd": 349894279168,
+   "price": 149.52,
+   "market_cap_usd": 368891494400,
    "reporting_currency": "USD",
    "name": "Merck & Company, Inc.",
-   "why": "$350bn market cap at $141.82 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$369bn market cap at $149.52 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "PANW",
-   "price": 401.7,
-   "market_cap_usd": 328590622720,
+   "symbol": "UNH",
+   "price": 406.97,
+   "market_cap_usd": 365294157824,
    "reporting_currency": "USD",
-   "name": "Palo Alto Networks, Inc.",
-   "why": "$329bn market cap at $401.70 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "UnitedHealth Group Incorporated",
+   "sector": "Healthcare",
+   "why": "$365bn market cap at $406.97 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "CAT",
-   "price": 713.31,
-   "market_cap_usd": 327890698240,
+   "symbol": "INTC",
+   "price": 65.76,
+   "market_cap_usd": 349514399744,
    "reporting_currency": "USD",
-   "name": "Caterpillar, Inc.",
-   "why": "$328bn market cap at $713.31 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Intel Corporation",
+   "sector": "Technology",
+   "why": "$350bn market cap at $65.76 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "DELL",
-   "price": 501.96,
-   "market_cap_usd": 319152553984,
+   "symbol": "BAC",
+   "price": 50.01,
+   "market_cap_usd": 345079447552,
    "reporting_currency": "USD",
-   "name": "Dell Technologies Inc.",
-   "why": "$319bn market cap at $501.96 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Bank of America Corporation",
+   "sector": "Financial Services",
+   "why": "$345bn market cap at $50.01 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "HD",
-   "price": 318.5,
-   "market_cap_usd": 317764141056,
+   "price": 329.2,
+   "market_cap_usd": 328439431168,
    "reporting_currency": "USD",
    "name": "Home Depot, Inc. (The)",
-   "why": "$318bn market cap at $318.50 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Cyclical",
+   "why": "$328bn market cap at $329.20 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "PM",
-   "price": 202.62,
-   "market_cap_usd": 315806220288,
+   "price": 208.79,
+   "market_cap_usd": 325422874624,
    "reporting_currency": "USD",
    "name": "Philip Morris International Inc",
-   "why": "$316bn market cap at $202.62 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "AMAT",
-   "price": 395.93,
-   "market_cap_usd": 314209042432,
-   "reporting_currency": "USD",
-   "name": "Applied Materials, Inc.",
-   "why": "$314bn market cap at $395.93 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Defensive",
+   "why": "$325bn market cap at $208.79 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "GE",
-   "price": 297.66,
-   "market_cap_usd": 308840857600,
+   "price": 301.8,
+   "market_cap_usd": 313136349184,
    "reporting_currency": "USD",
    "name": "GE Aerospace",
-   "why": "$309bn market cap at $297.66 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Industrials",
+   "why": "$313bn market cap at $301.80 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "AMAT",
+   "price": 390.09,
+   "market_cap_usd": 309574434816,
+   "reporting_currency": "USD",
+   "name": "Applied Materials, Inc.",
+   "sector": "Technology",
+   "why": "$310bn market cap at $390.09 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "PANW",
+   "price": 365.87,
+   "market_cap_usd": 299443781632,
+   "reporting_currency": "USD",
+   "name": "Palo Alto Networks, Inc.",
+   "sector": "Technology",
+   "why": "$299bn market cap at $365.87 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "LRCX",
-   "price": 240.85,
-   "market_cap_usd": 301405569024,
+   "price": 239.11,
+   "market_cap_usd": 299228069888,
    "reporting_currency": "USD",
    "name": "Lam Research Corporation",
-   "why": "$301bn market cap at $240.85 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$299bn market cap at $239.11 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "MS",
-   "price": 186.91,
-   "market_cap_usd": 292514136064,
+   "price": 184.3,
+   "market_cap_usd": 288429506560,
    "reporting_currency": "USD",
    "name": "Morgan Stanley",
-   "why": "$293bn market cap at $186.91 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Financial Services",
+   "why": "$288bn market cap at $184.30 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "CAT",
+   "price": 622.75,
+   "market_cap_usd": 286262525952,
+   "reporting_currency": "USD",
+   "name": "Caterpillar, Inc.",
+   "sector": "Industrials",
+   "why": "$286bn market cap at $622.75 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "TXN",
-   "price": 308.91,
-   "market_cap_usd": 282420248576,
+   "price": 300.84,
+   "market_cap_usd": 275042271232,
    "reporting_currency": "USD",
    "name": "Texas Instruments Incorporated",
-   "why": "$282bn market cap at $308.91 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$275bn market cap at $300.84 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "CRWD",
-   "price": 268.02,
-   "market_cap_usd": 274435014656,
+   "symbol": "DELL",
+   "price": 424.3,
+   "market_cap_usd": 269775339520,
    "reporting_currency": "USD",
-   "name": "CrowdStrike Holdings, Inc.",
-   "why": "$274bn market cap at $268.02 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "GS",
-   "price": 911.77,
-   "market_cap_usd": 265481338880,
-   "reporting_currency": "USD",
-   "name": "Goldman Sachs Group, Inc. (The)",
-   "why": "$265bn market cap at $911.77 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Dell Technologies Inc.",
+   "sector": "Technology",
+   "why": "$270bn market cap at $424.30 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "RTX",
-   "price": 194.6,
-   "market_cap_usd": 262601129984,
+   "price": 199.8,
+   "market_cap_usd": 269618216960,
    "reporting_currency": "USD",
    "name": "RTX Corporation",
-   "why": "$263bn market cap at $194.60 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Industrials",
+   "why": "$270bn market cap at $199.80 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "GS",
+   "price": 894.55,
+   "market_cap_usd": 260467359744,
+   "reporting_currency": "USD",
+   "name": "Goldman Sachs Group, Inc. (The)",
+   "sector": "Financial Services",
+   "why": "$260bn market cap at $894.55 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "NFLX",
-   "price": 62.52,
-   "market_cap_usd": 260329504768,
+   "price": 62.08,
+   "market_cap_usd": 258497380352,
    "reporting_currency": "USD",
    "name": "Netflix, Inc.",
-   "why": "$260bn market cap at $62.52 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Communication Services",
+   "why": "$258bn market cap at $62.08 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "TMO",
-   "price": 693.02,
-   "market_cap_usd": 256242270208,
+   "price": 697.0,
+   "market_cap_usd": 258249555968,
    "reporting_currency": "USD",
    "name": "Thermo Fisher Scientific Inc",
-   "why": "$256bn market cap at $693.02 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$258bn market cap at $697.00 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "WFC",
-   "price": 82.66,
-   "market_cap_usd": 248115478528,
+   "symbol": "CRWD",
+   "price": 250.43,
+   "market_cap_usd": 256424001536,
    "reporting_currency": "USD",
-   "name": "Wells Fargo & Company",
-   "why": "$248bn market cap at $82.66 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "CrowdStrike Holdings, Inc.",
+   "sector": "Technology",
+   "why": "$256bn market cap at $250.43 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "AMGN",
-   "price": 447.95,
-   "market_cap_usd": 242176114688,
+   "price": 466.01,
+   "market_cap_usd": 251939930112,
    "reporting_currency": "USD",
    "name": "Amgen Inc.",
-   "why": "$242bn market cap at $447.95 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$252bn market cap at $466.01 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "ARM",
-   "price": 226.6,
-   "market_cap_usd": 242008489984,
+   "symbol": "WFC",
+   "price": 83.4,
+   "market_cap_usd": 250354319360,
    "reporting_currency": "USD",
-   "name": "Arm Holdings plc",
-   "why": "$242bn market cap at $226.60 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "GEV",
-   "price": 895.08,
-   "market_cap_usd": 238389870592,
-   "reporting_currency": "USD",
-   "name": "GE Vernova Inc.",
-   "why": "$238bn market cap at $895.08 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Wells Fargo & Company",
+   "sector": "Financial Services",
+   "why": "$250bn market cap at $83.40 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "IBM",
-   "price": 250.25,
-   "market_cap_usd": 236516491264,
+   "price": 257.81,
+   "market_cap_usd": 243661602816,
    "reporting_currency": "USD",
    "name": "International Business Machines",
-   "why": "$237bn market cap at $250.25 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "ANET",
-   "price": 187.0,
-   "market_cap_usd": 235849023488,
-   "reporting_currency": "USD",
-   "name": "Arista Networks, Inc.",
-   "why": "$236bn market cap at $187.00 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$244bn market cap at $257.81 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "LIN",
-   "price": 508.65,
-   "market_cap_usd": 234477551616,
+   "price": 514.24,
+   "market_cap_usd": 236079235072,
    "reporting_currency": "USD",
    "name": "Linde plc",
-   "why": "$234bn market cap at $508.65 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Basic Materials",
+   "why": "$236bn market cap at $514.24 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "MRVL",
-   "price": 243.57,
-   "market_cap_usd": 218897498112,
+   "symbol": "GEV",
+   "price": 857.87,
+   "market_cap_usd": 227058515968,
    "reporting_currency": "USD",
-   "name": "Marvell Technology, Inc.",
-   "why": "$219bn market cap at $243.57 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "GE Vernova Inc.",
+   "sector": "Industrials",
+   "why": "$227bn market cap at $857.87 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "SHOP",
-   "price": 165.81,
-   "market_cap_usd": 213338439680,
+   "symbol": "ARM",
+   "price": 205.97,
+   "market_cap_usd": 219975663616,
    "reporting_currency": "USD",
-   "name": "Shopify Inc.",
-   "why": "$213bn market cap at $165.81 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Arm Holdings plc",
+   "sector": "Technology",
+   "why": "$220bn market cap at $205.97 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "AXP",
-   "price": 312.91,
-   "market_cap_usd": 209822433280,
+   "price": 319.11,
+   "market_cap_usd": 213979840512,
    "reporting_currency": "USD",
    "name": "American Express Company",
-   "why": "$210bn market cap at $312.91 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Financial Services",
+   "why": "$214bn market cap at $319.11 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "ADI",
-   "price": 425.35,
-   "market_cap_usd": 206109933568,
+   "symbol": "ANET",
+   "price": 168.86,
+   "market_cap_usd": 212970405888,
    "reporting_currency": "USD",
-   "name": "Analog Devices, Inc.",
-   "why": "$206bn market cap at $425.35 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "C",
-   "price": 122.69,
-   "market_cap_usd": 203076485120,
-   "reporting_currency": "USD",
-   "name": "Citigroup, Inc.",
-   "why": "$203bn market cap at $122.69 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "KLAC",
-   "price": 153.66,
-   "market_cap_usd": 200527298560,
-   "reporting_currency": "USD",
-   "name": "KLA Corporation",
-   "why": "$201bn market cap at $153.66 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "CRM",
-   "price": 240.89,
-   "market_cap_usd": 198252462080,
-   "reporting_currency": "USD",
-   "name": "Salesforce, Inc.",
-   "why": "$198bn market cap at $240.89 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Arista Networks, Inc.",
+   "sector": "Technology",
+   "why": "$213bn market cap at $168.86 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "GILD",
-   "price": 159.08,
-   "market_cap_usd": 197252071424,
+   "price": 170.68,
+   "market_cap_usd": 211700973568,
    "reporting_currency": "USD",
    "name": "Gilead Sciences, Inc.",
-   "why": "$197bn market cap at $159.08 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$212bn market cap at $170.68 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "QCOM",
-   "price": 184.17,
-   "market_cap_usd": 196664000512,
+   "symbol": "KLAC",
+   "price": 157.91,
+   "market_cap_usd": 205750796288,
    "reporting_currency": "USD",
-   "name": "QUALCOMM Incorporated",
-   "why": "$197bn market cap at $184.17 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "KLA Corporation",
+   "sector": "Technology",
+   "why": "$206bn market cap at $157.91 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "C",
+   "price": 122.64,
+   "market_cap_usd": 202993729536,
+   "reporting_currency": "USD",
+   "name": "Citigroup, Inc.",
+   "sector": "Financial Services",
+   "why": "$203bn market cap at $122.64 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "SHOP",
+   "price": 157.49,
+   "market_cap_usd": 202633560064,
+   "reporting_currency": "USD",
+   "name": "Shopify Inc.",
+   "sector": "Technology",
+   "why": "$203bn market cap at $157.49 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "ADI",
+   "price": 417.11,
+   "market_cap_usd": 202117103616,
+   "reporting_currency": "USD",
+   "name": "Analog Devices, Inc.",
+   "sector": "Technology",
+   "why": "$202bn market cap at $417.11 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "APH",
-   "price": 78.21,
-   "market_cap_usd": 192863272960,
+   "price": 79.3,
+   "market_cap_usd": 195812425728,
    "reporting_currency": "USD",
    "name": "Amphenol Corporation",
-   "why": "$193bn market cap at $78.21 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$196bn market cap at $79.30 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "DIS",
-   "price": 110.23,
-   "market_cap_usd": 190332698624,
+   "price": 110.94,
+   "market_cap_usd": 191558647808,
    "reporting_currency": "USD",
    "name": "Walt Disney Company (The)",
-   "why": "$190bn market cap at $110.23 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Communication Services",
+   "why": "$192bn market cap at $110.94 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "BLK",
-   "price": 1136.05,
-   "market_cap_usd": 184581079040,
+   "symbol": "CRM",
+   "price": 229.17,
+   "market_cap_usd": 188606906368,
    "reporting_currency": "USD",
-   "name": "BlackRock, Inc.",
-   "why": "$185bn market cap at $1,136.05 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "VZ",
-   "price": 43.93,
-   "market_cap_usd": 182089842688,
-   "reporting_currency": "USD",
-   "name": "Verizon Communications Inc.",
-   "why": "$182bn market cap at $43.93 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Salesforce, Inc.",
+   "sector": "Technology",
+   "why": "$189bn market cap at $229.17 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "PEP",
-   "price": 133.5,
-   "market_cap_usd": 181925937152,
+   "price": 137.34,
+   "market_cap_usd": 187158855680,
    "reporting_currency": "USD",
    "name": "Pepsico, Inc.",
-   "why": "$182bn market cap at $133.50 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Defensive",
+   "why": "$187bn market cap at $137.34 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "ABT",
-   "price": 103.1,
-   "market_cap_usd": 179580928000,
+   "symbol": "BLK",
+   "price": 1147.54,
+   "market_cap_usd": 186447937536,
    "reporting_currency": "USD",
-   "name": "Abbott Laboratories",
-   "why": "$180bn market cap at $103.10 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "BlackRock, Inc.",
+   "sector": "Financial Services",
+   "why": "$186bn market cap at $1,147.54 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "UNP",
-   "price": 299.88,
-   "market_cap_usd": 178151374848,
+   "symbol": "VZ",
+   "price": 44.73,
+   "market_cap_usd": 185387876352,
    "reporting_currency": "USD",
-   "name": "Union Pacific Corporation",
-   "why": "$178bn market cap at $299.88 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Verizon Communications Inc.",
+   "sector": "Communication Services",
+   "why": "$185bn market cap at $44.73 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "COP",
-   "price": 147.96,
-   "market_cap_usd": 177749901312,
+   "price": 154.03,
+   "market_cap_usd": 185042010112,
    "reporting_currency": "USD",
    "name": "ConocoPhillips",
-   "why": "$178bn market cap at $147.96 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Energy",
+   "why": "$185bn market cap at $154.03 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "ABT",
+   "price": 106.2,
+   "market_cap_usd": 184980553728,
+   "reporting_currency": "USD",
+   "name": "Abbott Laboratories",
+   "sector": "Healthcare",
+   "why": "$185bn market cap at $106.20 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "MCD",
-   "price": 249.47,
-   "market_cap_usd": 176535339008,
+   "price": 258.12,
+   "market_cap_usd": 182656434176,
    "reporting_currency": "USD",
    "name": "McDonald's Corporation",
-   "why": "$177bn market cap at $249.47 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "NEE",
-   "price": 82.42,
-   "market_cap_usd": 172859965440,
-   "reporting_currency": "USD",
-   "name": "NextEra Energy, Inc.",
-   "why": "$173bn market cap at $82.42 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Consumer Cyclical",
+   "why": "$183bn market cap at $258.12 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "DE",
-   "price": 639.58,
-   "market_cap_usd": 172447023104,
+   "price": 675.48,
+   "market_cap_usd": 182126559232,
    "reporting_currency": "USD",
    "name": "Deere & Company",
-   "why": "$172bn market cap at $639.58 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Industrials",
+   "why": "$182bn market cap at $675.48 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "UNP",
+   "price": 304.0,
+   "market_cap_usd": 180598964224,
+   "reporting_currency": "USD",
+   "name": "Union Pacific Corporation",
+   "sector": "Industrials",
+   "why": "$181bn market cap at $304.00 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "MRVL",
+   "price": 196.4,
+   "market_cap_usd": 176505585664,
+   "reporting_currency": "USD",
+   "name": "Marvell Technology, Inc.",
+   "sector": "Technology",
+   "why": "$177bn market cap at $196.40 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "QCOM",
+   "price": 164.79,
+   "market_cap_usd": 175969255424,
+   "reporting_currency": "USD",
+   "name": "QUALCOMM Incorporated",
+   "sector": "Technology",
+   "why": "$176bn market cap at $164.79 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "NEE",
+   "price": 83.71,
+   "market_cap_usd": 175565488128,
+   "reporting_currency": "USD",
+   "name": "NextEra Energy, Inc.",
+   "sector": "Utilities",
+   "why": "$176bn market cap at $83.71 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "PFE",
-   "price": 29.8,
-   "market_cap_usd": 169850273792,
+   "price": 30.52,
+   "market_cap_usd": 173954039808,
    "reporting_currency": "USD",
    "name": "Pfizer, Inc.",
-   "why": "$170bn market cap at $29.80 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Healthcare",
+   "why": "$174bn market cap at $30.52 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "WELL",
-   "price": 226.72,
-   "market_cap_usd": 163368091648,
+   "price": 234.6,
+   "market_cap_usd": 172104876032,
    "reporting_currency": "USD",
    "name": "Welltower Inc.",
-   "why": "$163bn market cap at $226.72 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "DHR",
-   "price": 232.0,
-   "market_cap_usd": 163092758528,
-   "reporting_currency": "USD",
-   "name": "Danaher Corporation",
-   "why": "$163bn market cap at $232.00 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "NOW",
-   "price": 154.78,
-   "market_cap_usd": 160021168128,
-   "reporting_currency": "USD",
-   "name": "ServiceNow, Inc.",
-   "why": "$160bn market cap at $154.78 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "ISRG",
-   "price": 445.88,
-   "market_cap_usd": 157519609856,
-   "reporting_currency": "USD",
-   "name": "Intuitive Surgical, Inc.",
-   "why": "$158bn market cap at $445.88 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Real Estate",
+   "why": "$172bn market cap at $234.60 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "TMUS",
-   "price": 146.83,
-   "market_cap_usd": 157500375040,
+   "price": 156.44,
+   "market_cap_usd": 165712609280,
    "reporting_currency": "USD",
    "name": "T-Mobile US, Inc.",
-   "why": "$158bn market cap at $146.83 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Communication Services",
+   "why": "$166bn market cap at $156.44 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
-   "symbol": "TJX",
-   "price": 140.2,
-   "market_cap_usd": 154879557632,
+   "symbol": "DHR",
+   "price": 232.23,
+   "market_cap_usd": 163254452224,
    "reporting_currency": "USD",
-   "name": "TJX Companies, Inc. (The)",
-   "why": "$155bn market cap at $140.20 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "SCHW",
-   "price": 89.3,
-   "market_cap_usd": 154429685760,
-   "reporting_currency": "USD",
-   "name": "Charles Schwab Corporation (The",
-   "why": "$154bn market cap at $89.30 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "STX",
-   "price": 667.85,
-   "market_cap_usd": 151864410112,
-   "reporting_currency": "USD",
-   "name": "Seagate Technology Holdings PLC",
-   "why": "$152bn market cap at $667.85 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "ETN",
-   "price": 384.2,
-   "market_cap_usd": 149184872448,
-   "reporting_currency": "USD",
-   "name": "Eaton Corporation, PLC",
-   "why": "$149bn market cap at $384.20 \u2014 large enough that being assigned is an acceptable outcome"
-  },
-  {
-   "symbol": "LMT",
-   "price": 622.99,
-   "market_cap_usd": 143913582592,
-   "reporting_currency": "USD",
-   "name": "Lockheed Martin Corporation",
-   "why": "$144bn market cap at $622.99 \u2014 large enough that being assigned is an acceptable outcome"
+   "name": "Danaher Corporation",
+   "sector": "Healthcare",
+   "why": "$163bn market cap at $232.23 \u2014 large enough that being assigned is an acceptable outcome"
   },
   {
    "symbol": "ACN",
-   "price": 235.16,
-   "market_cap_usd": 143904309248,
+   "price": 258.24,
+   "market_cap_usd": 158027923456,
    "reporting_currency": "USD",
    "name": "Accenture plc",
-   "why": "$144bn market cap at $235.16 \u2014 large enough that being assigned is an acceptable outcome"
+   "sector": "Technology",
+   "why": "$158bn market cap at $258.24 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "TJX",
+   "price": 140.31,
+   "market_cap_usd": 155001061376,
+   "reporting_currency": "USD",
+   "name": "TJX Companies, Inc. (The)",
+   "sector": "Consumer Cyclical",
+   "why": "$155bn market cap at $140.31 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "ISRG",
+   "price": 432.01,
+   "market_cap_usd": 152619646976,
+   "reporting_currency": "USD",
+   "name": "Intuitive Surgical, Inc.",
+   "sector": "Healthcare",
+   "why": "$153bn market cap at $432.01 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "SCHW",
+   "price": 88.05,
+   "market_cap_usd": 152268013568,
+   "reporting_currency": "USD",
+   "name": "Charles Schwab Corporation (The",
+   "sector": "Financial Services",
+   "why": "$152bn market cap at $88.05 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "STX",
+   "price": 644.58,
+   "market_cap_usd": 147970506752,
+   "reporting_currency": "USD",
+   "name": "Seagate Technology Holdings PLC",
+   "sector": "Technology",
+   "why": "$148bn market cap at $644.58 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "LMT",
+   "price": 636.95,
+   "market_cap_usd": 147138412544,
+   "reporting_currency": "USD",
+   "name": "Lockheed Martin Corporation",
+   "sector": "Industrials",
+   "why": "$147bn market cap at $636.95 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "T",
+   "price": 21.41,
+   "market_cap_usd": 144227893248,
+   "reporting_currency": "USD",
+   "name": "AT&T Inc.",
+   "sector": "Communication Services",
+   "why": "$144bn market cap at $21.41 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "ETN",
+   "price": 369.97,
+   "market_cap_usd": 143659352064,
+   "reporting_currency": "USD",
+   "name": "Eaton Corporation, PLC",
+   "sector": "Industrials",
+   "why": "$144bn market cap at $369.97 \u2014 large enough that being assigned is an acceptable outcome"
+  },
+  {
+   "symbol": "BX",
+   "price": 118.51,
+   "market_cap_usd": 141654736896,
+   "reporting_currency": "USD",
+   "name": "Blackstone Inc.",
+   "sector": "Financial Services",
+   "why": "$142bn market cap at $118.51 \u2014 large enough that being assigned is an acceptable outcome"
   }
  ]
 }

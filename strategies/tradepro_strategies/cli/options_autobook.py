@@ -60,6 +60,39 @@ PER_POSITION_USD = float(os.environ.get("TRADEPRO_AUTOBOOK_PER_POSITION_USD", "1
 #: SUM, because twenty affordable positions can still be an unaffordable book.
 MAX_DEPLOY_USD = float(os.environ.get("TRADEPRO_AUTOBOOK_MAX_DEPLOY_USD", "60000"))
 
+#: Most of the day's capital any ONE sector may hold.
+#:
+#: PER-TRADE RISK WAS CONTROLLED. PORTFOLIO RISK WAS NOT. On 28 Oct 2026 this
+#: tool booked 18 spreads and ELEVEN were tech or semis — QCOM, CSCO, DELL,
+#: APH, GOOGL, ARM, AVGO, GOOG, AMZN, NVDA, NFLX — 61% of the book in one
+#: theme. The tech sell-off that followed took DELL -14.1%, GOOGL -13.9%,
+#: GOOG -13.6%, ARM -12.7%, while XOM, KO, CVX, MRK, ABBV, V and JPM were
+#: untouched. Every position was individually inside its limit and the BOOK
+#: was not diversified at all.
+#:
+#: No falling-knife filter would have helped: on the day they were booked DELL
+#: was +1.6% over five sessions and ARM +4.1%. They were rising. The exposure
+#: was the problem, not the entry.
+#:
+#: 35% against roughly seven investable sectors is about 2.5x equal weight —
+#: deliberately permissive, since concentration is often where the premium is,
+#: but it would have cut the tech book from 61% to 35%.
+MAX_SECTOR_SHARE = float(os.environ.get("TRADEPRO_AUTOBOOK_MAX_SECTOR_SHARE", "0.35"))
+
+
+def _sectors() -> dict[str, str]:
+    """symbol -> sector, from the derived universe. No live fetch: the
+    derivation already asked for it, and a booking run must not depend on a
+    fundamentals call that may be slow or down."""
+    import pathlib
+    p = (pathlib.Path(__file__).resolve().parents[2] / "universe" / "wheel_sleeve.json")
+    try:
+        d = json.loads(p.read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+    return {r["symbol"]: (r.get("sector") or "unknown")
+            for r in (d.get("detail") or []) if r.get("symbol")}
+
 
 def _expiry_iso(row: dict) -> str | None:
     """YYYY-MM-DD, which is what the leg endpoint takes."""
@@ -86,16 +119,21 @@ def _plan(rows: list[dict]) -> list[dict]:
     def _ev(r: dict) -> float:
         return float((r.get("economics") or {}).get("return_on_risk_pct") or 0.0)
 
+    sectors = _sectors()
     planned: list[dict] = []
     committed = 0.0
+    by_sector: dict[str, float] = {}
     for r in sorted(rows, key=_ev, reverse=True):
         e = r.get("economics") or {}
         sym = r.get("symbol")
         cap = e.get("capital_usd")
+        # Unknown sector groups with the other unknowns rather than getting a
+        # free pass — an unclassified name must not be the way round the cap.
+        sector = sectors.get(sym) or "unknown"
         entry = {"symbol": sym, "structure": r.get("structure"),
                  "short_strike": e.get("short_strike"), "long_strike": e.get("long_strike"),
                  "capital_usd": cap, "return_on_risk_pct": e.get("return_on_risk_pct"),
-                 "expiry": _expiry_iso(r)}
+                 "expiry": _expiry_iso(r), "sector": sector}
         if cap is None:
             entry.update(book=False, reason="capital not priced — the chain could "
                                             "not price this structure, so what it "
@@ -113,9 +151,23 @@ def _plan(rows: list[dict]) -> list[dict]:
                          reason=f"${cap:,.0f} would take the day's commitment to "
                                 f"${committed + cap:,.0f}, past the "
                                 f"${MAX_DEPLOY_USD:,.0f} ceiling")
+        elif (by_sector.get(sector, 0.0) + cap) > MAX_SECTOR_SHARE * MAX_DEPLOY_USD:
+            # Measured against the day's CEILING, not against what has been
+            # committed so far. Against a running total the first name booked
+            # would always pass (it is 100% of a tiny base) and the cap would
+            # only bite once the book was already lopsided — which is the
+            # failure it exists to prevent.
+            entry.update(book=False, sector=sector,
+                         reason=f"{sector} would hold "
+                                f"${by_sector.get(sector, 0.0) + cap:,.0f}, past the "
+                                f"{MAX_SECTOR_SHARE:.0%} sector cap "
+                                f"(${MAX_SECTOR_SHARE * MAX_DEPLOY_USD:,.0f}). "
+                                f"Diversification, not merit — this trade is fine, "
+                                f"the book already leans here")
         else:
             committed += cap
-            entry.update(book=True, reason="")
+            by_sector[sector] = by_sector.get(sector, 0.0) + cap
+            entry.update(book=True, reason="", sector=sector)
         planned.append(entry)
     return planned
 

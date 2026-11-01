@@ -128,7 +128,13 @@ def _measure(sym: str) -> tuple[bool, str, dict]:
     ccy = i.get("financialCurrency")
     ok, why = is_ownable(price=px, market_cap_usd=mc, reporting_currency=ccy, symbol=sym)
     return ok, why, {"price": px, "market_cap_usd": mc, "reporting_currency": ccy,
-                     "name": i.get("shortName")}
+                     "name": i.get("shortName"),
+                     # Carried so the BOOKER can cap concentration without a
+                     # second live fetch. Measured 31 Oct 2026: of 18 spreads
+                     # booked, ELEVEN were tech or semis — 61% of the book in
+                     # one theme — and the week's losses were almost entirely
+                     # there while the non-tech names were fine.
+                     "sector": i.get("sector")}
 
 
 def main() -> int:
@@ -166,6 +172,7 @@ def main() -> int:
         if sym in etfs:
             keep.append({"symbol": sym, "name": None, "price": None,
                          "market_cap_usd": None, "reporting_currency": None,
+                         "sector": "ETF",
                          "why": "ETF — kept by identity; a fund has no market cap "
                                 "and is not judged by a company-size gate"})
             continue
