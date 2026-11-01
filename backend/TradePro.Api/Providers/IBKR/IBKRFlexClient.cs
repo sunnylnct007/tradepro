@@ -256,8 +256,35 @@ public sealed class IBKRFlexClient
     {
         var doc = XDocument.Parse(xml);
         var rows = new List<FlexPosition>();
+        // SUMMARY ROWS ONLY — a tax lot is not a position.
+        //
+        // An Open Positions report carries BOTH: one SUMMARY row per holding
+        // and one LOT row per tax lot inside it. Measured on the live account,
+        // 1 Nov 2026: 92 OpenPosition elements, 30 SUMMARY and 62 LOT, for 30
+        // actual positions.
+        //
+        // Taking all of them doubles the book, because the lots sum to the
+        // summary and both are counted:
+        //
+        //     SNDK   22 rows   120 (summary) + 21 lots summing to 120  -> 240
+        //     MU      8 rows   100           + lots summing to 100     -> 200
+        //     GOOGL   4 rows   200           + 44 + 56 + 100           -> 400
+        //
+        // This feeds assignment exposure, concentration and margin headroom on
+        // a LIVE account where maintenance margin already exceeds net
+        // liquidation. A book read at twice its size would not be a cosmetic
+        // error; it would be the wrong answer to "am I about to be liquidated".
+        //
+        // Filtered on IBKR's own marker rather than by de-duplicating conids:
+        // a holding genuinely CAN have several lots at different cost bases,
+        // and guessing which rows are redundant would eventually guess wrong.
+        // Rows with no levelOfDetail at all are KEPT — older reports and other
+        // query shapes omit it, and dropping them would silently empty the
+        // book rather than fail loudly.
         foreach (var e in doc.Descendants().Where(x =>
-                     string.Equals(x.Name.LocalName, "OpenPosition", StringComparison.OrdinalIgnoreCase)))
+                     string.Equals(x.Name.LocalName, "OpenPosition", StringComparison.OrdinalIgnoreCase)
+                     && !string.Equals(Str(x, "levelOfDetail"), "LOT",
+                                       StringComparison.OrdinalIgnoreCase)))
         {
             DateOnly? rd = DateOnly.TryParseExact(Str(e, "reportDate"), "yyyyMMdd",
                 CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;

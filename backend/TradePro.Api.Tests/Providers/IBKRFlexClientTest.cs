@@ -181,3 +181,95 @@ public class IBKRFlexClientTest
         Assert.Equal(expected, o.IsEnabled);
     }
 }
+
+/// <summary>
+/// A TAX LOT IS NOT A POSITION, and counting both doubles the book.
+///
+/// Measured on the live account 1 Nov 2026: 92 OpenPosition elements — 30
+/// SUMMARY and 62 LOT — for 30 actual positions. Parsing all of them gave
+/// SNDK 240 shares against a real 120, MU 200 against 100, GOOGL 400 against
+/// 200.
+///
+/// This feeds assignment exposure, sector concentration and margin headroom
+/// on an account whose maintenance margin (£168,967) already exceeds its net
+/// liquidation (£165,992). A book read at twice its size is not a cosmetic
+/// error — it is the wrong answer to "am I about to be liquidated".
+/// </summary>
+public class FlexSummaryRowsOnlyTest
+{
+    private const string Xml = """
+    <FlexQueryResponse>
+      <FlexStatements>
+        <FlexStatement accountId="U1">
+          <OpenPositions>
+            <OpenPosition accountId="U1" symbol="SNDK" assetCategory="STK"
+              currency="USD" position="120" costBasisPrice="1356.18"
+              markPrice="1157.58" conid="760250490" reportDate="20261030"
+              levelOfDetail="SUMMARY" />
+            <OpenPosition accountId="U1" symbol="SNDK" assetCategory="STK"
+              currency="USD" position="100" costBasisPrice="1400.00"
+              markPrice="1157.58" conid="760250490" reportDate="20261030"
+              levelOfDetail="LOT" />
+            <OpenPosition accountId="U1" symbol="SNDK" assetCategory="STK"
+              currency="USD" position="20" costBasisPrice="1100.00"
+              markPrice="1157.58" conid="760250490" reportDate="20261030"
+              levelOfDetail="LOT" />
+          </OpenPositions>
+        </FlexStatement>
+      </FlexStatements>
+    </FlexQueryResponse>
+    """;
+
+    [Fact]
+    public void LotRowsAreExcluded()
+    {
+        var rows = IBKRFlexClient.ParsePositions(Xml);
+        Assert.Single(rows);
+        Assert.Equal(120m, rows[0].Quantity);
+    }
+
+    [Fact]
+    public void TheBookIsNotDoubled()
+    {
+        // The actual failure: summing every row reported 240 shares of a
+        // 120-share holding.
+        var rows = IBKRFlexClient.ParsePositions(Xml);
+        Assert.Equal(120m, rows.Sum(r => r.Quantity));
+    }
+
+    [Fact]
+    public void RowsWithoutALevelOfDetailAreKEPT()
+    {
+        // Older reports and other query shapes omit the attribute entirely.
+        // Dropping those would silently empty the book instead of failing
+        // loudly, which is the worse outcome by far.
+        const string noAttr = """
+        <FlexQueryResponse><FlexStatements><FlexStatement accountId="U1">
+          <OpenPositions>
+            <OpenPosition accountId="U1" symbol="KO" assetCategory="STK"
+              currency="USD" position="50" markPrice="94.08" conid="1" />
+          </OpenPositions>
+        </FlexStatement></FlexStatements></FlexQueryResponse>
+        """;
+        var rows = IBKRFlexClient.ParsePositions(noAttr);
+        Assert.Single(rows);
+        Assert.Equal("KO", rows[0].Symbol);
+    }
+
+    [Fact]
+    public void GenuinelySeparateHoldingsAreAllKept()
+    {
+        // The filter must not collapse DIFFERENT positions — only lots.
+        const string two = """
+        <FlexQueryResponse><FlexStatements><FlexStatement accountId="U1">
+          <OpenPositions>
+            <OpenPosition accountId="U1" symbol="KO" assetCategory="STK"
+              currency="USD" position="50" conid="1" levelOfDetail="SUMMARY" />
+            <OpenPosition accountId="U1" symbol="XOM" assetCategory="STK"
+              currency="USD" position="30" conid="2" levelOfDetail="SUMMARY" />
+          </OpenPositions>
+        </FlexStatement></FlexStatements></FlexQueryResponse>
+        """;
+        Assert.Equal(2, IBKRFlexClient.ParsePositions(two).Count);
+    }
+}
