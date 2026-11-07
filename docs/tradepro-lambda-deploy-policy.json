@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UpdateAndSmokeTestTheJobsFunction",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:UpdateFunctionCode",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:PublishVersion",
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:eu-west-2:108703420282:function:tradepro-jobs"
+    },
+    {
+      "Sid": "ReadScheduleNamesForTheDeploySummary",
+      "Effect": "Allow",
+      "Action": ["events:ListRules"],
+      "Resource": "*"
+    }
+  ]
+}

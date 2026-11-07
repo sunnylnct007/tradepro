@@ -93,3 +93,57 @@ def test_every_number_is_per_contract_in_dollars():
     """The owner's book is 1-lot. Percentages hide the thing that matters."""
     e = cash_secured_put(strike=10.0, credit_per_share=1.0)
     assert e.max_gain == 100.0 and e.capital == 1_000.0
+
+
+# ── the screen checks its own arithmetic (7 Nov 2026) ─────────────────────
+#
+# These bounds are not opinions about value — they are what the contract
+# cannot do. A vertical credit larger than its width would be money for
+# nothing, which the market does not leave lying about: it means OUR number
+# is wrong, not that we have found an edge.
+#
+# A bug detector wearing an arbitrage hat. The economics feed position sizing
+# and a CLOSE verdict on a live account, and an IMPOSSIBLE figure is far more
+# dangerous than an unattractive one, because impossible numbers look
+# authoritative.
+
+def test_a_sound_spread_reports_no_violation():
+    from tradepro_strategies.quant_engine.options.economics import (
+        bounds_violation, bull_put_spread)
+    e = bull_put_spread(short_strike=100, long_strike=95,
+                        short_credit_per_share=3.0, long_debit_per_share=1.0)
+    assert bounds_violation(e, short_strike=100, long_strike=95) is None
+
+
+def test_a_credit_bigger_than_the_width_is_caught():
+    from tradepro_strategies.quant_engine.options.economics import (
+        bounds_violation, bull_put_spread)
+    e = bull_put_spread(short_strike=100, long_strike=95,
+                        short_credit_per_share=9.0, long_debit_per_share=1.0)
+    v = bounds_violation(e, short_strike=100, long_strike=95)
+    assert v and "riskless profit" in v
+
+
+def test_a_breakeven_above_the_short_strike_is_caught():
+    from tradepro_strategies.quant_engine.options.economics import (
+        Economics, bounds_violation)
+    e = Economics(max_gain=100, max_loss=400, breakeven=105.0, capital=500,
+                  return_on_risk=0.25, unbounded=False)
+    v = bounds_violation(e, short_strike=100, long_strike=95)
+    assert v and "break even above" in v
+
+
+def test_a_naked_put_is_checked_too():
+    from tradepro_strategies.quant_engine.options.economics import (
+        bounds_violation, cash_secured_put)
+    e = cash_secured_put(strike=100, credit_per_share=4.0)
+    assert bounds_violation(e, short_strike=100, long_strike=None) is None
+
+
+def test_an_inverted_spread_is_not_a_bull_put_spread():
+    from tradepro_strategies.quant_engine.options.economics import (
+        Economics, bounds_violation)
+    e = Economics(max_gain=100, max_loss=100, breakeven=99.0, capital=200,
+                  return_on_risk=1.0, unbounded=False)
+    v = bounds_violation(e, short_strike=95, long_strike=100)
+    assert v and "not a bull put spread" in v
