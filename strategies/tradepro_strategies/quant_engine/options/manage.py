@@ -127,3 +127,47 @@ def assess(*, strike: float | None, spot: float | None, credit: float | None,
         "HOLD", "", f"out of the money"
         + (f" by {-depth:.1f}%" if depth < 0 else "")
         + (f", {dte}d left" if dte is not None else ""), 0)
+
+
+# ── reading a contract out of its symbol ──────────────────────────────────
+
+def parse_occ(symbol: str) -> tuple[str, str, str, float] | None:
+    """OCC option symbol -> (root, expiry YYYY-MM-DD, right, strike).
+
+    IBKR's Flex reports name a contract the way the exchange does:
+
+        "AMD   270115P00450000"
+         root  YYMMDD R strike x 1000, zero-padded to 8
+
+    PARSED RATHER THAN SPLIT ON WHITESPACE. The root is padded to six
+    characters, so a six-letter root leaves NO space before the date and a
+    naive split silently yields the wrong field. The date-strike block is a
+    fixed 15 characters at the END, which is the only part of the format that
+    is actually guaranteed.
+
+    THE STRIKE DIVISOR IS THE EASY ONE TO GET WRONG: 00450000 is $450.000, not
+    $450,000. A risk screen that reports a strike a thousand times too large
+    would make every assignment number absurd — and absurd numbers get
+    dismissed rather than investigated.
+
+    Returns None for anything that is not an option symbol, so a stock row
+    falls through instead of being coerced into a contract.
+    """
+    s = (symbol or "").strip()
+    if len(s) < 16:
+        return None
+    tail = s[-15:]
+    root = s[:-15].strip()
+    if not root or not tail[:6].isdigit() or not tail[7:].isdigit():
+        return None
+    right = tail[6].upper()
+    if right not in ("C", "P"):
+        return None
+    yy, mm, dd = int(tail[0:2]), int(tail[2:4]), int(tail[4:6])
+    if not (1 <= mm <= 12 and 1 <= dd <= 31):
+        return None
+    try:
+        strike = int(tail[7:]) / 1000.0
+    except ValueError:
+        return None
+    return root, f"20{yy:02d}-{mm:02d}-{dd:02d}", right, strike

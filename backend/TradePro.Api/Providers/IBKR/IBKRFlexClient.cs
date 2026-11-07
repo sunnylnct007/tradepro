@@ -156,7 +156,27 @@ public sealed class IBKRFlexClient
             if (code is not null)
                 return (null, DescribeError(code, msg), false, null);
             if (string.IsNullOrWhiteSpace(reference))
-                return (null, "SendRequest returned no ReferenceCode", false, null);
+            {
+                // SAY WHAT CAME BACK. Reaching here means IBKR answered with
+                // neither an error code nor a reference — so it was not the
+                // XML envelope at all, and the generic message named the one
+                // thing we already knew while hiding the only clue.
+                //
+                // 7 Nov 2026: this fired from the deployed API while the IDENTICAL
+                // request from a laptop returned Status=Success seconds later.
+                // Without the body there is no way to tell a blocked datacenter
+                // IP from a redirect, a throttle page, or an empty response —
+                // three different problems behind one sentence.
+                //
+                // The body is a RESPONSE and carries no credential; the token
+                // only ever travels in the request.
+                var snippet = (sendBody ?? "").Trim();
+                if (snippet.Length > 220) snippet = snippet[..220] + "…";
+                return (null,
+                    "SendRequest returned no ReferenceCode. IBKR answered: "
+                    + (string.IsNullOrWhiteSpace(snippet) ? "(empty body)" : snippet),
+                    false, null);
+            }
 
             var deadline = DateTimeOffset.UtcNow.AddSeconds(
                 Math.Max(5, o.GenerationTimeoutSeconds));
