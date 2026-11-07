@@ -97,6 +97,49 @@ def bull_put_spread(
     )
 
 
+def bounds_violation(e: Economics, *, short_strike: float,
+                     long_strike: float | None) -> str | None:
+    """Does this priced structure break a no-arbitrage bound?
+
+    Returns the violation in words, or None when the economics are possible.
+
+    WHY A SCREEN CHECKS ITS OWN ARITHMETIC. These bounds are not opinions
+    about value — they are what the contract cannot do. A vertical credit
+    larger than its width would be money for nothing, which the market does
+    not leave lying about: it means OUR number is wrong, not that we have
+    found an edge.
+
+    So this is a bug detector wearing an arbitrage hat. The economics feed
+    position sizing and a CLOSE verdict on a live account; a figure that is
+    impossible is far more dangerous than one that is merely unattractive,
+    because impossible numbers look authoritative.
+
+    Checked 7 Nov 2026 against the live board: 89 priced rows, zero
+    violations. That is the result this is meant to keep returning.
+    """
+    if long_strike is not None:
+        width = (short_strike - long_strike) * MULTIPLIER
+        if long_strike >= short_strike:
+            return (f"long strike {long_strike:g} is not below the short "
+                    f"{short_strike:g} — this is not a bull put spread")
+        if e.max_gain > width + 1e-6:
+            return (f"credit ${e.max_gain:,.2f} exceeds the ${width:,.2f} width "
+                    f"— that is riskless profit, so the pricing is wrong")
+        if abs(e.capital - width) > 1e-6:
+            return (f"capital ${e.capital:,.2f} does not equal the ${width:,.2f} "
+                    f"width the broker actually holds")
+    if e.max_loss < -1e-6:
+        return f"negative max loss ${e.max_loss:,.2f}"
+    if e.max_gain <= 0:
+        return (f"non-positive credit ${e.max_gain:,.2f} on a structure we are "
+                f"SELLING")
+    if e.breakeven > short_strike + 1e-6:
+        return (f"breakeven ${e.breakeven:,.2f} sits above the short strike "
+                f"${short_strike:,.2f} — a short put cannot break even above "
+                f"where it was sold")
+    return None
+
+
 def compare_naked_vs_spread(
     *, strike: float, credit_per_share: float,
     width: float, long_debit_per_share: float,

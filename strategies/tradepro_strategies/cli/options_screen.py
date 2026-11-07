@@ -29,7 +29,8 @@ from datetime import datetime, timezone
 
 from ..quant_engine.options.iv_rank import fetch_iv_rank
 from ..quant_engine.options.bucket import degrade_for_context
-from ..quant_engine.options.economics import bull_put_spread, cash_secured_put
+from ..quant_engine.options.economics import (
+    bounds_violation, bull_put_spread, cash_secured_put)
 from ..quant_engine.options.risk import (
     MarketContext, OptionsRiskConfig, PERMITTED_BY_REGIME, PortfolioState,
     Regime, Structure, TradeCandidate, evaluate,
@@ -1732,6 +1733,20 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                         f"with the stock all the way down, worst case "
                         f"${_e.max_loss:,.0f} at zero."),
                 }
+            # THE SCREEN CHECKS ITS OWN ARITHMETIC. A structure whose
+            # economics are IMPOSSIBLE is more dangerous than one that is
+            # merely unattractive — impossible numbers read as authoritative,
+            # and these feed sizing and a CLOSE verdict. Refuse the figures
+            # rather than publish them.
+            if spread_econ is not None:
+                _v = bounds_violation(
+                    _e, short_strike=strike,
+                    long_strike=spread_econ.get("long_strike"))
+                if _v:
+                    log.error("%s: IMPOSSIBLE economics — %s", sym, _v)
+                    econ_note = (f"economics withheld — {_v}. This is a pricing "
+                                 f"fault, not an opportunity.")
+                    spread_econ = None
         except Exception as _ee:  # noqa: BLE001 — a missing number, never a wrong one
             econ_note = f"Max loss/gain could not be computed: {_ee}"
             log.warning("%s economics failed: %s", sym, _ee)
