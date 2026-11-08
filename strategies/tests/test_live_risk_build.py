@@ -11,6 +11,13 @@ from tradepro_strategies.cli.live_risk import build
 from tradepro_strategies.quant_engine.options.manage import parse_occ
 
 
+def _body(a):
+    """The content nests under "artifact" — the ingest endpoint requires that
+    envelope and rejected a flat payload with a bare 400 on this lane's first
+    real run. The book had been read perfectly; only the wrapper was wrong."""
+    return a["artifact"]
+
+
 def _pos(sym, qty, cost, mark, pnl=None):
     return {"symbol": sym, "quantity": qty, "costBasisPrice": cost,
             "markPrice": mark, "unrealizedPnl": pnl}
@@ -52,8 +59,8 @@ def test_only_SHORT_PUTS_are_assessed(monkeypatch):
         _pos("CCC   270115P00100000", 1, 5.0, 4.0),       # LONG put   -> out
         _pos("MU", 100, 897.0, 695.0),                     # stock      -> equity
     ], today=date(2026, 11, 7))
-    assert art["counts"]["short_puts"] == 1
-    assert [e["symbol"] for e in art["equity"]] == ["MU"]
+    assert _body(art)["counts"]["short_puts"] == 1
+    assert [e["symbol"] for e in _body(art)["equity"]] == ["MU"]
 
 
 def test_assignment_obligation_uses_the_multiplier_and_quantity(monkeypatch):
@@ -61,7 +68,7 @@ def test_assignment_obligation_uses_the_multiplier_and_quantity(monkeypatch):
                         lambda s: {x: 100.0 for x in s})
     art = build([_pos("AAA   270115P00100000", -2, 5.0, 4.0)],
                 today=date(2026, 11, 7))
-    assert art["assignment_obligation_usd"] == 100 * 100 * 2
+    assert _body(art)["assignment_obligation_usd"] == 100 * 100 * 2
 
 
 def test_the_most_urgent_row_is_first(monkeypatch):
@@ -72,8 +79,8 @@ def test_the_most_urgent_row_is_first(monkeypatch):
         _pos("FAR   270319P00300000", -1, 10.0, 9.0),       # far OTM, far out
         _pos("NEAR  261120P00070000", -1, 5.54, 24.06),     # the CRWV shape
     ], today=date(2026, 11, 7))
-    assert art["positions"][0]["symbol"] == "NEAR"
-    assert art["positions"][0]["action"] == "CLOSE"
+    assert _body(art)["positions"][0]["symbol"] == "NEAR"
+    assert _body(art)["positions"][0]["action"] == "CLOSE"
 
 
 def test_a_missing_spot_is_UNKNOWN_and_still_listed(monkeypatch):
@@ -83,8 +90,8 @@ def test_a_missing_spot_is_UNKNOWN_and_still_listed(monkeypatch):
                         lambda s: {x: None for x in s})
     art = build([_pos("AAA   270115P00100000", -1, 5.0, 4.0)],
                 today=date(2026, 11, 7))
-    assert art["counts"]["unknown"] == 1
-    assert len(art["positions"]) == 1
+    assert _body(art)["counts"]["unknown"] == 1
+    assert len(_body(art)["positions"]) == 1
 
 
 def test_the_rules_travel_with_the_artifact(monkeypatch):
@@ -94,8 +101,8 @@ def test_the_rules_travel_with_the_artifact(monkeypatch):
                         lambda s: {x: 100.0 for x in s})
     art = build([_pos("AAA   270115P00100000", -1, 5.0, 4.0)],
                 today=date(2026, 11, 7))
-    assert art["rules"]["near_expiry_days"] == 21
-    assert art["rules"]["take_profit_pct"] == 50.0
+    assert _body(art)["rules"]["near_expiry_days"] == 21
+    assert _body(art)["rules"]["take_profit_pct"] == 50.0
 
 
 def test_every_row_carries_its_reason(monkeypatch):
@@ -104,5 +111,5 @@ def test_every_row_carries_its_reason(monkeypatch):
     art = build([_pos("AAA   270115P00100000", -1, 5.0, 4.0),
                  _pos("BBB   261120P00150000", -1, 5.0, 40.0)],
                 today=date(2026, 11, 7))
-    for r in art["positions"]:
+    for r in _body(art)["positions"]:
         assert r["why"] and any(c.isdigit() for c in r["why"])
