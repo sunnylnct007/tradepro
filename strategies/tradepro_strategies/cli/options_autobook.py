@@ -268,13 +268,42 @@ def main() -> int:
                       f"so nothing is naked")
 
     print(f"\n{sent} booked, {failed} failed of {len(book)} attempted")
+    # A PLACEMENT THAT IS NOT RECORDED IS AN ORPHAN AT THE BROKER.
+    #
+    # This used to POST to /api/options/autobook-log, which does not exist and
+    # returns 404 — swallowed by the except below, so twenty spreads were
+    # placed on 28 Oct 2026 and NOTHING recorded them. The desk-check that
+    # reads the broker found them exactly as designed:
+    #
+    #   "CVX 218P SHORT 1 — NO placement record claims this leg · the broker
+    #    holds a position the desk has no record of opening; it is not in any
+    #    P&L, not in any risk total, and nothing will ever close it"
+    #
+    # Forty of those, on a dashboard the owner was already struggling to
+    # trust. The check was right; the booking was incomplete. This is the
+    # "placed != recorded" shape that has now cost this desk three times.
+    #
+    # Written to the artifact store that actually exists, so the record lands
+    # or the run says it did not.
     try:
-        requests.post(f"{base.rstrip('/')}/api/options/autobook-log",
-                      json={"as_of": datetime.now(timezone.utc).isoformat(),
-                            "board": stamp, "results": results, "refused": skip},
-                      headers=H, timeout=(5, 30))
-    except Exception as exc:  # noqa: BLE001 — logging must not fail the run
-        log.warning("autobook log not stored: %s", str(exc)[:90])
+        resp = requests.post(
+            f"{base.rstrip('/')}/api/ingest/today-setups",
+            json={"universe": "options-autobook", "label": "latest",
+                  "uploaded_by": "tradepro-options-autobook",
+                  "artifact": {
+                      "as_of_utc": datetime.now(timezone.utc).isoformat(),
+                      "board": stamp, "placed": results, "refused": skip}},
+            headers=H, timeout=(5, 30))
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:120]}")
+        log.info("placement record stored for %d booked trade(s)", len(results))
+    except Exception as exc:  # noqa: BLE001
+        # LOUD. The orders are already at the broker by this point; an
+        # unrecorded placement is the one failure that cannot be found later
+        # by reading our own books.
+        log.error("PLACEMENT RECORD NOT STORED (%s) — %d trades are live at the "
+                  "broker with NO record. Reconcile by hand or they will show "
+                  "as orphans.", str(exc)[:90], len(results))
     return 1 if (failed and not sent) else 0
 
 

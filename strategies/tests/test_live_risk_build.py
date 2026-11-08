@@ -113,3 +113,93 @@ def test_every_row_carries_its_reason(monkeypatch):
                 today=date(2026, 11, 7))
     for r in _body(art)["positions"]:
         assert r["why"] and any(c.isdigit() for c in r["why"])
+
+
+# ── exposure: the part that was avoidable (8 Nov 2026) ────────────────────
+#
+# Owner: "a major drawdown like this cannot be predicted buyt ovrall exposures
+# could have been avoided". Right, and the per-position verdicts cannot see any
+# of it — on 1 Nov all 22 puts were inside their own limits while the BOOK was
+# one bet: ~all tech, GOOGL held as shares AND three short puts, and $619,000
+# of assignment against ~$218,000 of NAV.
+
+from tradepro_strategies.cli.live_risk import exposures
+
+
+def _row(sym, strike, qty=-1):
+    return {"symbol": sym, "strike": strike, "qty": qty}
+
+
+def test_one_sector_dominating_the_book_is_reported_with_its_number():
+    """'Too concentrated' is an opinion. '53% of your assignment obligation'
+    is a fact the owner can act on or overrule."""
+    rows = [_row("A", 100), _row("B", 100), _row("C", 100), _row("D", 100)]
+    secs = {"A": "Technology", "B": "Technology", "C": "Technology", "D": "Energy"}
+    f = [x for x in exposures(rows, [], sectors=secs) if x["kind"] == "concentration"]
+    assert f and "Technology" in f[0]["subject"]
+    assert "75%" in f[0]["detail"]
+
+
+def test_a_balanced_book_reports_nothing():
+    # A card that always complains gets ignored, and then it is worth less
+    # than no card.
+    rows = [_row(s, 100) for s in "ABCDE"]
+    secs = {"A": "Technology", "B": "Energy", "C": "Healthcare",
+            "D": "Financials", "E": "Industrials"}
+    assert [x for x in exposures(rows, [], sectors=secs)
+            if x["kind"] == "concentration"] == []
+
+
+def test_unclassified_names_GROUP_rather_than_escape_the_limit():
+    # An unclassified name must not be the way round a concentration cap.
+    # Measured on the live book: 41% of the obligation was unclassified.
+    rows = [_row(s, 100) for s in "ABCD"]
+    f = [x for x in exposures(rows, [], sectors={}) if x["kind"] == "concentration"]
+    assert f and f[0]["subject"] == "unclassified"
+
+
+def test_holding_the_stock_AND_selling_its_put_is_ONE_bet():
+    """The GOOGL case: 200 shares and three short puts showed as four
+    independent rows with four independent verdicts. Every leg lost together."""
+    f = exposures([_row("GOOGL", 315)],
+                  [{"symbol": "GOOGL", "qty": 200}], sectors={})
+    d = [x for x in f if x["kind"] == "doubled"]
+    assert d and "ONE bet" in d[0]["detail"] and "200" in d[0]["detail"]
+
+
+def test_a_short_put_on_a_name_you_do_NOT_hold_is_not_flagged():
+    f = exposures([_row("KO", 90)], [{"symbol": "XOM", "qty": 100}], sectors={})
+    assert [x for x in f if x["kind"] == "doubled"] == []
+
+
+def test_a_SHORT_stock_position_is_not_doubling_up():
+    # Short stock plus a short put is a different animal — not the same-side
+    # concentration this rule is about.
+    f = exposures([_row("GOOGL", 315)],
+                  [{"symbol": "GOOGL", "qty": -200}], sectors={})
+    assert [x for x in f if x["kind"] == "doubled"] == []
+
+
+def test_assignment_beyond_the_account_is_arithmetic_not_a_forecast():
+    rows = [_row("A", 1000)]           # $100,000 of obligation
+    f = [x for x in exposures(rows, [], sectors={}, nav_usd=50_000)
+         if x["kind"] == "assignment"]
+    assert f and "2.0x" in f[0]["detail"] and f[0]["severity"] == 2
+
+
+def test_affordable_assignment_is_silent():
+    rows = [_row("A", 100)]            # $10,000 against $200,000
+    assert [x for x in exposures(rows, [], sectors={}, nav_usd=200_000)
+            if x["kind"] == "assignment" and x["severity"] == 2] == []
+
+
+def test_without_an_account_value_it_says_it_cannot_check():
+    # Not knowing is not the same as being fine — the distinction this desk
+    # keeps having to re-learn.
+    f = [x for x in exposures([_row("A", 1000)], [], sectors={})
+         if x["kind"] == "assignment"]
+    assert f and f[0]["severity"] == 1 and "not supplied" in f[0]["detail"]
+
+
+def test_an_empty_book_has_no_findings():
+    assert exposures([], [], sectors={}, nav_usd=100_000) == []

@@ -129,8 +129,22 @@ def _spots(symbols: set[str]) -> dict[str, float | None]:
     return out
 
 
+def _sector_map() -> dict[str, str]:
+    """symbol -> sector from the derived universe. Absent names fall to
+    "unclassified", which GROUPS them rather than exempting them — an
+    unclassified name must not be the way round a concentration limit."""
+    import pathlib
+    p = pathlib.Path(__file__).resolve().parents[2] / "universe" / "wheel_sleeve.json"
+    try:
+        d = json.loads(p.read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+    return {r["symbol"]: (r.get("sector") or "unclassified")
+            for r in (d.get("detail") or []) if r.get("symbol")}
+
+
 def build(positions: list[dict], *, rules: ManageRules | None = None,
-          today: date | None = None) -> dict:
+          today: date | None = None, nav_usd: float | None = None) -> dict:
     """Positions -> the risk picture. Pure, so it is testable without a broker."""
     today = today or date.today()
     opts, stocks = [], []
@@ -186,11 +200,103 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
         "rules": {"take_profit_pct": (rules or ManageRules()).take_profit_pct,
                   "near_expiry_days": (rules or ManageRules()).near_expiry_days,
                   "loss_multiple_of_credit": (rules or ManageRules()).loss_multiple_of_credit},
+        "exposures": exposures(rows, [
+            {"symbol": p.get("symbol"), "qty": p.get("quantity")} for _o, p in stocks],
+            sectors=_sector_map(), nav_usd=nav_usd),
         "positions": rows,
         "equity": [{"symbol": p.get("symbol"), "qty": p.get("quantity"),
                     "unrealised": _f(p.get("unrealizedPnl"))} for _o, p in stocks],
         },
     }
+
+
+# ── exposure, which is the part that was avoidable ────────────────────────
+#
+# Owner, 8 Nov 2026: "a major drawdown like this cannot be predicted buyt
+# ovrall exposures could have been avoided". Exactly right, and the per-position
+# verdicts cannot see any of it — on 1 Nov every one of the 22 puts was inside
+# its own limits and the BOOK was a single bet:
+#
+#   * 22 short puts, essentially all tech and semiconductors
+#   * GOOGL held as 200 shares AND three short puts — one position in four
+#     costumes, every leg losing together
+#   * $619,000 of assignment obligation against roughly $218,000 of NAV
+#
+# None of that is a forecast. All of it was countable that morning.
+
+#: No single sector may carry more than this share of the assignment
+#: obligation. ~7 investable sectors means equal weight is about 14%; 35% is
+#: 2.5x that — permissive, because concentration is often where the premium
+#: is, and still far below the ~100% tech the live book actually ran.
+MAX_SECTOR_SHARE = float(os.environ.get("TRADEPRO_LIVE_MAX_SECTOR_SHARE", "0.35"))
+
+#: Assignment obligation as a multiple of account value. At 1.0x every short
+#: put could be exercised and paid for. The live book was at 2.8x.
+MAX_ASSIGNMENT_X_NAV = float(os.environ.get("TRADEPRO_LIVE_MAX_ASSIGNMENT_X_NAV", "1.0"))
+
+
+def exposures(rows: list[dict], equity: list[dict], *,
+              sectors: dict[str, str] | None = None,
+              nav_usd: float | None = None) -> list[dict]:
+    """Book-level findings. Returns [] when the book is within its limits.
+
+    Each finding carries the NUMBER, because "too concentrated" is an opinion
+    and "73% of your assignment obligation is one sector" is a fact the owner
+    can act on or overrule.
+    """
+    sectors = sectors or {}
+    out: list[dict] = []
+    total = sum((r.get("strike") or 0) * 100 * abs(r.get("qty") or 0) for r in rows)
+
+    # 1. ONE THEME. The week's damage was a sector, not a name.
+    by_sector: dict[str, float] = defaultdict(float)
+    for r in rows:
+        ob = (r.get("strike") or 0) * 100 * abs(r.get("qty") or 0)
+        by_sector[sectors.get(r.get("symbol")) or "unclassified"] += ob
+    for sec, ob in sorted(by_sector.items(), key=lambda kv: -kv[1]):
+        if total and ob / total > MAX_SECTOR_SHARE:
+            out.append({
+                "kind": "concentration", "severity": 2, "subject": sec,
+                "detail": f"{sec} is {ob/total:.0%} of your assignment obligation "
+                          f"(${ob:,.0f} of ${total:,.0f}), past the "
+                          f"{MAX_SECTOR_SHARE:.0%} line. A move against this "
+                          f"sector hits every one of these at once.",
+            })
+
+    # 2. THE SAME BET TWICE. Long stock plus a short put on one name is not
+    #    two positions — both legs lose together, and the screen showed them
+    #    as separate rows with separate verdicts.
+    held = {str(e.get("symbol") or "").upper(): e for e in equity
+            if (e.get("qty") or 0) > 0}
+    for r in rows:
+        sym = str(r.get("symbol") or "").upper()
+        if sym in held:
+            out.append({
+                "kind": "doubled", "severity": 2, "subject": sym,
+                "detail": f"you hold {held[sym].get('qty'):g} shares of {sym} AND "
+                          f"a short {r.get('strike')}P. That is ONE bet, not two "
+                          f"— both legs lose together, and assignment adds more "
+                          f"of what you already own.",
+            })
+
+    # 3. COULD YOU PAY FOR IT. Not a forecast — arithmetic.
+    if nav_usd and total:
+        x = total / nav_usd
+        if x > MAX_ASSIGNMENT_X_NAV:
+            out.append({
+                "kind": "assignment", "severity": 2, "subject": "book",
+                "detail": f"assignment obligation ${total:,.0f} is {x:.1f}x your "
+                          f"${nav_usd:,.0f} account. If these were all exercised "
+                          f"you could not pay for them without selling something.",
+            })
+    elif total:
+        out.append({
+            "kind": "assignment", "severity": 1, "subject": "book",
+            "detail": f"assignment obligation ${total:,.0f} — account value not "
+                      f"supplied, so this cannot be checked against what you "
+                      f"could actually fund.",
+        })
+    return out
 
 
 def _f(v) -> float | None:
@@ -203,6 +309,9 @@ def _f(v) -> float | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--push", action="store_true", help="publish the artifact")
+    ap.add_argument("--nav-usd", type=float,
+                    help="account value, so assignment obligation can be checked "
+                         "against what you could actually fund")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -246,12 +355,16 @@ def main() -> int:
               "which would read as 'you hold nothing'", file=sys.stderr)
         return 1
 
-    art = build(positions)
+    art = build(positions, nav_usd=a.nav_usd)
     c = art["artifact"]["counts"]
     print(f"{c['short_puts']} short puts · {c['close']} CLOSE · {c['watch']} watch "
           f"· {c['hold']} hold · {c['unknown']} unknown")
     print(f"assignment obligation ${art['artifact']['assignment_obligation_usd']:,.0f} · "
           f"unrealised ${art['artifact']['unrealised_usd']:,.0f}\n")
+    for x in art["artifact"].get("exposures") or []:
+        print(f"  EXPOSURE  {x['detail'][:104]}")
+    if art["artifact"].get("exposures"):
+        print()
     for row in art["artifact"]["positions"]:
         if row["action"] in ("CLOSE", "WATCH", "UNKNOWN"):
             print(f"  {row['action']:7s} {row['symbol']:6s} {row['expiry']} "
