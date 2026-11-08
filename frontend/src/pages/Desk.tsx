@@ -43,6 +43,7 @@ import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { ActionBoard } from "../components/desk/ActionBoard";
+import { LiveBookCard } from "../components/desk/LiveBookCard";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
 import { RunLogCard } from "../components/desk/RunLogCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
@@ -281,6 +282,11 @@ export function Desk() {
         <>
           {/* Distilled first — verb, symbol, level — then the full table with
               every strategy, its freshness and its gate trace below it. */}
+          {/* WHAT YOU ALREADY CARRY COMES FIRST. A board of new trades above
+              a position expiring in thirteen days gets the priority exactly
+              backwards — the owner read the latter in a chat message on
+              1 Nov and had nowhere to see it for the week that followed. */}
+          <LiveBookCard />
           <ActionBoard />
           <CandidatesView onOpenSymbol={onSearchSelectSymbol} />
         </>
