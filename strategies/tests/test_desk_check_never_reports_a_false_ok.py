@@ -258,3 +258,35 @@ def test_a_perfect_report_carries_no_call_to_action():
         dc._get = orig
     assert c.status == OK
     assert c.fix == ""
+
+
+# ── a second lane that places options (8 Nov 2026) ────────────────────────
+#
+# check_option_legs_vs_book knew ONE record source — the strangle decision
+# log — which was right when written and wrong the moment the autobooker
+# placed twenty spreads. Forty legs were reported as orphans on every
+# dashboard load: "the broker holds a position the desk has no record of
+# opening ... nothing will ever close it".
+#
+# They WERE orphans (the autobooker posted to an endpoint that 404s), but a
+# check satisfiable by only one lane cries wolf as soon as a second exists,
+# and a banner that is always red is one nobody reads.
+
+def test_the_check_reads_the_autobook_record_too():
+    import inspect
+    from tradepro_strategies.cli import desk_check as d
+    src = inspect.getsource(d.check_option_legs_vs_book)
+    assert "options-autobook" in src, (
+        "a leg the autobooker recorded placing must not be reported as an "
+        "orphan — that alarm is structural, not a finding")
+
+
+def test_an_absent_autobook_record_is_not_a_claim():
+    # Not finding the record must never VOUCH for a leg. An orphan with no
+    # record is exactly what this check exists to surface.
+    import inspect
+    from tradepro_strategies.cli import desk_check as d
+    src = inspect.getsource(d.check_option_legs_vs_book)
+    i = src.index("options-autobook")
+    assert "except Exception" in src[i:i + 500]
+    assert "absent record is not a claim" in src[i - 400:i + 500]

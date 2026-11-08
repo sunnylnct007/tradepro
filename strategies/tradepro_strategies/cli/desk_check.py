@@ -831,6 +831,30 @@ def check_option_legs_vs_book(base: str, token: str | None) -> list[Check]:
         return [Check("Option legs vs book", UNKNOWN,
                       f"could not read the decision log ({str(exc)[:60]})")]
 
+    # THE STRANGLE IS NO LONGER THE ONLY THING THAT PLACES OPTIONS.
+    #
+    # This check knew one record source, which was correct when it was written
+    # and became wrong on 28 Oct 2026, when the autobooker placed twenty
+    # spreads. Forty legs were then reported as orphans — "the broker holds a
+    # position the desk has no record of opening" — on every dashboard load.
+    #
+    # The legs WERE orphans: the autobooker posted its record to an endpoint
+    # that 404s. But a check that can only be satisfied by one lane will keep
+    # crying wolf as soon as a second lane exists, and a banner that is always
+    # red is one nobody reads. Both halves needed fixing; this is the half
+    # that stops the alarm being structural.
+    booked: set[tuple[str, float, str]] = set()
+    try:
+        ab = _get(base, token, "/api/today-setups/options-autobook/latest",
+                  timeout=45) or {}
+        for t in ((ab.get("artifact") or {}).get("placed") or []):
+            sym = str(t.get("symbol") or "").upper()
+            for k in ("short_strike", "long_strike"):
+                if t.get(k) is not None:
+                    booked.add((sym, round(float(t[k]), 2), "P"))
+    except Exception:  # noqa: BLE001 — absent record is not a claim
+        pass
+
     def _occ(desc: str):
         """(strike, right) from an IBKR contract description, via OCC."""
         m = re.search(r"\d{6}([PC])(\d{8})", (desc or "").upper())
@@ -855,6 +879,8 @@ def check_option_legs_vs_book(base: str, token: str | None) -> list[Check]:
         # match lets a SPY row vouch for an XSP leg and vice versa — the check
         # would then confirm exactly the orphan it exists to find.
         mkt = desc.split()[0].upper() if desc.split() else ""
+        if (mkt, round(strike, 2), right) in booked:
+            continue          # the autobooker recorded placing this leg
         claiming = [r for r in drows
                     if r.get("placed") is True
                     and str(r.get("market") or "").upper() == mkt
