@@ -122,6 +122,20 @@ export function SpreadBuilder({
   const quoted = puts.filter((l) => mid(l) != null).length;
   const shortLeg = puts.find((l) => l.strike === shortK);
   const longLeg = puts.find((l) => l.strike === longK);
+
+  // A STRIKE THE LADDER DOES NOT CONTAIN IS A DIFFERENT PROBLEM FROM ONE THAT
+  // IS NOT QUOTING, and conflating them produced a panel that contradicted
+  // itself: the owner opened QQQ on a 625/570 row, the fetched expiry ran
+  // 654-667, and the panel reported "these strikes are not quoting" while the
+  // ladder beside it showed live bids on every line.
+  //
+  // The board's strikes come from the expiry IT chose; the panel may be
+  // showing a different one. That is not a fault — it is the point of letting
+  // the expiry be changed — but it has to be said in words that match what
+  // the reader can see.
+  const strikeMissing = (k: number | null) =>
+    k != null && !puts.some((l) => l.strike === k);
+  const absent = strikeMissing(shortK) || strikeMissing(longK);
   const credit = mid(shortLeg);
   const debit = longK == null ? 0 : mid(longLeg);
 
@@ -137,13 +151,18 @@ export function SpreadBuilder({
 
   return (
     <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.65)",
+      position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.82)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
     }}>
       <div onClick={(ev) => ev.stopPropagation()} style={{
         width: "min(980px, 96vw)", maxHeight: "92vh", overflowY: "auto",
-        background: "var(--surface)", border: "1px solid var(--border)",
-        borderRadius: 12, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.5)",
+        // OPAQUE, NOT var(--surface). The theme surface carries alpha, so the
+        // page behind bled straight through the panel and the ladder was
+        // unreadable against the board underneath it — the owner's screenshot
+        // shows candidate rows running through the strike table. A modal that
+        // cannot be read is worse than no modal.
+        background: "#0d1117", border: "1px solid var(--border)",
+        borderRadius: 12, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.75)",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>
@@ -273,9 +292,14 @@ export function SpreadBuilder({
                 <div style={{ border: "1px dashed #1b2233", borderRadius: 6, padding: 14,
                               fontSize: 12, color: TONE.dim }}>
                   {shortK == null
-                    ? "Nothing selected yet."
-                    : "These strikes are not quoting, so this cannot be priced. "
-                      + "Shown as empty rather than estimated."}
+                    ? "Nothing selected yet — click a strike to sell."
+                    : absent
+                      ? `The ${[shortK, longK].filter((k) => strikeMissing(k))
+                           .map((k) => k!.toString()).join(" and ")} strike(s) are not in `
+                        + `this expiry — the board picked them from a different one. `
+                        + `Choose from the ladder, or switch expiry above.`
+                      : "These strikes are not quoting, so this cannot be priced. "
+                        + "Shown as empty rather than estimated."}
                 </div>
               )}
 
