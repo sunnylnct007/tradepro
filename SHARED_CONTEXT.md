@@ -42,6 +42,85 @@ changes this section; each rule carries the date it was set.
   using the OPRA subscription on the IBKR account. OPRA gives live quotes
   and no history, so what is not captured on schedule is lost.
 
+### 3. Event blackout for option selling (set 2026-11-09)
+- The existing rule stands: do not sell options across a stock's earnings
+  release.
+- It is EXTENDED to other known, scheduled events: elections, interest-rate
+  decisions, and similar dated market events.
+- Before proposing any new short option, check the calendar of known events
+  between today and expiry and NAME any that fall inside. Never miss one.
+- The default is to avoid the event (pick an expiry that clears it). But an
+  event can also be an opportunity: it is weighed, not auto-rejected. If a
+  trade is proposed across an event, say so plainly and state why the
+  opportunity outweighs the event risk. The owner decides.
+- Background: observation O4 below (the American election lesson).
+
+### 4. Use market events and news (set 2026-11-09)
+- Today we are not utilising market events and news at all. That is a gap
+  to close, not an accepted state.
+- Events and news are an input to trade decisions, on both sides: as a
+  risk to weigh (basic 3) and as a source of opportunity (O3, O4).
+- IBKR is a good source of news. Use it alongside the other feeds.
+
+### 5. Diversification and sector cap (set 2026-11-09)
+- Diversification is key.
+- At any one time, exposure to a single sector must not exceed 40-45% of
+  the book.
+- Why that level: limiting a sector too tightly makes the book less
+  productive, but exposing it almost completely to one sector, as we have
+  done, is very dangerous. The cap is the balance between the two.
+- Before proposing a new position, state what it does to sector exposure,
+  and say so if it would take a sector past the cap.
+
+### 6. Cash reserve and no naked puts (set 2026-11-09)
+- When running cash-secured puts, keep some portion of the book in cash.
+  For now the reserve is about $50K (set 2026-11-09). This is an
+  indication, not an exact limit; the owner may revise it.
+- Avoid naked puts wherever possible: a short put should be backed by cash
+  that can take the assignment, not left resting on margin alone.
+- Before proposing a new short put, state what backs it and what cash is
+  left after it.
+
+### 7. Use sector and exchange indexes, not stock price alone (set 2026-11-09)
+- Today our analysis looks only at the stock's own price. That is not
+  enough; we should be doing more.
+- Leverage sector indexes and exchange (market) indexes to read how a
+  stock's movement correlates with its sector and the wider market.
+- That correlation is an input to the decision: a view on a stock is given
+  alongside what its sector and the market index are doing.
+
+### Owner observations — general tendencies, NOT hard rules
+What the owner has seen hold in general from his own trading. They may not
+be true for every trade. Agents weigh them when finding and judging trades;
+they are not vetoes and not guarantees. Dated as set.
+
+**Every observation here is a THEORY until the data says otherwise** (owner,
+2026-11-09). We should hold enough harvested data (basic 2) to validate each
+one. Each observation carries a status — UNTESTED, SUPPORTED or NOT
+SUPPORTED — and, once tested, a pointer to the study that decided it.
+
+- **O1 (2026-11-09) — post-earnings drops in good names recover.**
+  Fundamentally good stocks that fall after earnings tend to recover,
+  typically by the next month or so. The recovery can be slow.
+  Owner's examples: ACN and IBM. GOOGL fell and is now on its way to
+  recovery as well.
+  Status: UNTESTED.
+- **O2 (2026-11-09) — a big earnings-day jump cools off.**
+  If a stock moves up too far on the day after its earnings release, it
+  tends to come back down a bit afterwards.
+  Status: UNTESTED.
+- **O3 (2026-11-09) — short-term trades ride market sentiment.**
+  Most short-term trading is impacted by market sentiment.
+  The sentiment then goes away, but while it lasts it gives short-term
+  traders a massive opportunity.
+  Status: UNTESTED.
+- **O4 (2026-11-09) — market events, sector events and news are key.**
+  Market events, sector events and news matter a great deal to outcomes.
+  Owner's lesson: we missed the American election completely. It gave a
+  major blow to AI stocks (they are recovering), yet the date was known
+  well in advance — we should not have entered short put options across it.
+  Status: UNTESTED.
+
 ---
 
 ## Current truth — 2026-08-22 (evening)
