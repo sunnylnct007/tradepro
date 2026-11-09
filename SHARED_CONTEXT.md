@@ -120,6 +120,14 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   major blow to AI stocks (they are recovering), yet the date was known
   well in advance — we should not have entered short put options across it.
   Status: UNTESTED.
+- **O5 (2026-11-09) — momentum plus index, options and futures pricing.**
+  Momentum on its own is not making money in paper trading, which the
+  owner finds surprising. His theory: correlating momentum signals with
+  index pricing, options pricing and futures pricing should be a killer
+  combination.
+  Status: UNDER TEST — index and sector leg first, pre-registered in
+  `MOMENTUM_INDEX_SECTOR_GATES_V1.md`. Options leg waits on harvested
+  history (basic 2); futures leg waits on a futures data subscription.
 
 ---
 
