@@ -55,6 +55,13 @@ changes this section; each rule carries the date it was set.
   opportunity outweighs the event risk. The owner decides.
 - Background: observation O4 below (the American election lesson).
 
+### 4. Use market events and news (set 2026-11-09)
+- Today we are not utilising market events and news at all. That is a gap
+  to close, not an accepted state.
+- Events and news are an input to trade decisions, on both sides: as a
+  risk to weigh (basic 3) and as a source of opportunity (O3, O4).
+- IBKR is a good source of news. Use it alongside the other feeds.
+
 ### Owner observations — general tendencies, NOT hard rules
 What the owner has seen hold in general from his own trading. They may not
 be true for every trade. Agents weigh them when finding and judging trades;
