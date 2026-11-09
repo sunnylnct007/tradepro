@@ -125,9 +125,12 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   owner finds surprising. His theory: correlating momentum signals with
   index pricing, options pricing and futures pricing should be a killer
   combination.
-  Status: UNDER TEST — index and sector leg first, pre-registered in
-  `MOMENTUM_INDEX_SECTOR_GATES_V1.md`. Options leg waits on harvested
-  history (basic 2); futures leg waits on a futures data subscription.
+  Status: index-and-sector leg NOT SUPPORTED at first pass (2026-11-09,
+  `MOMENTUM_INDEX_SECTOR_GATES_V1.md`): a plain market-trend filter adds
+  about +0.35 pts per trade but does not fix bad months; sector trend and
+  relative strength add nothing. First pass only (79 stocks, vendor bars).
+  Options leg UNTESTED, waits on harvested history (basic 2). Futures leg
+  UNTESTED, waits on a futures data subscription.
 
 ---
 

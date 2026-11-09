@@ -130,3 +130,103 @@ would have blocked, and the mean return of blocked versus kept entries
 
 If nothing passes, v2 stays exactly as it is and this file is kept as a
 failed study.
+
+---
+
+# RESULT — REJECTED at first pass. No variant passes every gate. v2 stays.
+
+Run 2026-11-09 with `strategies/backtests/studies/momentum_index_sector_v1.py`
+on `get_candles` daily bars (adjusted closes), 2006-01-03 to 2026-11-06.
+79 stocks · 5,035 sessions · 3,942 closed control trades · time split
+2017-09-08 · 225 entry-months in the bad-month gate.
+
+| variant | trades | kept | win% | mean% | median% | worst% | hold | p10 month% |
+|---|---|---|---|---|---|---|---|---|
+| A control | 3,942 | 100% | 47.5% | +2.22% | -0.70% | -33.7% | 37 | -4.67% |
+| B market trend | 2,992 | 76% | 48.8% | **+2.57%** | -0.34% | -33.7% | 40 | -4.30% |
+| C market + sector | 2,623 | 67% | 48.2% | +2.36% | -0.51% | -33.7% | 39 | -4.30% |
+| D relative strength | 2,558 | 65% | 47.4% | +2.29% | -0.70% | -33.7% | 34 | -4.85% |
+| E all | 1,575 | 39.95% | 48.1% | +2.56% | -0.51% | -33.7% | 35 | -4.38% |
+
+Sanity check on the control: the golden-store v2 control in
+`MOMENTUM_GATES_V3.md` is +2.20%/trade, 48.8% win, median -0.33%, hold 35.
+This run's control is +2.22%, 47.5%, -0.70%, 37 on different bars and a
+different universe. Same rule, same shape. The comparison between variants
+is therefore believable; the absolute numbers are still not the screen's.
+
+## Gate by gate
+
+| variant | fails |
+|---|---|
+| B market trend | G3 (win +1.3 pts, needs +1.5), G6 (bad months +0.37 pt, needs +1.0) |
+| C market + sector | G2, G3, G4, G6, G7 |
+| D relative strength | G2, G3, G4, G6, G7 |
+| E all | G1 (39.95% kept, needs 40%), G3, G4, G6, G7 |
+
+## What the four-cell split says
+
+| variant | time 1st half | time 2nd half | symbols even | symbols odd |
+|---|---|---|---|---|
+| B | PASS +2.74 vs +2.33 | PASS +2.40 vs +2.10 | PASS +2.77 vs +2.46 | PASS +2.36 vs +1.98 |
+| C | PASS +2.63 vs +2.33 | **FAIL** +2.09 vs +2.10 | **FAIL** +2.45 vs +2.46 | PASS +2.27 vs +1.98 |
+| D | **FAIL** +2.31 vs +2.33 | **FAIL** (win 43.6 vs 43.9) | **FAIL** (win tie) | **FAIL** +1.98 vs +1.98 |
+| E | PASS +2.90 vs +2.33 | **FAIL** (win 42.8 vs 43.9) | PASS +2.80 vs +2.46 | PASS +2.28 vs +1.98 |
+
+1. **The plain market-trend filter (B) is the only leg with a consistent
+   effect.** +0.35 pts per trade, better in both halves of time and both
+   halves of the symbol list. It is real and it is modest.
+2. **Adding the sector ETF's trend (C) takes the benefit away again.** It
+   removes 369 more trades and the mean falls from +2.57% to +2.36%.
+3. **Relative strength (D) is noise here.** It is indistinguishable from the
+   control in every cell.
+4. **Nothing fixes bad months.** The 10th-percentile entry-month moves from
+   -4.67% to -4.30% at best. That was the owner's actual complaint, and it is
+   the gate every variant fails.
+5. **Nothing changes the worst trade** (-33.7% in all five): the tail is
+   overnight gap risk, as already documented for v2.
+
+## October 2026 replay (descriptive)
+
+30 control entries in October on this universe, mean -2.70%.
+
+| variant | blocked | kept mean | blocked mean |
+|---|---|---|---|
+| B market trend | 0 of 30 | -2.70% | n/a |
+| C market + sector | 14 of 30 | -4.72% | -0.38% |
+| D relative strength | 11 of 30 | -3.54% | -1.24% |
+| E all | 16 of 30 | -4.69% | -0.95% |
+
+The market filter would not have blocked one October entry: the market was
+still in an uptrend by this definition. The sector filter blocked nearly half
+of them, and **the ones it blocked did better than the ones it kept**. In
+the episode that prompted this study the filters would have made the book
+worse, not better. Only 5 of the control's October entries fall on 13-16 Oct,
+because this universe is 79 names and the T212 book drew from a wider one.
+
+## Prediction grading (predictions committed at e975a3f)
+
+| # | Predicted | Actual | |
+|---|---|---|---|
+| 1 | B barely matters: keeps >80%, lift <0.15, fails G2 | kept 76%, lift +0.35, PASSED G2; the best variant | **wrong** |
+| 2 | C fails G2 | lift +0.14, fails G2 | **right** |
+| 3 | D moves the numbers most | D did nothing (+0.07) | **wrong** |
+| 4 | E passes G1; under 30% chance of passing everything; G7 the killer | E missed G1 by 0.05 pt; failed; G7 failed | **right on the verdict, wrong on G1** |
+| 5 | Trend filters would not block the October entries | market filter blocked 0 of 30; sector filter blocked 14, the wrong ones | **right on the market leg** |
+
+## Deviation from the plan, recorded
+
+`tradeable.json` changed on `main` between pre-registration and the run: four
+names (CRDO, CRWV, SKHY, SNDK) became `harvest: true`, so the script's
+universe rule now selects 83. Bars had been fetched for the 79 pre-registered
+names only, so the run is on those 79 exactly as registered. The four are
+listed as missing in the output, not silently dropped.
+
+## Consequence
+
+1. **No index or sector filter ships.** The Momentum screen keeps v2.
+2. Owner observation O5, index-and-sector leg: **NOT SUPPORTED at first
+   pass.** The "killer combination" (E) is not better than a plain market
+   filter, and neither fixes bad months.
+3. B is the one thing worth a confirmation run on the golden store over the
+   full universe, with these same gates. That is the owner's call.
+4. The options-pricing and futures legs of O5 remain untested.
