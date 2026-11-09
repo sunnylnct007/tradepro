@@ -44,6 +44,7 @@ import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { ActionBoard } from "../components/desk/ActionBoard";
 import { LiveBookCard } from "../components/desk/LiveBookCard";
+import { LiveView } from "../components/desk/LiveView";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
 import { RunLogCard } from "../components/desk/RunLogCard";
 import { FillReplayCard } from "../components/desk/FillReplayCard";
@@ -80,7 +81,7 @@ function useWide(): boolean {
   return wide;
 }
 
-const DESK_VIEWS: DeskView[] = ["portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing", "post-earnings-puts", "strangle-decisions"];
+const DESK_VIEWS: DeskView[] = ["live", "portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing", "post-earnings-puts", "strangle-decisions"];
 
 export function Desk() {
   const wide = useWide();
@@ -295,6 +296,7 @@ export function Desk() {
       {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
       {view === "scanner"    && <ScannerView />}
+      {view === "live"       && <LiveView />}
       {view === "options"    && <OptionsDesk />}
       {view === "strangle-decisions" && <StrangleDecisionsView />}
       {view === "decide"         && <Compare />}

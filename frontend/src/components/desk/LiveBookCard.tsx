@@ -157,7 +157,31 @@ export function LiveBookCard() {
             )}
           </div>
 
-          {rows.length === 0 && (
+          {/* EXPOSURES BEFORE POSITIONS. The owner's own verdict on the live
+          account was "a major drawdown like this cannot be predicted but
+          overall exposures could have been avoided" — so the thing that could
+          have helped goes ABOVE the thing that could not. */}
+      {Array.isArray(art.exposures) && art.exposures.length > 0 && (
+        <div style={{ margin: "8px 0 10px", padding: "8px 10px",
+                      border: `1px solid ${TONE.act}`, borderRadius: 6,
+                      background: "rgba(255,90,90,0.05)" }}>
+          <div style={{ fontSize: 11, color: TONE.act, fontWeight: 700,
+                        letterSpacing: 0.4, marginBottom: 4 }}>
+            EXPOSURE — what a position limit would have caught
+          </div>
+          {art.exposures.map((e: any, i: number) => (
+            <div key={i} style={{ fontSize: 12, color: "var(--text)",
+                                  padding: "2px 0", lineHeight: 1.45 }}>
+              <span style={{ color: TONE.muted, fontFamily: "var(--font-mono)" }}>
+                {e.kind}
+              </span>{" "}
+              {e.detail}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {rows.length === 0 && (
             <div style={{ fontSize: 12, color: TONE.dim, padding: "6px 0" }}>
               No short puts in the live book.
             </div>

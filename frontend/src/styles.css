@@ -23,6 +23,20 @@
   --surface-2:     #111722;
   --surface-3:     #161d2b;
 
+  /* AND PLAIN --surface, MISSED BY THE SAME FIX (9 Nov 2026). The pass above
+   * defined the numbered aliases and left the unnumbered one undefined, so ten
+   * uses across five components resolved to nothing. `background: var(--surface)`
+   * with no definition and no fallback is not an error — the declaration is
+   * simply dropped and the element stays TRANSPARENT.
+   *
+   * That is why both option modals rendered see-through, with the board behind
+   * them legible straight through the panel. I first diagnosed it as the theme
+   * carrying alpha and hardcoded a literal into SpreadBuilder, which fixed one
+   * of the two and left OptionsDesk's Analyze panel exactly as broken — the
+   * same one-fix-N-sites shape this comment block was written about the first
+   * time. Defining the token fixes every consumer, including any not yet found. */
+  --surface:       #0e1320;
+
   /* Also referenced-but-undefined (relied on hardcoded fallbacks). Define them
    * as real tokens — same values, just intentional now. */
   --warn:          #c79a2a;
