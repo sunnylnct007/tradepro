@@ -177,9 +177,20 @@ except Exception:
 print(','.join(sorted(out)))
 " 2>>"${LOG:-/dev/null}")
             CN=$(printf '%s' "$CSYMS" | tr ',' '\n' | grep -c .)
-            if (( CN > 0 )); then
-                log "SCOPE=candidates: harvesting the $CN name(s) the desk is considering or holding, not the $N in the universe"
-                SYMS="$CSYMS"; N=$CN
+            # UNION WITH THE HARVEST-FLAGGED SET, 9 Nov 2026. Owner: "we shd
+            # harvest the 5 min candle as well if possible". The candidates
+            # query above reads PAPER stock positions and skips options, so
+            # the live account's short puts — AMD, NVDA, DELL, MRVL and ten
+            # more — never entered 5m scope; only six of nineteen live names
+            # had intraday bars. The flagged set (universe_symbols(), 80 names
+            # by design) now bounds this lane, which is what the nine-hour
+            # guard below was always trying to approximate. Candidates stay
+            # in so a name entering a board the same day still gets bars.
+            USYMS=$(printf '%s\n%s' "$SYMS" "$CSYMS" | tr ',' '\n' | grep . | sort -u | paste -sd, -)
+            UN=$(printf '%s' "$USYMS" | tr ',' '\n' | grep -c .)
+            if (( UN > 0 )); then
+                log "SCOPE=candidates: $CN candidate/held name(s) ∪ $N harvest-flagged = $UN symbols for 5m"
+                SYMS="$USYMS"; N=$UN
             else
                 # Fail LOUD. Falling through to the full universe is what hung
                 # this lane for nine hours.
