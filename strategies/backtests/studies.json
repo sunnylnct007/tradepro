@@ -570,6 +570,44 @@
      "pass": null
     }
    ]
+  },
+  {
+   "id": "momentum_index_sector_v1",
+   "date": "2026-11-09",
+   "title": "Momentum + index and sector filter (first pass, vendor bars, 79 stocks)",
+   "gatesFile": "MOMENTUM_INDEX_SECTOR_GATES_V1.md",
+   "gatesCommit": "e975a3f",
+   "question": "Owner observation O5: does adding market and sector context to the v2 momentum rule improve it, and would it have avoided the October 2026 losses?",
+   "prediction": "Market trend barely matters; relative strength moves the numbers most; the full combination has under a 30% chance of passing every gate, G7 the likeliest killer; the trend filters would not have blocked the October entries.",
+   "headline": "Control 3,942 trades +2.22%/trade. Market-trend filter +2.57% and beats control in all four split cells, but lifts win rate only 1.3 pts and leaves bad months almost unchanged. Sector trend, relative strength and the full combination add nothing reliable.",
+   "verdict": "REJECTED at first pass \u2014 no variant passes every gate",
+   "why": "The only leg with a consistent effect is the plain market-trend filter (SPY above its 200-day with 20 > 50): +0.35 pts per trade, positive in both time halves and both symbol halves. It still fails the win-rate gate (+1.3 vs +1.5 needed) and the bad-month gate (10th-percentile month -4.30% vs -4.67%, +0.37 against +1.0 needed), which was the owner's actual complaint. Relative strength vs SPY and the sector ETF is indistinguishable from the control. The full combination keeps 39.95% of trades and fails the second time half on win rate. October 2026: the market filter blocked 0 of 30 entries; the sector filter blocked 14, and the ones it blocked did better (-0.38%) than the ones it kept (-4.72%). LIMITS: vendor daily bars from get_candles, not the golden store; 79 survivor stocks, not the 956-name screen; today's GICS sectors applied to all history. Two of five predictions were wrong: the market leg mattered more than predicted and relative strength less.",
+   "gates": [
+    {
+     "id": "B market trend",
+     "test": "all gates G1-G7",
+     "result": "fails G3 (win +1.3 pts) and G6 (bad months +0.37 pt); passes G1, G2, G4, G5, G7",
+     "pass": false
+    },
+    {
+     "id": "C market + sector trend",
+     "test": "all gates G1-G7",
+     "result": "fails G2, G3, G4, G6, G7",
+     "pass": false
+    },
+    {
+     "id": "D relative strength",
+     "test": "all gates G1-G7",
+     "result": "fails G2, G3, G4, G6, G7 (loses or ties in all four cells)",
+     "pass": false
+    },
+    {
+     "id": "E all (owner's combination)",
+     "test": "all gates G1-G7",
+     "result": "fails G1 (39.95% kept), G3, G4, G6, G7 (2nd time half win rate)",
+     "pass": false
+    }
+   ]
   }
  ]
 }
