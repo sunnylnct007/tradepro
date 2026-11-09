@@ -64,6 +64,8 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   Status: UNTESTED.
 - **O3 (2026-11-09) — short-term trades ride market sentiment.**
   Most short-term trading is impacted by market sentiment.
+  The sentiment then goes away, but while it lasts it gives short-term
+  traders a massive opportunity.
   Status: UNTESTED.
 
 ---
