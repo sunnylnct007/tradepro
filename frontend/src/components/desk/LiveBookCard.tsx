@@ -233,6 +233,59 @@ export function LiveBookCard() {
             </div>
           )}
 
+          {/* THE REST OF THE BOOK. Owner: "it only shows the put position and
+              not the equity position". The artifact always carried the stock
+              rows; the card never drew them — so a screen titled "what you are
+              carrying" omitted the part of the book holding most of the loss.
+              Covered calls likewise: they are the repair trade on those
+              shares and were not collected at all until tonight. */}
+          {Array.isArray(art.equity) && art.equity.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: TONE.dim, fontWeight: 700,
+                            letterSpacing: 0.4, marginBottom: 4 }}>
+                SHARES YOU HOLD
+              </div>
+              {art.equity.map((e: any) => (
+                <div key={e.symbol} style={{ display: "flex", gap: 10, fontSize: 12.5,
+                      padding: "4px 0", borderTop: "1px solid #141a26", alignItems: "baseline" }}>
+                  <span style={{ fontWeight: 600, minWidth: 56, fontFamily: "var(--font-mono)" }}>{e.symbol}</span>
+                  <span style={{ color: TONE.dim, fontFamily: "var(--font-mono)" }}>{e.qty} sh</span>
+                  <span style={{ color: (e.unrealised ?? 0) < 0 ? TONE.act : TONE.ok,
+                                 fontFamily: "var(--font-mono)" }}>{usd(e.unrealised)}</span>
+                  {e.covered_call && (
+                    <span style={{ color: TONE.muted, fontSize: 11.5 }}>
+                      covered by short {e.covered_call}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {Array.isArray(art.calls) && art.calls.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11, color: TONE.dim, fontWeight: 700,
+                            letterSpacing: 0.4, marginBottom: 4 }}>
+                CALLS YOU SOLD
+              </div>
+              {art.calls.map((c: any) => (
+                <div key={c.contract} style={{ display: "flex", gap: 10, fontSize: 12.5,
+                      padding: "4px 0", borderTop: "1px solid #141a26", alignItems: "baseline" }}>
+                  <span style={{ fontWeight: 600, minWidth: 56, fontFamily: "var(--font-mono)" }}>{c.symbol}</span>
+                  <span style={{ color: TONE.dim, fontFamily: "var(--font-mono)" }}>
+                    {c.strike}C {c.expiry?.slice(5)} · {c.dte}d
+                  </span>
+                  <span style={{ color: (c.unrealised ?? 0) < 0 ? TONE.act : TONE.ok,
+                                 fontFamily: "var(--font-mono)" }}>{usd(c.unrealised)}</span>
+                  <span style={{ color: TONE.muted, fontSize: 11.5 }}>
+                    {c.covered ? `covered by ${c.covered} sh` : "NOT covered by shares"}
+                    {c.credit != null && c.mark != null
+                      && ` · sold ${c.credit.toFixed(2)}, now ${c.mark.toFixed(2)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* The thresholds, so a verdict can be argued with. */}
           {art.rules && (
             <div style={{ fontSize: 10.5, color: TONE.muted, marginTop: 8, lineHeight: 1.5 }}>

@@ -154,6 +154,27 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
 
     shorts = [(occ, p) for occ, p in opts
               if occ and occ[2] == "P" and (p.get("quantity") or 0) < 0]
+    # SHORT CALLS TOO. Owner, 9 Nov: the screen "only shows the put position
+    # and not the equity position". The calls are the repair trade on the
+    # shares (ORCL 145C against ORCL stock) and the thing that caps the
+    # recovery; a book view without them is not the book.
+    held_qty = {str(p.get("symbol") or "").upper(): float(p.get("quantity") or 0)
+                for _o, p in stocks}
+    short_calls = [(occ, p) for occ, p in opts
+                   if occ and occ[2] == "C" and (p.get("quantity") or 0) < 0]
+    calls = []
+    for occ, p in short_calls:
+        root, expiry, _r, strike = occ
+        q = abs(float(p.get("quantity") or 0))
+        calls.append({
+            "symbol": root, "contract": p.get("symbol"), "expiry": expiry,
+            "strike": strike, "qty": -q,
+            "dte": (date.fromisoformat(expiry) - today).days,
+            "credit": _f(p.get("costBasisPrice")), "mark": _f(p.get("markPrice")),
+            "unrealised": _f(p.get("unrealizedPnl")),
+            # covered = shares on hand for the contracts sold (100/contract)
+            "covered": int(min(held_qty.get(root, 0.0), q * 100)) or None,
+        })
     spot = _spots({occ[0] for occ, _ in shorts})
 
     rows, assignment = [], 0.0
@@ -221,8 +242,12 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
             {"symbol": p.get("symbol"), "qty": p.get("quantity")} for _o, p in stocks],
             sectors=_sector_map(), nav_usd=nav_usd),
         "positions": rows,
+        "calls": calls,
         "equity": [{"symbol": p.get("symbol"), "qty": p.get("quantity"),
-                    "unrealised": _f(p.get("unrealizedPnl"))} for _o, p in stocks],
+                    "unrealised": _f(p.get("unrealizedPnl")),
+                    "covered_call": next((f"{c['strike']:.0f}C {c['expiry']}" for c in calls
+                                          if c["symbol"] == str(p.get("symbol") or "").upper()), None)}
+                   for _o, p in stocks],
         },
     }
 
@@ -245,7 +270,14 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
 #: obligation. ~7 investable sectors means equal weight is about 14%; 35% is
 #: 2.5x that — permissive, because concentration is often where the premium
 #: is, and still far below the ~100% tech the live book actually ran.
-MAX_SECTOR_SHARE = float(os.environ.get("TRADEPRO_LIVE_MAX_SECTOR_SHARE", "0.35"))
+# OWNER BASICS 5 (SHARED_CONTEXT, set 2026-11-09): "exposure to a single sector
+# must not exceed 40-45% of the book". 0.45 is the line; 0.35 was my number,
+# written before he set one. One definition, read by the card and the mail.
+MAX_SECTOR_SHARE = float(os.environ.get("TRADEPRO_LIVE_MAX_SECTOR_SHARE", "0.45"))
+# OWNER BASICS 6: "keep some portion of the book in cash ... about $50K", and
+# "a short put should be backed by cash that can take the assignment". An
+# indication, not an exact limit — reported as a finding, never a refusal.
+CASH_RESERVE_USD = float(os.environ.get("TRADEPRO_LIVE_CASH_RESERVE_USD", "50000"))
 
 #: Assignment obligation as a multiple of account value. At 1.0x every short
 #: put could be exercised and paid for. The live book was at 2.8x.
