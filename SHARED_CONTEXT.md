@@ -66,6 +66,9 @@ changes this section; each rule carries the date it was set.
 - Diversification is key.
 - At any one time, exposure to a single sector must not exceed 40-45% of
   the book.
+- Why that level: limiting a sector too tightly makes the book less
+  productive, but exposing it almost completely to one sector, as we have
+  done, is very dangerous. The cap is the balance between the two.
 - Before proposing a new position, state what it does to sector exposure,
   and say so if it would take a sector past the cap.
 
