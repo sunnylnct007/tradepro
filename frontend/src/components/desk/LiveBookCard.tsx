@@ -132,12 +132,29 @@ export function LiveBookCard() {
               <span style={{ color: TONE.muted }}>if every short put is exercised</span>
             </span>
             <span>
-              unrealised{" "}
+              marked at{" "}
               <b style={{
                 color: (art.unrealised_usd ?? 0) < 0 ? TONE.act : TONE.ok,
                 fontFamily: "var(--font-mono)",
               }}>{usd(art.unrealised_usd)}</b>
             </span>
+            {/* THE SECOND NUMBER IS THE HONEST ONE, and showing only the
+                first is what made this book read three times worse than it
+                is. The mark is the cost of exiting today; most of it is time
+                value the seller has earned and not yet been credited. */}
+            {art.unrealised_hold_usd != null && (
+              <span>
+                at expiry if nothing moves{" "}
+                <b style={{
+                  color: (art.unrealised_hold_usd ?? 0) < 0 ? TONE.act : TONE.ok,
+                  fontFamily: "var(--font-mono)",
+                }}>{usd(art.unrealised_hold_usd)}</b>{" "}
+                <span style={{ color: TONE.muted }}>
+                  — {usd(art.time_value_at_stake_usd)} of that gap is time
+                  value you forfeit by closing early
+                </span>
+              </span>
+            )}
           </div>
 
           {rows.length === 0 && (
@@ -165,6 +182,17 @@ export function LiveBookCard() {
                   color: (r.unrealised ?? 0) < 0 ? TONE.act : TONE.ok,
                   fontFamily: "var(--font-mono)",
                 }}>{usd(r.unrealised)}</span>
+                {/* Basis before verdict: "would I own it here" is the question
+                    a short put actually asks, and the owner rejected a screen
+                    that answered a different one. */}
+                {r.basis != null && (
+                  <span style={{ color: (r.cushion_pct ?? 0) >= 0 ? TONE.ok : TONE.muted,
+                                 fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
+                    basis {r.basis.toFixed(2)}
+                    {r.cushion_pct != null
+                      && ` (${r.cushion_pct >= 0 ? "+" : ""}${r.cushion_pct.toFixed(1)}%)`}
+                  </span>
+                )}
                 <span style={{ color: TONE.muted, flex: 1, minWidth: 220 }}>{r.why}</span>
               </div>
             );
@@ -185,10 +213,13 @@ export function LiveBookCard() {
           {art.rules && (
             <div style={{ fontSize: 10.5, color: TONE.muted, marginTop: 8, lineHeight: 1.5 }}>
               Rules: close at {art.rules.take_profit_pct}% of credit captured,
-              in-the-money inside {art.rules.near_expiry_days} days, or a loss of{" "}
-              {art.rules.loss_multiple_of_credit}× the credit. These are thresholds
-              you set — "CLOSE" means a line was crossed, not that anyone thinks
-              you should sell.
+              in-the-money inside {art.rules.near_expiry_days} days, or the stock
+              more than {art.rules.max_basis_shortfall_pct}% below the effective
+              basis (strike minus credit — what assignment really costs you).
+              These are thresholds you set — "CLOSE" means a line was crossed,
+              not that anyone thinks you should sell. A position in the money
+              but still ABOVE its basis reads as WATCH, because assignment
+              there is profitable.
             </div>
           )}
         </>

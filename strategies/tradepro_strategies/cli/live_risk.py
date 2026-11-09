@@ -172,6 +172,14 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
             "mark": _f(p.get("markPrice")),
             "unrealised": _f(p.get("unrealizedPnl")),
             "action": v.action, "rule": v.rule, "why": v.why, "urgency": v.urgency,
+            # The arithmetic behind the verdict, carried rather than re-derived.
+            # `hold` is the position at expiry IF THE STOCK DOES NOT MOVE —
+            # the honest counterfactual to closing, and the number the screen
+            # was missing when it showed a mark three times worse than the
+            # outcome it implied.
+            "basis": v.effective_basis, "cushion_pct": v.basis_cushion_pct,
+            "close_pnl": v.close_pnl, "hold_pnl": v.hold_pnl,
+            "forfeit": v.forfeit,
         })
     # Worst first: a board read top-down must start with what forces a
     # decision soonest, then by how little time is left to make it.
@@ -197,9 +205,18 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
         },
         "assignment_obligation_usd": round(assignment, 2),
         "unrealised_usd": round(sum(r["unrealised"] or 0 for r in rows), 2),
+        # BOTH TOTALS, SIDE BY SIDE, because reporting only the first one is
+        # what made this book look three times worse than it is. The mark is
+        # the cost of exiting today; the difference between the two is time
+        # value the seller has already earned and has not yet been credited.
+        "unrealised_hold_usd": round(
+            sum(r["hold_pnl"] or 0 for r in rows), 2),
+        "time_value_at_stake_usd": round(
+            sum(r["forfeit"] or 0 for r in rows), 2),
         "rules": {"take_profit_pct": (rules or ManageRules()).take_profit_pct,
                   "near_expiry_days": (rules or ManageRules()).near_expiry_days,
-                  "loss_multiple_of_credit": (rules or ManageRules()).loss_multiple_of_credit},
+                  "max_basis_shortfall_pct":
+                      (rules or ManageRules()).max_basis_shortfall_pct},
         "exposures": exposures(rows, [
             {"symbol": p.get("symbol"), "qty": p.get("quantity")} for _o, p in stocks],
             sectors=_sector_map(), nav_usd=nav_usd),
