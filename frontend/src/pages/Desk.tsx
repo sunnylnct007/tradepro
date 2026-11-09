@@ -42,7 +42,6 @@ import { PnlTruthCard } from "../components/desk/PnlTruthCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { ActionBoard } from "../components/desk/ActionBoard";
-import { LiveBookCard } from "../components/desk/LiveBookCard";
 import { LiveView } from "../components/desk/LiveView";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
 import { RunLogCard } from "../components/desk/RunLogCard";
@@ -264,7 +263,12 @@ export function Desk() {
       {/* ON EVERY VIEW, above everything. A broken execution lane is not a
           candidates-screen problem; it invalidates whatever board you are
           looking at. Silent when healthy — see the component. */}
-      <DeskHealthBanner />
+      {/* NOT ON LIVE. The banner is paper plumbing — orphan paper legs, paper
+          data lanes. The owner opened the Live screen and the first thing on
+          it was "41 supporting lanes are broken" about an account that is not
+          his. Live's own card says when IT is stale; that is the only health
+          line that belongs there. */}
+      {view !== "live" && <DeskHealthBanner />}
 
       {view === "oms"        && <OmsOrders />}
       {view === "harvest"    && <HarvestView />}
@@ -277,7 +281,6 @@ export function Desk() {
               a position expiring in thirteen days gets the priority exactly
               backwards — the owner read the latter in a chat message on
               1 Nov and had nowhere to see it for the week that followed. */}
-          <LiveBookCard />
           <ActionBoard />
           <CandidatesView onOpenSymbol={onSearchSelectSymbol} />
         </>
