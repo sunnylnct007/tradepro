@@ -1,3 +1,8 @@
+## Read first — owner basics
+
+The owner's standing rules for every agent are in the **OWNER BASICS** section
+at the top of [SHARED_CONTEXT.md](SHARED_CONTEXT.md). Read that section before
+any work. Do not relitigate it and do not ask the owner to repeat it.
 
 ## Merging — the gate, and why it exists
 
