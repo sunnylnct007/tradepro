@@ -62,6 +62,9 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   If a stock moves up too far on the day after its earnings release, it
   tends to come back down a bit afterwards.
   Status: UNTESTED.
+- **O3 (2026-11-09) — short-term trades ride market sentiment.**
+  Most short-term trading is impacted by market sentiment.
+  Status: UNTESTED.
 
 ---
 
