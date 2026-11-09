@@ -72,6 +72,13 @@ changes this section; each rule carries the date it was set.
 - Before proposing a new position, state what it does to sector exposure,
   and say so if it would take a sector past the cap.
 
+### 6. Cash reserve and no naked puts (set 2026-11-09)
+- When running cash-secured puts, keep some portion of the book in cash.
+- Avoid naked puts wherever possible: a short put should be backed by cash
+  that can take the assignment, not left resting on margin alone.
+- Before proposing a new short put, state what backs it and what cash is
+  left after it.
+
 ### Owner observations — general tendencies, NOT hard rules
 What the owner has seen hold in general from his own trading. They may not
 be true for every trade. Agents weigh them when finding and judging trades;
