@@ -62,6 +62,13 @@ changes this section; each rule carries the date it was set.
   risk to weigh (basic 3) and as a source of opportunity (O3, O4).
 - IBKR is a good source of news. Use it alongside the other feeds.
 
+### 5. Diversification and sector cap (set 2026-11-09)
+- Diversification is key.
+- At any one time, exposure to a single sector must not exceed 40-45% of
+  the book.
+- Before proposing a new position, state what it does to sector exposure,
+  and say so if it would take a sector past the cap.
+
 ### Owner observations — general tendencies, NOT hard rules
 What the owner has seen hold in general from his own trading. They may not
 be true for every trade. Agents weigh them when finding and judging trades;
