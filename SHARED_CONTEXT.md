@@ -74,8 +74,8 @@ changes this section; each rule carries the date it was set.
 
 ### 6. Cash reserve and no naked puts (set 2026-11-09)
 - When running cash-secured puts, keep some portion of the book in cash.
-  For now the reserve is 50K (set 2026-11-09; currency to be confirmed by
-  the owner). The owner may revise the figure.
+  For now the reserve is about $50K (set 2026-11-09). This is an
+  indication, not an exact limit; the owner may revise it.
 - Avoid naked puts wherever possible: a short put should be backed by cash
   that can take the assignment, not left resting on margin alone.
 - Before proposing a new short put, state what backs it and what cash is
