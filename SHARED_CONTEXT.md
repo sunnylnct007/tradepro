@@ -47,11 +47,17 @@ What the owner has seen hold in general from his own trading. They may not
 be true for every trade. Agents weigh them when finding and judging trades;
 they are not vetoes and not guarantees. Dated as set.
 
+**Every observation here is a THEORY until the data says otherwise** (owner,
+2026-11-09). We should hold enough harvested data (basic 2) to validate each
+one. Each observation carries a status — UNTESTED, SUPPORTED or NOT
+SUPPORTED — and, once tested, a pointer to the study that decided it.
+
 - **O1 (2026-11-09) — post-earnings drops in good names recover.**
   Fundamentally good stocks that fall after earnings tend to recover,
   typically by the next month or so. The recovery can be slow.
   Owner's examples: ACN and IBM. GOOGL fell and is now on its way to
   recovery as well.
+  Status: UNTESTED.
 
 ---
 
