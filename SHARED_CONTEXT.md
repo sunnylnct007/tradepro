@@ -58,6 +58,10 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   Owner's examples: ACN and IBM. GOOGL fell and is now on its way to
   recovery as well.
   Status: UNTESTED.
+- **O2 (2026-11-09) — a big earnings-day jump cools off.**
+  If a stock moves up too far on the day after its earnings release, it
+  tends to come back down a bit afterwards.
+  Status: UNTESTED.
 
 ---
 
