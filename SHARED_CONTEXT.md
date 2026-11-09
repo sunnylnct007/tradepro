@@ -79,6 +79,14 @@ changes this section; each rule carries the date it was set.
 - Before proposing a new short put, state what backs it and what cash is
   left after it.
 
+### 7. Use sector and exchange indexes, not stock price alone (set 2026-11-09)
+- Today our analysis looks only at the stock's own price. That is not
+  enough; we should be doing more.
+- Leverage sector indexes and exchange (market) indexes to read how a
+  stock's movement correlates with its sector and the wider market.
+- That correlation is an input to the decision: a view on a stock is given
+  alongside what its sector and the market index are doing.
+
 ### Owner observations — general tendencies, NOT hard rules
 What the owner has seen hold in general from his own trading. They may not
 be true for every trade. Agents weigh them when finding and judging trades;
