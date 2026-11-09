@@ -44,11 +44,22 @@ def test_changing_a_rule_changes_what_the_tool_reports(monkeypatch):
 
 
 def test_the_universe_mismatch_is_disclosed_not_buried():
-    """Momentum's headline was measured on 256 symbols and it screens ~956.
-    A reviewer must not have to know that already to find it."""
+    """Momentum's headline was measured on 256 symbols and screens a different
+    number. A reviewer must not have to know that already to find it.
+
+    THE DIRECTION OF THE MISMATCH IS NOT THE PROPERTY. This asserted
+    `> 500` until 9 Nov 2026, which quietly encoded "live is much bigger than
+    measured" — true while the universe was 956, and false the moment it was
+    cut to the harvested set. The test then failed on a change that did not
+    touch disclosure at all, which is the signature of a test pinned to a
+    circumstance rather than to the thing it is defending. What matters is that
+    the two numbers differ and that the difference is stated where a reader
+    will meet it."""
     r = get_strategy_rules("momentum")
     assert r["rule"]["measured_on"]["symbols"] == 256
-    assert r["live_universe_symbols"] > 500
+    assert r["live_universe_symbols"] != r["rule"]["measured_on"]["symbols"], (
+        "if these ever coincide this test is vacuous — restate it against "
+        "whatever the live mismatch has become")
     joined = " ".join(r["rule"]["caveats"]).upper()
     assert "256" in joined and "FAILS G5" in joined, (
         "the universe mismatch and the failed tail gate must both be stated in "
