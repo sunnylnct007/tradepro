@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "live" | "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts" | "strangle-decisions" | "candidates";
+export type DeskView = "live" | "candidates" | "portfolio" | "oms" | "harvest" | "options" | "research" | "swing" | "momentum" | "post-earnings-puts" | "strangle-decisions";
 
 type NavEntry = {
   key: string;

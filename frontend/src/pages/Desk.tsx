@@ -35,7 +35,6 @@ import { DeskHealthBanner } from "../components/desk/DeskHealthBanner";
 import { SwingView } from "../components/desk/SwingView";
 import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
-import { ScannerView } from "../components/desk/ScannerView";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
@@ -52,19 +51,10 @@ import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
 import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
-import { ScreenersView } from "../components/desk/ScreenersView";
-import { NewsView } from "../components/desk/NewsView";
 import { HarvestView } from "../components/desk/HarvestView";
 import { OptionsDesk } from "../components/desk/OptionsDesk";
 import { StrangleDecisionsView } from "../components/desk/StrangleDecisionsView";
-import { WatchlistView } from "../components/desk/WatchlistView";
-import { QuoteView } from "../components/desk/QuoteView";
-import { SimulationView } from "../components/desk/SimulationView";
 import { OmsOrders } from "./OmsOrders";
-import { RiskPage } from "./RiskPage";
-import { Compare } from "./Compare";
-import { UniverseScan } from "./UniverseScan";
-import { DailyScreener } from "./DailyScreener";
 import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
@@ -81,7 +71,15 @@ function useWide(): boolean {
   return wide;
 }
 
-const DESK_VIEWS: DeskView[] = ["live", "portfolio", "decide", "scan", "screeners", "news", "watchlist", "quote", "simulation", "oms", "risk", "harvest", "options", "daily-screener", "research", "swing", "post-earnings-puts", "strangle-decisions"];
+// ONLY VIEWS WITH A RAIL ENTRY, 9 Nov 2026. Ten views were cut from the rail
+// on 1 Sep and left routed by URL "in case" — decide, scan, risk, screeners,
+// news, watchlist, quote, simulation, scanner, daily-screener. The owner found
+// one by its bookmark: "why do we still have this screen that shows no value".
+// A screen with no rail entry is not parked, it is a trap: it still renders
+// stale verdicts, and in decide's case its lane (tradepro-compare, 54 symbols
+// x 7 strategies) had been running for 23 hours to feed it. Deleted, with the
+// lane. Nothing that is not on the rail is routable.
+const DESK_VIEWS: DeskView[] = ["live", "candidates", "portfolio", "oms", "harvest", "options", "research", "swing", "momentum", "post-earnings-puts", "strangle-decisions"];
 
 export function Desk() {
   const wide = useWide();
@@ -268,15 +266,7 @@ export function Desk() {
           looking at. Silent when healthy — see the component. */}
       <DeskHealthBanner />
 
-      {view === "quote" && (
-        <QuoteView initialSymbol={selectedSymbol} />
-      )}
-      {view === "screeners"  && <ScreenersView />}
-      {view === "news"       && <NewsView wide={wide} />}
-      {view === "watchlist"  && <WatchlistView />}
-      {view === "simulation" && <SimulationView />}
       {view === "oms"        && <OmsOrders />}
-      {view === "risk"       && <RiskPage />}
       {view === "harvest"    && <HarvestView />}
       {view === "research"   && <ResearchView />}
       {view === "candidates" && (
@@ -295,13 +285,9 @@ export function Desk() {
       {view === "swing"      && <SwingView onOpenSymbol={onSearchSelectSymbol} />}
       {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
-      {view === "scanner"    && <ScannerView />}
       {view === "live"       && <LiveView />}
       {view === "options"    && <OptionsDesk />}
       {view === "strangle-decisions" && <StrangleDecisionsView />}
-      {view === "decide"         && <Compare />}
-      {view === "scan"           && <UniverseScan />}
-      {view === "daily-screener" && <DailyScreener />}
     </DeskShell>
   );
 }
