@@ -50,6 +50,7 @@ they are not vetoes and not guarantees. Dated as set.
 - **O1 (2026-11-09) — post-earnings drops in good names recover.**
   Fundamentally good stocks that fall after earnings tend to recover,
   typically by the next month or so. The recovery can be slow.
+  Owner's examples: ACN and IBM.
 
 ---
 
