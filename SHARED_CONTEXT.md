@@ -42,6 +42,16 @@ changes this section; each rule carries the date it was set.
   using the OPRA subscription on the IBKR account. OPRA gives live quotes
   and no history, so what is not captured on schedule is lost.
 
+### 3. Event blackout for option selling (set 2026-11-09)
+- The existing rule stands: do not sell options across a stock's earnings
+  release.
+- It is EXTENDED to other known, scheduled events: elections, interest-rate
+  decisions, and similar dated market events.
+- Before proposing any new short option, check the calendar of known events
+  between today and expiry. If one falls inside, pick an expiry that avoids
+  it or do not propose the trade.
+- Background: observation O4 below (the American election lesson).
+
 ### Owner observations — general tendencies, NOT hard rules
 What the owner has seen hold in general from his own trading. They may not
 be true for every trade. Agents weigh them when finding and judging trades;
