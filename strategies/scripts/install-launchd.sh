@@ -2,29 +2,27 @@
 # Install (or reinstall) every TradePro launchd job. Idempotent: safe to
 # run multiple times — stops + reloads each existing job.
 #
-# Two install modes:
+# THE COMPARE LANE IS GONE (9 Nov 2026). This installer used to default to a
+# "worker" mode whose only job was to loop scripts/refresh.sh, which ran
+# tradepro-compare over every ETF universe to feed the Decide screen
+# (/desk?view=decide). That screen left the rail on 1 Sep and stayed routed
+# by URL; the owner found it by bookmark — "why do we still have this screen
+# that shows no value" — while its lane had been running for 23 hours on 54
+# symbols x 7 strategies. Screen and lane are deleted together. A lane that
+# feeds nothing anyone can open is not idle, it is load on the same data
+# lines the harvest needs.
 #
-#   bash install-launchd.sh             # default: WORKER mode
-#       com.tradepro.worker     persistent, KeepAlive=true,
-#                                runs compare every 30 min and
-#                                heartbeats every 5 min internally
+#   bash install-launchd.sh                 # base: nothing persistent
+#   bash install-launchd.sh --intraday      # + intraday engine
+#   bash install-launchd.sh --algo          # + systematic slow-loop + digest
+#   bash install-launchd.sh --data-worker   # + trustworthy-data ops queue
+#   bash install-launchd.sh --catalysts-sweep
 #
-#   bash install-launchd.sh --refresh   # legacy CRON mode
-#       com.tradepro.refresh    fires 4×/day at scheduled UTC times
-#       com.tradepro.heartbeat  every 15 min Mac → API liveness ping
-#
-# Worker mode is recommended for active traders — the Mac shows as
-# "alive" continuously to the API, the data is fresher, and there's
-# only one job to manage. Refresh+heartbeat mode is closer to a
-# traditional cron pattern; useful if your laptop sleeps a lot and
-# you don't want the worker spinning.
-#
-# Either way, the OTHER mode's plists are unloaded if present so
-# you don't end up running both.
+# Any previously installed com.tradepro.worker / .refresh / .heartbeat is
+# unloaded so a reinstall cannot resurrect the compare loop.
 
 set -euo pipefail
 
-MODE="worker"
 WITH_INTRADAY=0
 WITH_EPS_SNAPSHOT=0
 WITH_ALGO=0
@@ -32,8 +30,6 @@ WITH_DATA_WORKER=0
 WITH_CATALYSTS_SWEEP=0
 for arg in "$@"; do
   case "$arg" in
-    --refresh|--cron) MODE="refresh" ;;
-    --worker|--persistent) MODE="worker" ;;
     --intraday|--with-intraday) WITH_INTRADAY=1 ;;
     --eps-snapshot|--with-eps-snapshot) WITH_EPS_SNAPSHOT=1 ;;
     # --algo installs the systematic-trading slow-loop + digest plists.
@@ -60,8 +56,6 @@ TARGET_DIR="$HOME/Library/LaunchAgents"
 
 mkdir -p "$TARGET_DIR" "$HOME/.tradepro/logs"
 chmod +x \
-    "$PROJECT_DIR/scripts/refresh.sh" \
-    "$PROJECT_DIR/scripts/worker.sh" \
     "$PROJECT_DIR/scripts/email-digest.sh" \
     "$PROJECT_DIR/scripts/paper-session.sh" \
     "$PROJECT_DIR/scripts/intraday-engine.sh" \
@@ -108,126 +102,7 @@ uninstall_one() {
   fi
 }
 
-if [[ "$MODE" == "worker" ]]; then
-  uninstall_one "com.tradepro.refresh"
-  uninstall_one "com.tradepro.heartbeat"
-  install_one "com.tradepro.worker"
-  if [[ "$WITH_INTRADAY" == "1" ]]; then
-    install_one "com.tradepro.intraday-engine"
-  else
-    uninstall_one "com.tradepro.intraday-engine"
-  fi
-  if [[ "$WITH_EPS_SNAPSHOT" == "1" ]]; then
-    install_one "com.tradepro.eps-snapshot"
-  else
-    uninstall_one "com.tradepro.eps-snapshot"
-  fi
-  if [[ "$WITH_CATALYSTS_SWEEP" == "1" ]]; then
-    install_one "com.tradepro.catalysts-daily-sweep"
-  else
-    uninstall_one "com.tradepro.catalysts-daily-sweep"
-  fi
-  if [[ "$WITH_ALGO" == "1" ]]; then
-    install_one "com.tradepro.live-portfolio"
-    install_one "com.tradepro.algo-digest"
-  else
-    uninstall_one "com.tradepro.live-portfolio"
-    uninstall_one "com.tradepro.algo-digest"
-  fi
-  if [[ "$WITH_DATA_WORKER" == "1" ]]; then
-    install_one "com.tradepro.data-worker"
-  else
-    uninstall_one "com.tradepro.data-worker"
-  fi
-  cat <<EOF
-
-Mode: WORKER (persistent, KeepAlive=true)
-
-Cadence:
-  Compare cycle every 30 min (env: WORKER_INTERVAL_SECONDS)
-  Heartbeat every  5 min     (env: HEARTBEAT_INTERVAL_SECONDS)
-  EPS snapshot    $([ "$WITH_EPS_SNAPSHOT" == "1" ] && echo "Sunday 20:00 UTC (weekly)" || echo "NOT installed — re-run with --eps-snapshot")
-
-Logs:
-  ~/.tradepro/logs/worker-<date>.log
-  ~/.tradepro/logs/worker-heartbeat-<date>.log
-  ~/.tradepro/logs/eps-snapshot-<date>.log    (Sundays only)
-
-Pause without unloading:
-  touch ~/.tradepro/worker.pause   # next cycle skips
-  rm    ~/.tradepro/worker.pause   # resumes
-
-Stop completely:
-  launchctl bootout "gui/\$UID" ~/Library/LaunchAgents/com.tradepro.worker.plist
-
-Switch to cron mode:
-  bash strategies/scripts/install-launchd.sh --refresh
-
-Add intraday automation + weekly EPS snapshots alongside the worker:
-  bash strategies/scripts/install-launchd.sh --intraday --eps-snapshot
-
-Add systematic-trading autonomy (slow loop + algo digest daily):
-  bash strategies/scripts/install-launchd.sh --algo
-  Slow loop  21:00 UTC daily: tradepro-live-portfolio --push --auto-execute
-  Algo digest 21:30 UTC daily: emails day's algo state to configured recipient
-  $([ "$WITH_ALGO" == "1" ] && echo "(INSTALLED)" || echo "(not installed)")
-
-Manual EPS snapshot (test it now):
-  launchctl start com.tradepro.eps-snapshot
-EOF
-else
-  uninstall_one "com.tradepro.worker"
-  install_one "com.tradepro.refresh"
-  install_one "com.tradepro.heartbeat"
-  install_one "com.tradepro.email-digest"
-  install_one "com.tradepro.paper"
-  if [[ "$WITH_INTRADAY" == "1" ]]; then
-    install_one "com.tradepro.intraday-engine"
-  fi
-  if [[ "$WITH_EPS_SNAPSHOT" == "1" ]]; then
-    install_one "com.tradepro.eps-snapshot"
-  else
-    uninstall_one "com.tradepro.eps-snapshot"
-  fi
-  if [[ "$WITH_CATALYSTS_SWEEP" == "1" ]]; then
-    install_one "com.tradepro.catalysts-daily-sweep"
-  else
-    uninstall_one "com.tradepro.catalysts-daily-sweep"
-  fi
-  cat <<EOF
-
-Mode: REFRESH+HEARTBEAT+EMAIL+PAPER (cron-style)
-
-Cadence:
-  Price refresh   07:00, 12:00, 17:00, 22:30 UTC daily
-  Heartbeat       every 15 min
-  Email digest    23:00 UTC daily
-  Paper session   14:30 UTC daily
-  EPS snapshot    $([ "$WITH_EPS_SNAPSHOT" == "1" ] && echo "Sunday 20:00 UTC (weekly)" || echo "NOT installed — re-run with --eps-snapshot")
-
-Logs:
-  ~/.tradepro/logs/refresh-<date>.log       (4×/day compare runs)
-  ~/.tradepro/logs/heartbeat-stdout.log     (15-min liveness pings)
-  ~/.tradepro/logs/email-<date>.log         (23:00 UTC daily digest)
-  ~/.tradepro/logs/paper-<date>.log         (14:30 UTC paper session)
-  ~/.tradepro/logs/eps-snapshot-<date>.log  (Sundays only)
-
-Manual trigger:
-  launchctl start com.tradepro.heartbeat
-  launchctl start com.tradepro.refresh
-  launchctl start com.tradepro.email-digest
-  launchctl start com.tradepro.paper
-  launchctl start com.tradepro.eps-snapshot
-
-These agents auto-load on every user login (default macOS behavior
-for ~/Library/LaunchAgents/*.plist) — a Mac reboot does NOT require
-re-running this script. Missed StartCalendarInterval fires replay
-on the next wake.
-
-Switch to persistent worker:
-  bash strategies/scripts/install-launchd.sh --worker
-
-Add weekly EPS snapshots (COMPASS earnings revision factor):
-  bash strategies/scripts/install-launchd.sh --refresh --eps-snapshot
-EOF
-fi
+# Legacy compare lanes: always removed, never installed.
+uninstall_one "com.tradepro.worker"
+uninstall_one "com.tradepro.refresh"
+uninstall_one "com.tradepro.heartbeat"
