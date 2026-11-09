@@ -139,8 +139,28 @@ def load_universe(*, strict: bool = True) -> dict:
     return json.loads(p.read_text())
 
 
-def universe_symbols(**kw) -> list[str]:
-    return [r["symbol"] for r in load_universe(**kw)["symbols"]]
+def universe_symbols(*, harvested_only: bool = True, **kw) -> list[str]:
+    """Names the desk is live on.
+
+    `harvested_only` IS THE DEFAULT, and that is the point. A name whose bars
+    are not refreshed goes stale within a session, and a screen that ranks a
+    stale name against fresh ones is not comparing like with like — it is
+    quietly presenting yesterday as today. The 9 Nov cut exists precisely
+    because every screen was doing that; letting the screens keep reading the
+    un-harvested tail would have left the symptom in place while fixing the
+    cause.
+
+    Pass harvested_only=False for the FULL tracked list — the settings screen
+    needs it to show what can be turned on, and tooling that reasons about
+    membership rather than freshness wants it too.
+    """
+    rows = load_universe(**kw)["symbols"]
+    if harvested_only:
+        # `.get(..., True)` so a universe file written before the flag existed
+        # keeps every name rather than silently harvesting nothing. An absent
+        # flag means "nobody has chosen yet", never "off".
+        rows = [r for r in rows if r.get("harvest", True)]
+    return [r["symbol"] for r in rows]
 
 
 # Resolution folder names as the bar store writes them: 1d, 1m, 5m, 15m, 1h.
@@ -198,6 +218,12 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
 
     out: dict[str, None] = {}          # ordered set
 
+    # HARVEST ONLY WHAT IS FLAGGED ON. Owner, 9 Nov 2026: "i had said before I
+    # dnt need to arvest all symbols" — he had, more than once, and the cost of
+    # not acting was measured: the universe went to 956 on 21 Sep and the
+    # nightly job went from 18 minutes to 12-61 hours, finishing after the next
+    # open every day. A flag rather than a deletion, at his instruction, so the
+    # set is his to change from the UI without re-seeding years of bars.
     for sym in universe_symbols(strict=False):
         ok, _ = _instrument_ok(sym)
         if ok:

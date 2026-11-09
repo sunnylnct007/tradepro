@@ -156,12 +156,12 @@ export function SpreadBuilder({
     }}>
       <div onClick={(ev) => ev.stopPropagation()} style={{
         width: "min(980px, 96vw)", maxHeight: "92vh", overflowY: "auto",
-        // OPAQUE, NOT var(--surface). The theme surface carries alpha, so the
-        // page behind bled straight through the panel and the ladder was
-        // unreadable against the board underneath it — the owner's screenshot
-        // shows candidate rows running through the strike table. A modal that
-        // cannot be read is worse than no modal.
-        background: "#0d1117", border: "1px solid var(--border)",
+        // var(--surface) again, now that the token actually EXISTS. The first
+        // fix hardcoded a literal here on a wrong diagnosis (I blamed alpha;
+        // the variable was simply never defined), which repaired this one
+        // modal and left every other consumer transparent. The token is the
+        // single definition; a literal here would be a second one.
+        background: "var(--surface)", border: "1px solid var(--border)",
         borderRadius: 12, padding: 16, boxShadow: "0 18px 60px rgba(0,0,0,0.75)",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>

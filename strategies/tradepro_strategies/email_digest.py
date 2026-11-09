@@ -20,6 +20,47 @@ from typing import Any
 from .formatting import ordinal_suffix
 
 
+# ── WHICH ACCOUNT IS THIS MAIL ABOUT ─────────────────────────────────────
+#
+# Owner, 9 Nov 2026: "the emails shd clearly state if its paper trading or
+# live account".
+#
+# This matters more than a label usually would, because of the ruling it sits
+# next to: algo execution is PAPER ONLY and never touches the live account. So
+# a reader who mistakes a paper alert for a live one is being told to act on
+# money that is not at risk — and worse, a live alert mistaken for paper gets
+# ignored. The two mails look alike; only the account differs.
+#
+# THE LABEL IS NOT A CONVENTION, IT IS ENFORCED. `labelled()` is how a digest
+# gets built, and it refuses an account it does not recognise. A caller cannot
+# forget the label, because there is no path to an EmailDigest that omits it.
+# This desk has lost whole days to "one fact, N places, fix lands at one"; the
+# way out is to leave exactly one door.
+LIVE = "LIVE ACCOUNT · REAL MONEY"
+PAPER = "PAPER · SIMULATED, NO REAL MONEY"
+_ACCOUNTS = (LIVE, PAPER)
+
+
+def labelled(account: str, *, subject: str, text_body: str,
+             html_body: str = "") -> "EmailDigest":
+    """Build a digest that states its account in the subject AND the body.
+
+    Subject only would not be enough: subjects get truncated on a phone, and
+    the body is what is read after the mail is opened. Both, every time.
+    """
+    if account not in _ACCOUNTS:
+        raise ValueError(
+            f"account must be one of {_ACCOUNTS!r}, got {account!r}. Every "
+            f"TradePro mail states whether it concerns real money."
+        )
+    tag = "[LIVE]" if account == LIVE else "[PAPER]"
+    body = f"{account}\n{'=' * len(account)}\n\n{text_body}"
+    html = (f'<p style="font:700 13px system-ui;color:'
+            f'{"#c0392b" if account == LIVE else "#666"}">{account}</p>{html_body}'
+            if html_body else "")
+    return EmailDigest(subject=f"{tag} {subject}", text_body=body, html_body=html)
+
+
 @dataclass
 class EmailDigest:
     subject: str

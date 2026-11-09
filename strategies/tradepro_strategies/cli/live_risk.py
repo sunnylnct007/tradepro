@@ -323,9 +323,79 @@ def _f(v) -> float | None:
         return None
 
 
+
+def _alert_text(art: dict) -> str:
+    """What the mail says. The SAME verdicts and numbers the screen shows —
+    built from the published artifact rather than recomputed, so a mail can
+    never disagree with the board it is alerting about."""
+    c = art["counts"]
+    rows = art.get("positions") or []
+    act = [r for r in rows if r.get("action") == "CLOSE"]
+    lines = [
+        f"{c['short_puts']} short puts · {c['close']} to close · "
+        f"{c['watch']} watch · {c['hold']} hold",
+        "",
+        f"Assignment obligation ${art['assignment_obligation_usd']:,.0f} "
+        f"if every short put is exercised.",
+    ]
+    # BOTH TOTALS. Reporting the mark alone is what made this book read three
+    # times worse than it is, and a mail that repeats that mistake is worse
+    # than the screen because it arrives unprompted.
+    if art.get("unrealised_hold_usd") is not None:
+        lines += [
+            f"Marked at ${art['unrealised_usd']:,.0f}; at expiry with prices "
+            f"unchanged it is ${art['unrealised_hold_usd']:,.0f}. The "
+            f"${art.get('time_value_at_stake_usd') or 0:,.0f} between them is "
+            f"time value you forfeit by closing early.",
+        ]
+    for e in (art.get("exposures") or []):
+        lines += ["", f"EXPOSURE — {e.get('detail')}"]
+    if act:
+        lines += ["", "TO CLOSE", "--------"]
+        for r in act:
+            lines.append(
+                f"  {r['symbol']} {r['strike']:.0f}P {r['expiry']} "
+                f"({r['dte']}d) — {r['why']}")
+    else:
+        lines += ["", "Nothing crosses a close line today."]
+    lines += ["", "TradePro reads this account and never places an order into "
+              "it. Algo execution is paper only."]
+    return "\n".join(lines)
+
+
+def _mail(art: dict) -> int:
+    """Send the live alert, or say why it could not be sent.
+
+    A FAILED MAIL IS REPORTED, NEVER SWALLOWED. The whole point of an alert is
+    that silence means "nothing to tell you"; a mailer that fails quietly turns
+    silence into "we could not reach you", which reads identically.
+    """
+    try:
+        from ..email_digest import LIVE, labelled
+        from .email_digest import resolve_smtp_creds, send_email
+    except Exception as exc:  # noqa: BLE001
+        print(f"email machinery unavailable: {exc}", file=sys.stderr)
+        return 1
+    c = art["counts"]
+    subject = (f"{c['close']} to close, {c['watch']} watch "
+               f"— ${art['assignment_obligation_usd']:,.0f} obligation")
+    try:
+        cfg = resolve_smtp_creds()
+        send_email(labelled(LIVE, subject=subject, text_body=_alert_text(art)), cfg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"ALERT NOT SENT — {exc}", file=sys.stderr)
+        return 1
+    print(f"alert mailed: [LIVE] {subject}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--push", action="store_true", help="publish the artifact")
+    ap.add_argument("--email", action="store_true",
+                    help="mail the alert. Subject and body both state that this "
+                         "is the LIVE account, because a paper alert read as "
+                         "live (or the reverse) is the expensive mistake")
     ap.add_argument("--nav-usd", type=float,
                     help="account value, so assignment obligation can be checked "
                          "against what you could actually fund")
@@ -378,6 +448,11 @@ def main() -> int:
           f"· {c['hold']} hold · {c['unknown']} unknown")
     print(f"assignment obligation ${art['artifact']['assignment_obligation_usd']:,.0f} · "
           f"unrealised ${art['artifact']['unrealised_usd']:,.0f}\n")
+
+    if a.email:
+        rc = _mail(art["artifact"])
+        if rc:
+            return rc
     for x in art["artifact"].get("exposures") or []:
         print(f"  EXPOSURE  {x['detail'][:104]}")
     if art["artifact"].get("exposures"):

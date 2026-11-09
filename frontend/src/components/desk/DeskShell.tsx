@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts" | "strangle-decisions" | "candidates";
+export type DeskView = "live" | "portfolio" | "decide" | "scan" | "screeners" | "news" | "watchlist" | "quote" | "simulation" | "oms" | "risk" | "harvest" | "options" | "daily-screener" | "research" | "swing" | "momentum" | "scanner" | "post-earnings-puts" | "strangle-decisions" | "candidates";
 
 type NavEntry = {
   key: string;
@@ -128,6 +128,14 @@ type NavEntry = {
 // The screens themselves still exist and still run — this removes them from the
 // DESK, which is the surface that has to be trustworthy. Nothing was deleted.
 const NAV: NavEntry[] = [
+  // LIVE FIRST, 9 Nov 2026. It is the only screen about real money; every
+  // other entry on this rail is paper. The owner ruled that algo execution
+  // never touches the live account, so this screen is a read and an analysis
+  // — which is exactly the half of the product that was missing while the
+  // cockpit showed him a paper NLV and paper orphan legs.
+  { key: "live", label: "Live", icon: "●", view: "live", tier: "trusted",
+    title: "Live account — your REAL positions, read-only. Basis, exposure and "
+         + "what to close. TradePro never places an order into this account." },
   // ONE SCREEN, ABOVE THE PER-STRATEGY TABS (Phase 4, 1 Sep 2026). Owner: "as
   // user i dont have to think many screens". The tabs below are now the DETAIL
   // views — this is the one that answers "what is there today" across all of
