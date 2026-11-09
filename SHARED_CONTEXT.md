@@ -48,8 +48,11 @@ changes this section; each rule carries the date it was set.
 - It is EXTENDED to other known, scheduled events: elections, interest-rate
   decisions, and similar dated market events.
 - Before proposing any new short option, check the calendar of known events
-  between today and expiry. If one falls inside, pick an expiry that avoids
-  it or do not propose the trade.
+  between today and expiry and NAME any that fall inside. Never miss one.
+- The default is to avoid the event (pick an expiry that clears it). But an
+  event can also be an opportunity: it is weighed, not auto-rejected. If a
+  trade is proposed across an event, say so plainly and state why the
+  opportunity outweighs the event risk. The owner decides.
 - Background: observation O4 below (the American election lesson).
 
 ### Owner observations — general tendencies, NOT hard rules
