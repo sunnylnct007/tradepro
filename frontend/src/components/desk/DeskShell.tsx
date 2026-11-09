@@ -133,6 +133,14 @@ const NAV: NavEntry[] = [
   // never touches the live account, so this screen is a read and an analysis
   // — which is exactly the half of the product that was missing while the
   // cockpit showed him a paper NLV and paper orphan legs.
+  // UNIVERSE — which names TradePro harvests and uses, as toggles. Owner, 9
+  // Nov 2026: "screen that shows all symbols and we select which ones to
+  // harvest and use ... need to be a UI screen". It is the existing /universes
+  // page pointed at the "harvest" universe: INCLUDE = on, EXCLUDE = off, and
+  // the nightly lane reads the overrides. Linked, not re-implemented.
+  { key: "universe", label: "Universe", icon: "⊞", to: "/universes?name=harvest", tier: "trusted",
+    title: "Universe — every tracked name with an on/off toggle for harvesting and use. "
+         + "INCLUDE turns a name on, EXCLUDE turns it off; the nightly harvest honours it." },
   { key: "live", label: "Live", icon: "●", view: "live", tier: "trusted",
     title: "Live account — your REAL positions, read-only. Basis, exposure and "
          + "what to close. TradePro never places an order into this account." },
