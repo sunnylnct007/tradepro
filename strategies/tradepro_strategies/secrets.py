@@ -227,3 +227,34 @@ def _try_credentials_file(name: str) -> Optional[str]:
 
 
 __all__ = ["get_secret", "clear_cache"]
+
+
+def get_json_secret(secret_id: str) -> Optional[dict]:
+    """Read ONE JSON secret by its FULL id — no `/tradepro/` prefix applied.
+
+    WHY A SECOND READER EXISTS. `get_secret()` prefixes names with
+    `_SM_PREFIX` = "/tradepro/" (leading slash). The API's secondary secrets
+    — "tradepro/ibkr-flex", "tradepro/ig" — are stored WITHOUT that slash,
+    which to Secrets Manager is a different id. `get_secret("ibkr-flex")`
+    therefore resolves to nothing, silently, and a lane would fall through to
+    "not configured" with the secret sitting right there. Owner, 9 Nov 2026,
+    when asked to export the Flex token by hand: "i had already added before.
+    why cant u get from aws secret". This is why.
+
+    Region follows `_SM_DEFAULT_REGION` (eu-west-2 unless overridden), which
+    is the region the API reads these from. Returns None on any failure and
+    logs at WARNING — a missing read-only credential is a lane that cannot
+    run, and that must not look like "nothing to report".
+    """
+    try:
+        import boto3
+    except ImportError:
+        log.warning("get_json_secret(%s): boto3 not installed", secret_id)
+        return None
+    try:
+        client = boto3.client("secretsmanager", region_name=_SM_DEFAULT_REGION)
+        raw = client.get_secret_value(SecretId=secret_id).get("SecretString")
+        return json.loads(raw) if raw else None
+    except Exception as e:  # noqa: BLE001 — boto raises many types; all mean "no secret"
+        log.warning("get_json_secret(%s, region=%s) failed: %s", secret_id, _SM_DEFAULT_REGION, e)
+        return None

@@ -421,6 +421,37 @@ def _mail(art: dict) -> int:
     return 0
 
 
+FLEX_SECRET_ID = "tradepro/ibkr-flex"      # the same secret the API loads
+
+
+def flex_credentials(env: "dict | None" = None,
+                     fetch: "callable | None" = None) -> tuple[str, str, str]:
+    """(token, positions_query_id, source). Env wins; Secrets Manager next.
+
+    Owner, 9 Nov 2026: "on the flex token i had already added before. why
+    cant u get from aws secret". He had — in tradepro/ibkr-flex, which the
+    API reads at startup. This lane asked for a shell export instead, so the
+    live card sat 46 hours stale waiting for a human to retype a credential
+    the system already held. Now the lane reads the same secret the API does.
+
+    `env` and `fetch` are injectable so the precedence is testable without
+    AWS. Nothing here logs or returns the secret to a caller that prints it.
+    """
+    e = os.environ if env is None else env
+    t = (e.get("TRADEPRO_IBKR_FLEX_TOKEN") or "").strip()
+    q = (e.get("TRADEPRO_IBKR_FLEX_POSITIONS_QUERY") or "").strip()
+    if t and q:
+        return t, q, "environment"
+    if fetch is None:
+        from ..secrets import get_json_secret as fetch  # type: ignore[assignment]
+    d = fetch(FLEX_SECRET_ID) or {}
+    t2 = str(d.get("token") or t).strip()
+    q2 = str(d.get("positions_query_id") or q).strip()
+    if t2 and q2:
+        return t2, q2, f"secrets manager ({FLEX_SECRET_ID})"
+    return t2, q2, ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--push", action="store_true", help="publish the artifact")
@@ -442,8 +473,9 @@ def main() -> int:
 
     # DIRECT when this machine holds a token, because IBKR 403s the cloud.
     # The API path stays as the fallback so nothing breaks if that changes.
-    flex_token = os.environ.get("TRADEPRO_IBKR_FLEX_TOKEN", "").strip()
-    flex_query = os.environ.get("TRADEPRO_IBKR_FLEX_POSITIONS_QUERY", "").strip()
+    flex_token, flex_query, flex_src = flex_credentials()
+    if flex_src:
+        log.info("Flex credentials from %s", flex_src)   # the SOURCE, never the value
     positions: list[dict] = []
     if flex_token and flex_query:
         try:
