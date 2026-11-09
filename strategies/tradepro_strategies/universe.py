@@ -98,6 +98,8 @@ MIN_RECENT_COVERAGE = 0.90
 """Fraction of the last 60 expected sessions actually present. A name the
 harvester is quietly failing on must not sit on a screen looking current."""
 
+log = logging.getLogger("tradepro.universe")
+
 _UNIVERSE_PATH = Path(__file__).resolve().parents[1] / "universe" / "tradeable.json"
 
 
@@ -156,11 +158,89 @@ def universe_symbols(*, harvested_only: bool = True, **kw) -> list[str]:
     """
     rows = load_universe(**kw)["symbols"]
     if harvested_only:
+        rows = apply_harvest_overrides(rows, harvest_overrides())
         # `.get(..., True)` so a universe file written before the flag existed
         # keeps every name rather than silently harvesting nothing. An absent
         # flag means "nobody has chosen yet", never "off".
         rows = [r for r in rows if r.get("harvest", True)]
     return [r["symbol"] for r in rows]
+
+
+# ── THE OWNER'S TOGGLES ──────────────────────────────────────────────────────
+#
+# Owner, 9 Nov 2026: "may be we can have screen that shows all symbols and we
+# select which ones to harvest and use ... i can later change that if needed"
+# and then "need to be a UI screen".
+#
+# The seed flag lives in tradeable.json, which a running API cannot write. The
+# UI therefore writes OVERRIDES — the existing universe_overrides table, through
+# the existing /universes page — under the universe name "harvest", and the
+# loaders apply them here over the seed. INCLUDE = on, EXCLUDE = off. One
+# mechanism that already existed, not a second one.
+#
+# FAIL-SAFE IS THE SEED, AND IT IS LOGGED. If the API cannot be reached the
+# lane harvests the committed 84 rather than nothing; a toggle made an hour ago
+# would be missed for one run, which is recoverable, while an empty harvest is
+# not. The warning names the consequence so it is never read as "all clear".
+HARVEST_UNIVERSE_NAME = "harvest"
+_OVERRIDES_CACHE: "dict[str, bool] | None" = None
+_OVERRIDES_LOADED = False
+
+
+def apply_harvest_overrides(rows: list[dict], overrides: "dict[str, bool] | None") -> list[dict]:
+    """Pure: return rows with `harvest` replaced wherever an override exists."""
+    if not overrides:
+        return rows
+    out = []
+    for r in rows:
+        o = overrides.get(str(r.get("symbol", "")).upper())
+        out.append({**r, "harvest": o} if o is not None else r)
+    return out
+
+
+def harvest_overrides() -> "dict[str, bool] | None":
+    """ticker -> on/off from GET /api/universes/harvest, or None if unreachable.
+
+    Cached per process: a harvest run calls universe_symbols() more than once
+    and must see one consistent answer. Skipped entirely when no API is
+    configured (tests, offline tooling) — that is not a failure to report.
+    """
+    global _OVERRIDES_CACHE, _OVERRIDES_LOADED
+    if _OVERRIDES_LOADED:
+        return _OVERRIDES_CACHE
+    _OVERRIDES_LOADED = True
+    if os.environ.get("TRADEPRO_UNIVERSE_OVERRIDES", "").lower() in ("off", "0", "false"):
+        return None
+    try:
+        from .cli.push_to_api import load_credentials
+        base, token = load_credentials()
+    except Exception:  # noqa: BLE001
+        return None
+    if not base:
+        return None
+    try:
+        import requests
+        r = requests.get(f"{base.rstrip('/')}/api/universes/{HARVEST_UNIVERSE_NAME}",
+                         headers={"Authorization": f"Bearer {token}"} if token else {},
+                         timeout=(5, 20))
+        if r.status_code == 404:
+            # Not ingested yet — nothing to apply, and nothing wrong.
+            _OVERRIDES_CACHE = {}
+            return _OVERRIDES_CACHE
+        r.raise_for_status()
+        out: dict[str, bool] = {}
+        for row in (r.json().get("symbols") or []):
+            act = (row.get("overrideAction") or "").upper()
+            if act in ("INCLUDE", "EXCLUDE"):
+                out[str(row.get("ticker") or "").upper()] = act == "INCLUDE"
+        _OVERRIDES_CACHE = out
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "harvest overrides UNREACHABLE (%s) — harvesting the committed seed "
+            "only. Any toggle made on the Universe screen since the last run is "
+            "NOT applied this run.", exc)
+        return None
 
 
 # Resolution folder names as the bar store writes them: 1d, 1m, 5m, 15m, 1h.
