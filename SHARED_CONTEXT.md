@@ -67,6 +67,12 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   The sentiment then goes away, but while it lasts it gives short-term
   traders a massive opportunity.
   Status: UNTESTED.
+- **O4 (2026-11-09) — market events, sector events and news are key.**
+  Market events, sector events and news matter a great deal to outcomes.
+  Owner's lesson: we missed the American election completely. It gave a
+  major blow to AI stocks (they are recovering), yet the date was known
+  well in advance — we should not have entered short put options across it.
+  Status: UNTESTED.
 
 ---
 
