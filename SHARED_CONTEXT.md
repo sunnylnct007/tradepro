@@ -16,6 +16,34 @@ prune superseded entries when you update. No secrets (repo is PUBLIC).
 
 ---
 
+## OWNER BASICS — read first, every agent, every session
+
+Standing rules set by the owner. They apply to every agent and every lane.
+Do not relitigate them and do not ask the owner to repeat them. Only the owner
+changes this section; each rule carries the date it was set.
+
+### 1. Live vs paper (set 2026-11-09)
+- TradePro NEVER places orders on the live account. Agents do not prepare
+  order tickets or order instructions for it either. The owner places every
+  live order himself.
+- Automated / algo placement goes to the PAPER account only.
+- The live account is monitored READ-ONLY (positions, orders, balances,
+  quotes), through whichever IBKR route works best at the time.
+- For a live trade, an agent gives the details (symbol, strike, expiry,
+  limit, size) and stops there.
+
+### 2. Data harvesting and history (set 2026-11-09)
+- TradePro harvests market data on a regular schedule and stores it in our
+  AWS infrastructure, so history builds up over time.
+- AWS is the source of truth for that history; a local machine is a cache.
+- This history is what strategies are stored against and evaluated on.
+  Harvesting is a core job, not a side task.
+- OPTIONS data is harvested at regular intervals too, not only stock bars,
+  using the OPRA subscription on the IBKR account. OPRA gives live quotes
+  and no history, so what is not captured on schedule is lost.
+
+---
+
 ## Current truth — 2026-08-22 (evening)
 
 ### Store layout — CANONICAL as of 2026-08-22 (read this before touching data)
