@@ -1,5 +1,13 @@
 /**
- * /universes — manage Wikipedia-scraped symbol universes.
+ * Universes — a desk view (10 Nov 2026; was the standalone /universes page).
+ *
+ * THE "harvest" UNIVERSE IS A LIST OF ON/OFF SWITCHES, and the page has to
+ * read that way. Owner, 10 Nov: "i see all exclude only" — the generic
+ * include/exclude rendering showed every row as "base" with an "exclude"
+ * button, while the actual harvest state (ON for 84, OFF for 876) sat in the
+ * `industry` column as text. For a universe whose rows carry ON/OFF the state
+ * is: your override if you set one, else the seed; the button says "turn off"
+ * / "turn on"; the default filter shows the names that are ON.
  *
  * Two halves:
  *   1. Universe list (top): all ingested universes with effective
@@ -19,7 +27,9 @@ type UniverseSymbol = Awaited<ReturnType<typeof api.universe>>["symbols"][number
 
 export function Universes() {
   const [params, setParams] = useSearchParams();
-  const selected = params.get("name") ?? "";
+  // Inside the desk shell the URL also carries ?view=universes — merge, never
+  // replace, or selecting a universe would drop the view.
+  const selected = params.get("name") ?? "harvest";
 
   const [list, setList] = useState<UniverseSummary[] | null>(null);
   const [listErr, setListErr] = useState<string | null>(null);
@@ -34,10 +44,10 @@ export function Universes() {
     <div style={{ padding: 24, maxWidth: 1100 }}>
       <h1 style={{ margin: 0, fontSize: 22 }}>Universes</h1>
       <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 6, marginBottom: 16 }}>
-        Wikipedia-scraped symbol lists (S&amp;P 500, NASDAQ 100, FTSE 100, …).
-        The Mac worker refreshes them daily; your INCLUDE / EXCLUDE
-        overrides survive every refresh and feed the cockpit's
-        Universe pills + the daily Ichimoku auto-trigger.
+        <b>harvest</b> is the list of names TradePro fetches bars for every night and
+        uses on its screens — each row is an ON/OFF switch and the nightly lane honours
+        it. The other lists are reference index memberships (S&amp;P 500, NASDAQ 100, …);
+        excluding a name there removes it from that list's screens.
       </p>
 
       {listErr && (
@@ -50,7 +60,7 @@ export function Universes() {
       <UniverseList
         list={list}
         selected={selected}
-        onSelect={(name) => setParams({ name })}
+        onSelect={(name) => setParams((prev) => { const q = new URLSearchParams(prev); q.set("name", name); return q; })}
       />
 
       {selected && (
@@ -145,16 +155,32 @@ function UniverseDetail({
   };
   useEffect(() => { void load(); }, [name]);
 
+  // ON/OFF universes (harvest): rows carry industry "ON"/"OFF" as the seed.
+  const switchMode = !!data?.symbols.some((s) => s.industry === "ON" || s.industry === "OFF");
+  const [show, setShow] = useState<"on" | "off" | "all">("on");
+
   const toggle = async (sym: UniverseSymbol) => {
     setActing(sym.ticker);
     try {
-      if (sym.overrideAction === "EXCLUDE") {
+      if (switchMode) {
+        const seedOn = sym.industry === "ON";
+        const target = !isOn(sym);
+        if (target === seedOn) {
+          await api.clearUniverseOverride(name, sym.ticker);          // back to the seed
+        } else {
+          await api.setUniverseOverride(name, {
+            Ticker: sym.ticker,
+            Action: target ? "INCLUDE" : "EXCLUDE",
+            Note: `${target ? "turned on" : "turned off"} from the Universe screen`,
+          });
+        }
+      } else if (sym.overrideAction === "EXCLUDE") {
         await api.clearUniverseOverride(name, sym.ticker);
       } else {
         await api.setUniverseOverride(name, {
           Ticker: sym.ticker,
           Action: "EXCLUDE",
-          Note: "excluded via /universes page",
+          Note: "excluded via the Universe screen",
         });
       }
       await load();
@@ -168,28 +194,45 @@ function UniverseDetail({
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    if (!filter) return data.symbols;
+    let rows = data.symbols;
+    if (switchMode && show !== "all") rows = rows.filter((s) => isOn(s) === (show === "on"));
+    if (!filter) return rows;
     const q = filter.toLowerCase();
-    return data.symbols.filter((s) =>
+    return rows.filter((s) =>
       s.ticker.toLowerCase().includes(q) ||
       (s.name && s.name.toLowerCase().includes(q)) ||
       (s.sector && s.sector.toLowerCase().includes(q)),
     );
-  }, [data, filter]);
+  }, [data, filter, switchMode, show]);
 
   if (err) return <div style={ERROR_BOX}>{err}</div>;
   if (!data) return <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Loading symbols…</div>;
 
   const effective = data.symbols.filter((s) => s.effective).length;
+  const onCount = data.symbols.filter(isOn).length;
   return (
     <div style={{
       border: "1px solid var(--border)", borderRadius: 8, padding: 14,
     }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>{name}</h2>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          {effective} effective of {data.symbols.length} total
+          {switchMode
+            ? `${onCount} ON · ${data.symbols.length - onCount} OFF of ${data.symbols.length} tracked`
+            : `${effective} effective of ${data.symbols.length} total`}
         </span>
+        {switchMode && (
+          <span style={{ display: "inline-flex", gap: 4 }}>
+            {(["on", "off", "all"] as const).map((k) => (
+              <button key={k} onClick={() => setShow(k)} style={{
+                fontSize: 10, padding: "2px 9px", borderRadius: 999, cursor: "pointer",
+                border: `1px solid ${show === k ? "#a855f7" : "var(--border)"}`,
+                background: show === k ? "rgba(168,85,247,0.10)" : "transparent",
+                color: show === k ? "#a855f7" : "var(--text-dim)",
+              }}>{k.toUpperCase()}</button>
+            ))}
+          </span>
+        )}
         <input
           type="text"
           placeholder="filter ticker / name / sector"
@@ -227,6 +270,7 @@ function UniverseDetail({
               <SymbolRow
                 key={s.ticker}
                 row={s}
+                switchMode={switchMode}
                 busy={acting === s.ticker}
                 onToggle={() => void toggle(s)}
               />
@@ -238,13 +282,49 @@ function UniverseDetail({
   );
 }
 
+/** Effective ON/OFF for a switch-mode row: your override wins, else the seed. */
+function isOn(row: UniverseSymbol): boolean {
+  if (row.overrideAction === "INCLUDE") return true;
+  if (row.overrideAction === "EXCLUDE") return false;
+  return row.industry === "ON";
+}
+
 function SymbolRow({
-  row, busy, onToggle,
+  row, switchMode, busy, onToggle,
 }: {
   row: UniverseSymbol;
+  switchMode: boolean;
   busy: boolean;
   onToggle: () => void;
 }) {
+  if (switchMode) {
+    const on = isOn(row);
+    const overridden = row.overrideAction != null;
+    return (
+      <tr style={{ borderTop: "1px solid var(--border)", opacity: on ? 1 : 0.6 }}>
+        <td style={{ ...TD, fontFamily: "monospace", fontWeight: 600 }}>{row.ticker}</td>
+        <td style={{ ...TD, color: "var(--text-dim)" }}>{row.name ?? "—"}</td>
+        <td style={{ ...TD, color: "var(--text-dim)" }}>{row.sector ?? "—"}</td>
+        <td style={{ ...TD, fontFamily: "monospace", fontSize: 10 }}>
+          <span style={{ padding: "1px 8px", borderRadius: 999, fontWeight: 700,
+                         border: `1px solid ${on ? "#1fc16b" : "var(--border)"}`,
+                         color: on ? "#1fc16b" : "var(--text-muted)" }}>
+            {on ? "ON" : "OFF"}
+          </span>
+          {overridden && <span style={{ marginLeft: 6, color: "#a855f7" }} title="you set this; the seed said the opposite">(you)</span>}
+        </td>
+        <td style={TD}>
+          <button onClick={onToggle} disabled={busy} style={{
+            fontSize: 10, padding: "2px 8px", borderRadius: 3, background: "transparent",
+            border: `1px solid ${on ? "var(--border)" : "#1fc16b"}`,
+            color: on ? "var(--text-dim)" : "#1fc16b", cursor: busy ? "wait" : "pointer",
+          }} title={on ? "Stop harvesting and using this name" : "Harvest and use this name from tonight"}>
+            {on ? "turn off" : "turn on"}
+          </button>
+        </td>
+      </tr>
+    );
+  }
   const statusFg =
     row.overrideAction === "EXCLUDE" ? "#ef4444" :
     row.overrideAction === "INCLUDE" ? "#a855f7" :

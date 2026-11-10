@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "live" | "candidates" | "portfolio" | "oms" | "harvest" | "options" | "research" | "swing" | "momentum" | "post-earnings-puts" | "strangle-decisions";
+export type DeskView = "live" | "candidates" | "portfolio" | "oms" | "harvest" | "options" | "research" | "swing" | "momentum" | "post-earnings-puts" | "strangle-decisions" | "universes" | "settings";
 
 type NavEntry = {
   key: string;
@@ -138,7 +138,10 @@ const NAV: NavEntry[] = [
   // harvest and use ... need to be a UI screen". It is the existing /universes
   // page pointed at the "harvest" universe: INCLUDE = on, EXCLUDE = off, and
   // the nightly lane reads the overrides. Linked, not re-implemented.
-  { key: "universe", label: "Universe", icon: "⊞", to: "/universes?name=harvest", tier: "trusted",
+  // Rendered INSIDE this shell (10 Nov 2026). Owner: "if i go to universe link
+  // i see old navigation" — it was the last page still framed by the deleted
+  // app's sidebar. Same for Settings below.
+  { key: "universe", label: "Universe", icon: "⊞", view: "universes", tier: "trusted",
     title: "Universe — every tracked name with an on/off toggle for harvesting and use. "
          + "INCLUDE turns a name on, EXCLUDE turns it off; the nightly harvest honours it." },
   { key: "live", label: "Live", icon: "●", view: "live", tier: "trusted",
@@ -215,7 +218,7 @@ const NAV: NavEntry[] = [
 ];
 
 const SETTINGS: NavEntry = {
-  key: "settings", label: "Settings", icon: "⚙", to: "/settings", title: "Settings",
+  key: "settings", label: "Settings", icon: "⚙", view: "settings", title: "Settings",
 };
 
 export function DeskShell({
