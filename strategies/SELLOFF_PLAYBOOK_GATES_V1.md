@@ -125,7 +125,45 @@ beta is not the lens.
 * S3: the capped book's median 20‑session drawdown roughly half the concentrated book's.
 * S4: edge concentrated in the high‑beta tercile.
 
-## Status
+## Status — RUN ONCE, 10 Nov 2026 (grader `selloff_playbook_v1.py`, artifact `~/.tradepro/research/selloff_playbook_v1.json`)
 
-UNRUN. Results, when they exist, are appended below this line by the grader's artifact
-and summarised in SHARED_CONTEXT.md with the O3/O4 status updated.
+Episodes: 399 raw / 133 clustered across 13 ETFs (2006–2026). Trades: **4,143** across 11
+sector ETFs and 117 clusters (tier A 3,998 / tier B 145). Not graded, counted: 5,405 failed
+the trend condition, 3,557 did not participate, 2,224 episode dates outside the stock's bars
+(coverage cap), 632 insufficient history/future.
+
+**S1 — FAILS** (S1‑0 PASS, S1‑1/2/4/5 FAIL, S1‑3 PASS)
+
+| h | mean | null | edge | win | p5 | worst |
+|---|------|------|------|-----|----|-------|
+| 20 | +2.55% | +2.19% | **+0.36pt** | 59.5% | −19.3% | −60.3% |
+| 40 | +3.45% | +4.41% | **−0.96pt** | 58.2% | −24.3% | −81.8% |
+| 60 | +6.74% | +5.40% | +1.34pt | 63.5% | −22.5% | −86.6% |
+
+Two‑split edge@40: pre2016×A −2.50 · pre2016×B +1.25 · post2016×A −1.10 · post2016×B −1.31.
+Buying constituents into a sector sell‑off recovers — and does not beat buying the same stock
+on a quiet day. The sign flips across horizons and cells: there is no edge here to size.
+S1b (the ETF itself) is positive at every horizon for every ETF but XLP@20 and XLV@40 — the
+same drift the null measures.
+
+**S2 — FAILS, and by a lot.** P(10%‑OTM 21‑session put expires worthless) = **86.0%** vs
+**96.1%** on the null (−10.1pt). Worst close vs strike: −70%. **Selling puts into a sector
+sell‑off is the single worst time to sell them on this data** — one in seven finishes through
+a strike that a quiet day breaches one time in twenty‑five. This is the November book, graded.
+
+**S3 — descriptive**, 130 clusters, 20‑session drawdown of the book already held when the
+sell‑off hit: concentrated median **−7.3%** (worst −51.4%) · capped 45% median **−4.7%**
+(worst −39.2%) · capped + 20% cash median **−3.8%** (worst −31.4%). Median avoided loss from
+the cap alone: 2.25pt; from cap + reserve: ~3.6pt. Basics 5 and 6 priced.
+
+**S4 — descriptive**: edge vs null by pre‑episode beta tercile — low −0.78/−2.40, mid
+−0.30/−1.36, **high +2.16/+0.83** (20/40 sessions). What edge exists in a sell‑off sits in
+the high‑beta names; the lens in basic 7 has a measurable use, the trade still fails the gates.
+
+**Predictions vs outcome**: S1‑1 predicted PASS → **FAILED** (edge +0.36 < 1.0); S1‑5 predicted
+FAIL → failed; S2 predicted FAIL → failed, far harder than predicted; S3 predicted ~half →
+64%; S4 predicted high‑beta → confirmed.
+
+**Decision**: no sell‑off entry rule ships. What ships is the negative: the options screens
+should treat "sector ETF ≥ 8% off its 20‑session high" as a NAMED risk on every short‑put
+row (like an event), because S2 says the base rate of assignment is 3.5× a quiet day's.
