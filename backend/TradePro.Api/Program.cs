@@ -420,6 +420,9 @@ api.MapReconciliationEndpoints();
 // side-by-side; open/realised per native currency, null + note where a broker
 // genuinely can't supply a component (never a fabricated number).
 api.MapPnlByStrategyEndpoints();
+// The paper P&L LEDGER — broker-confirmed fills only, by placement record,
+// unattributed as its own line (owner ruling 10 Nov 2026). See PaperLedger.cs.
+api.MapPaperLedgerEndpoints();
 // Per-symbol fill attribution — "what caused the loss on date X?"
 api.MapFillAttributionEndpoints();
 // User-facing ops queue (run-intraday + list / cancel). Mac worker

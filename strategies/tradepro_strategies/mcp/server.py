@@ -492,6 +492,17 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_earnings_calendar(symbol, back_days, ahead_days))
 
     @mcp.tool()
+    @instrumented("get_paper_ledger")
+    def get_paper_ledger() -> str:
+        """Is a PAPER strategy making money? Realised P&L from BROKER-CONFIRMED
+        fills only, attributed by the placement record (strategy_id), per
+        broker and currency — never blended. Fills a reconciler wrote to make
+        the OMS match the broker are `assumedFills`: counted, never money.
+        Fills with no strategy are `unattributed`, their own line. There is no
+        open/unrealised figure on purpose — a mark is not a result."""
+        return _json(t.get_paper_ledger())
+
+    @mcp.tool()
     @instrumented("get_events")
     def get_events(symbol: str, days: int = 60) -> str:
         """Every KNOWN dated event between today and today+days for this

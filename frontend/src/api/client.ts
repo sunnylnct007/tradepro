@@ -614,6 +614,36 @@ export const api = {
     }>("/api/integrations/ig/history", { days }),
   // Per-strategy P&L comparison — one row per strategy, per native currency.
   // Any field null = genuinely not available (reason in `notes`), never a guess.
+  // The paper P&L LEDGER — broker-confirmed fills by placement record;
+  // unattributed as its own line. PaperLedger.cs / GET /api/pnl/ledger.
+  paperLedger: () =>
+    get<{
+      utc: string;
+      account: string;
+      error?: string | null;
+      basis: string;
+      fillsSeen: number;
+      confirmedFills: number;
+      assumedFills: number;
+      unexplainedBrokerPositions: number | null;
+      unexplainedBrokerPositionsError?: string | null;
+      strategies: Array<{
+        key: string; strategyId: string | null; broker: string; currency: string;
+        realisedLtd: number; realisedToday: number;
+        closedTrades: number; winningTrades: number; winRatePct: number | null;
+        unmatchedSellQty: number; confirmedFills: number; assumedFills: number; assumedQty: number;
+        symbols: number; firstFillAtUtc: string | null; lastFillAtUtc: string | null;
+        notes: string[];
+      }>;
+      unattributed: Array<{
+        key: string; strategyId: string | null; broker: string; currency: string;
+        realisedLtd: number; realisedToday: number;
+        closedTrades: number; winningTrades: number; winRatePct: number | null;
+        unmatchedSellQty: number; confirmedFills: number; assumedFills: number; assumedQty: number;
+        symbols: number; firstFillAtUtc: string | null; lastFillAtUtc: string | null;
+        notes: string[];
+      }>;
+    }>("/api/pnl/ledger"),
   pnlByStrategy: (days = 3650) =>
     get<{
       utc: string;

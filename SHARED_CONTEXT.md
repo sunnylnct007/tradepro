@@ -180,10 +180,16 @@ simulations, strategies, paper‑live, backtests, charts, health, admin, help).
   are a named WARNING — weighed, not auto‑rejected (basic 3), the owner decides.
 - New event kind = three sites: `events.KINDS`, `EventChips.ICON`, the Settings form list.
 
-**Next, in order (owner confirmed 10 Nov):** paper P&L ledger = broker‑confirmed fills by
-placement record, unattributed as its own line (owner: "not a clean way of saying if a
-strategy is making money"); then sell‑off playbook as a pre‑registered study (O1 + basics
-5/6/7).
+**2026‑11‑10 (evening) — PAPER P&L LEDGER (#364).** `GET /api/pnl/ledger` / `PaperLedger.cs`:
+money = FIFO realised over BROKER‑CONFIRMED fills only (exec id or `recon:` blotter price),
+per strategy/broker/currency; reconciler‑written fills (`assumed_via_*`, `standing_reconcile*`,
+`reconcile-*`, `purge-*`, price 0) are `assumedFills` — counted, never money; orders with no
+`strategy_id` are `unattributed`, their own line. No open/unrealised figure by design.
+`PaperLedgerCard` replaced `PnlTruthCard` on Portfolio; MCP `get_paper_ledger`. A new
+reconciler that writes fills must add its prefix to `PaperLedger.AssumedPrefixes` or its
+fills count as money.
+
+**Next (owner confirmed 10 Nov):** sell‑off playbook as a pre‑registered study (O1 + basics 5/6/7).
 
 ## Current truth — 2026-08-22 (evening)
 
