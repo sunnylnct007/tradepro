@@ -24,6 +24,6 @@ if "$PY" --push --email --nav-usd "${TRADEPRO_LIVE_NAV_USD:-245000}" 2>&1 | tee 
   log "live-risk ok"
 else
   rc=${PIPESTATUS[0]}
-  log "live-risk FAILED rc=$rc — the Live card is NOT refreshed; if the log says 'Unable to locate credentials', run: aws sso login --profile ${AWS_PROFILE:-infoccit-admin}"
+  log "live-risk FAILED rc=$rc — the Live card is NOT refreshed; if the log says 'Unable to locate credentials', run: aws sso login --profile ${AWS_PROFILE:-<your profile>}"
   exit "$rc"
 fi

@@ -17,7 +17,9 @@
 #   bash install-launchd.sh --algo          # + systematic slow-loop + digest
 #   bash install-launchd.sh --data-worker   # + trustworthy-data ops queue
 #   bash install-launchd.sh --catalysts-sweep
-#   bash install-launchd.sh --live-risk      # + nightly live-account read + [LIVE] mail
+#   TRADEPRO_AWS_PROFILE=<profile> bash install-launchd.sh --live-risk
+#                                           # + nightly live-account read + [LIVE] mail;
+#                                           # the profile is local config, never committed
 #
 # Any previously installed com.tradepro.worker / .refresh / .heartbeat is
 # unloaded so a reinstall cannot resurrect the compare loop.
@@ -85,6 +87,7 @@ install_one() {
   sed \
     -e "s|{{HOME}}|$HOME|g" \
     -e "s|{{PROJECT_DIR}}|$PROJECT_DIR|g" \
+    -e "s|{{AWS_PROFILE}}|${TRADEPRO_AWS_PROFILE:-default}|g" \
     "$template" > "$target"
 
   # Reload — bootout is the modern launchctl verb, but unload still

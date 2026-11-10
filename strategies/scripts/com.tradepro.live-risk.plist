@@ -6,7 +6,8 @@
   BASICS 1, 2026-11-09). Runs Mon-Fri 22:50 local, after the 84-name daily
   harvest lands (~22:45), so the card describes today's close.
 
-  Credentials: Secrets Manager tradepro/ibkr-flex via AWS_PROFILE below.
+  Credentials: Secrets Manager tradepro/ibkr-flex via the AWS profile named
+  at install time (TRADEPRO_AWS_PROFILE=<profile> bash install-launchd.sh [flag: live-risk]).
   A lapsed SSO session fails LOUDLY (see live-risk.sh). Permanent fix is an
   IAM key scoped to GetSecretValue on that one secret — the owner's call.
 
@@ -34,8 +35,10 @@
     <string>/usr/local/bin:/opt/homebrew/bin:/opt/anaconda3/bin:/usr/bin:/bin</string>
     <key>TRADEPRO_PROJECT_DIR</key>
     <string>{{PROJECT_DIR}}</string>
+    <!-- Filled at install time from TRADEPRO_AWS_PROFILE. The repo is public;
+         an account's profile name is local configuration, not code. -->
     <key>AWS_PROFILE</key>
-    <string>infoccit-admin</string>
+    <string>{{AWS_PROFILE}}</string>
     <key>TRADEPRO_LIVE_NAV_USD</key>
     <string>245000</string>
   </dict>
