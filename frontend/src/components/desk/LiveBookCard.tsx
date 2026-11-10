@@ -52,7 +52,12 @@ export function LiveBookCard() {
   const [art, setArt] = useState<any>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  // THE WHOLE BOOK, BY DEFAULT. Owner, 10 Nov 2026: "i do not see all options
+  // ... for live like STX" — STX 500P was rated HOLD and sat folded behind a
+  // "7 positions running — show all" line with six others. A live-book screen
+  // that hides seven of eighteen contracts is not the book. CLOSE/WATCH still
+  // sort first; HOLD rows can be folded by hand, never by default.
+  const [showAll, setShowAll] = useState(true);
 
   useEffect(() => {
     let live = true;
@@ -232,7 +237,7 @@ export function LiveBookCard() {
                           padding: "6px 0 0", userSelect: "none" }}>
               {showAll
                 ? "▲ show only what needs attention"
-                : `▼ ${resting.length} out-of-the-money position(s) running — show all`}
+                : `▼ ${resting.length} HOLD position(s) hidden — show the whole book`}
             </div>
           )}
 
