@@ -5,9 +5,9 @@
  *
  *   [work-area]  |  [right rail]
  *
- *   Work-area: AccountSummaryGrid (compact per-broker table) +
- *              DeskTabs (Positions/Orders/Trades/Balances — Positions tab
- *              now renders PositionsByStrategy grouped by strategy desk)
+ *   Work-area: paper ledger + broker book (money and holdings, both
+ *              broker-confirmed) + DeskTabs (Orders/Trades/Balances — records,
+ *              not money; the OMS-computed Positions tab was cut 10 Nov 2026)
  *
  *   Right rail:
  *     - Nothing selected → DeskRightRail (account-value % chart)
@@ -16,10 +16,6 @@
  *       Position rows and order rows call `onSelectSymbol(chartSymbol)` which
  *       sets selectedSymbol WITHOUT navigating — /desk is a single composite
  *       cockpit, never a new page.
- *
- * The `DeskTabs` component's Positions tab has been replaced by
- * `PositionsByStrategy` (strategy-grouped positions with per-strategy subtotals).
- * The existing Orders/Trades/Balances tabs are unchanged.
  *
  * Mobile: grid collapses to single column; the rail stacks below the work-area.
  * Detail rail caps at 100vh - 120px with its own overflow:auto.
@@ -35,9 +31,6 @@ import { DeskHealthBanner } from "../components/desk/DeskHealthBanner";
 import { SwingView } from "../components/desk/SwingView";
 import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
-import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
-import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
-import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
 import { PaperLedgerCard } from "../components/desk/PaperLedgerCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
@@ -45,8 +38,6 @@ import { ActionBoard } from "../components/desk/ActionBoard";
 import { LiveView } from "../components/desk/LiveView";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
 import { RunLogCard } from "../components/desk/RunLogCard";
-import { FillReplayCard } from "../components/desk/FillReplayCard";
-import { TodaySetupsCard } from "../components/desk/TodaySetupsCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
 import { SymbolDetailRail } from "../components/desk/SymbolDetailRail";
@@ -56,7 +47,10 @@ import { StrangleDecisionsView } from "../components/desk/StrangleDecisionsView"
 import { OmsOrders } from "./OmsOrders";
 import { Universes } from "./Universes";
 import { Settings } from "./Settings";
-import type { PositionRow } from "../components/desk/PositionsByStrategy";
+import type { PositionRow } from "../components/desk/SymbolPositionCard";
+import { api } from "../api/client";
+import { accountMode } from "../components/desk/deskFormat";
+import { chartSymbolFor } from "../util/brokerSymbols";
 
 const WIDE_BREAKPOINT = 1024;
 
@@ -96,21 +90,41 @@ export function Desk() {
   // null → account-value chart (DeskRightRail).
   // string → SymbolDetailRail for that Yahoo symbol.
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  // Ichimoku's three cards, collapsed by default. Remembered per viewer so a
-  // reader who wants them does not re-open them every visit.
-  const [showIchimoku, setShowIchimoku] = useState(() => {
-    try { return localStorage.getItem("desk.showIchimoku") === "1"; }
-    catch { return false; }
-  });
+
+  // Master-detail: the symbol currently "drilled into" in the right rail.
+  // null → account-value chart (DeskRightRail).
+  // string → SymbolDetailRail for that Yahoo symbol.
   // The STRATEGY the symbol was clicked under (from the strategy-grouped row) so
   // the detail rail shows only THAT strategy's orders/fills — not another
   // strategy that happens to hold the same ticker (e.g. the IBKR clone bleeding
   // into ichimoku_equity's validation). null = show all strategies.
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null);
 
-  // Positions from PositionsByStrategy — fed into SymbolPositionCard via the
-  // rail so the rail doesn't need its own fetch.
+  // Positions for the symbol rail come from the BROKER (golden source), not
+  // the OMS — the OMS-computed positions table was cut on 10 Nov 2026.
   const [positions, setPositions] = useState<PositionRow[]>([]);
+  useEffect(() => {
+    let live = true;
+    api.accountState().then((st) => {
+      if (!live) return;
+      const out: PositionRow[] = [];
+      for (const a of st?.accounts ?? []) {
+        const mode = accountMode(a.broker);
+        const broker = a.broker.split("_")[0];
+        for (const p of a.positions ?? []) {
+          if (!p.qty) continue;
+          out.push({
+            broker, ticker: p.symbol, chartSymbol: chartSymbolFor(p.symbol, broker),
+            qty: p.qty, last: p.mark, pnl: p.unrealisedPnl,
+            pnlPct: p.avgCost && p.mark != null ? ((p.mark - p.avgCost) / p.avgCost) * 100 : null,
+            ccy: p.currency, mode, avgPrice: p.avgCost,
+          });
+        }
+      }
+      setPositions(out);
+    }).catch(() => { /* rail says "not held" and the broker card says why */ });
+    return () => { live = false; };
+  }, []);
 
   // When the user clicks a symbol in positions or orders:
   //   - stay on "portfolio" (no view change)
@@ -137,10 +151,6 @@ export function Desk() {
     setView("portfolio");
     setSelectedSymbol(sym);
     setSelectedStrategy(null);
-  }, []);
-
-  const handleRowsChange = useCallback((rows: PositionRow[]) => {
-    setPositions(rows);
   }, []);
 
   return (
@@ -172,32 +182,7 @@ export function Desk() {
               One screen, one question: Candidates = what to do. Portfolio =
               what you hold and how it is doing. */}
           <DeskKpiStrip />
-          <StrategyHealthPanel />
 
-          {/* LESS CLUTTER (owner, 26 Sep 2026). Three of these cards describe
-              ICHIMOKU, which is no longer what this desk trades: EquityTracking
-              is "ICH equity — live vs backtest", FillReplay is "ICH equity —
-              fill replay" (n=1), and TodaySetups is the ICH large_50/high_beta
-              scanner. They sat between the P&L split and the broker book as
-              equals, on a page whose live sleeves are Swing and Momentum.
-
-              COLLAPSED, NOT DELETED. ichimoku_equity is still live on T212 and
-              carries +345 open, so its cards are not wrong — they are not what
-              you came to look at. Deleting them would make the desk quieter by
-              making it less true, which is the trade this desk does not take.
-              The toggle says what is behind it and how many. */}
-          <button
-            onClick={() => setShowIchimoku((v) => {
-              const n = !v;
-              try { localStorage.setItem("desk.showIchimoku", n ? "1" : "0"); } catch { /* private window */ }
-              return n;
-            })}
-            style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6,
-                     color: "var(--text-muted)", fontSize: 11, padding: "3px 9px",
-                     cursor: "pointer", marginBottom: 10 }}>
-            {showIchimoku ? "▾" : "▸"} Ichimoku (T212) — 3 cards: live-vs-backtest,
-            fill replay, setups scanner
-          </button>
 
           <div style={{ columnCount: wide ? 3 : 1, columnGap: 12 }}>
             {[
@@ -208,11 +193,6 @@ export function Desk() {
               // Data tab (owner, 22 Aug 2026: "dashboard should be an
               // indicator; logs should be a separate tab").
               <RunLogCard key="runlog" compact />,
-              ...(showIchimoku ? [
-                <EquityTrackingCard key="eq" />,
-                <FillReplayCard key="fill" />,
-                <TodaySetupsCard key="setups" />,
-              ] : []),
             ].map((card) => (
               <div key={card.key} style={{ breakInside: "avoid", marginBottom: 12 }}>
                 {card}
@@ -220,8 +200,6 @@ export function Desk() {
             ))}
           </div>
 
-          {/* Compact per-broker account summary table */}
-          <AccountSummaryGrid />
 
           {/* Two-column: work-area | right-rail.
               When a symbol is selected the rail widens significantly (min 640px
@@ -240,11 +218,8 @@ export function Desk() {
               alignItems: "start",
             }}
           >
-            {/* Work area: tabbed Positions/Orders/Trades/Balances */}
-            <DeskTabs
-              onOpenSymbol={onSelectSymbol}
-              onPositionsRowsChange={handleRowsChange}
-            />
+            {/* Work area: tabbed Orders/Trades/Balances — records, not money */}
+            <DeskTabs onOpenSymbol={onSelectSymbol} />
 
             {/* Right rail: account chart or symbol detail */}
             {selectedSymbol ? (
