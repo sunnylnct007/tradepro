@@ -4,15 +4,43 @@
     "Push with `tradepro-events-sync --push`; every lane then NAMES any of these that fall between today and a contract's expiry (OWNER BASICS 3).",
     "Config, not code: add a row here (or from Settings → Catalysts with symbol MARKET) and re-run the sync. Dates are the DECISION / RELEASE day, not the first day of a two-day meeting.",
     "Each entry carries the URL it was read from. FOMC dates are tentative until confirmed at the preceding meeting (the Fed's own wording).",
-    "CPI and jobs-report dates for 2027 were pasted by the owner from https://www.bls.gov/schedule/2027/home.htm (last modified 9 Oct 2026) on 10 Nov 2026. NOT SEEDED: the Nov/Dec 2026 CPI and jobs releases (not in that paste) and 2028 onwards — add when published."
+    "CPI/jobs Nov–Dec 2026 added 10 Nov 2026 from the BLS release pages (bls.gov blocks scripted fetch; dates read by hand). The desk missed the 10 Nov CPI print because these four rows were absent."
   ],
   "events": [
+    {
+      "kind": "jobs",
+      "on": "2026-11-06",
+      "title": "Employment Situation for Oct 2026, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/news_release/empsit.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2026-11-10",
+      "title": "Consumer Price Index for Oct 2026, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/news_release/cpi.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2026-12-04",
+      "title": "Employment Situation for Nov 2026, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/news_release/empsit.htm"
+    },
     {
       "kind": "fomc",
       "on": "2026-12-09",
       "title": "FOMC rate decision (meeting 8–9 Dec, SEP)",
       "severity": "high",
       "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2026-12-10",
+      "title": "Consumer Price Index for Nov 2026, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/news_release/cpi.htm"
     },
     {
       "kind": "jobs",
