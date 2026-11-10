@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { EventChips, type EventsWindow } from "./EventChips";
 
 /**
  * The wheel / CSP board as a SCANNABLE table.
@@ -102,6 +103,8 @@ export interface WheelRow {
   // tradeable instruction — several expiries are listed in any given week.
   expiry?: string | null;
   expiry_kind?: string | null;
+  // Known dated events between today and this expiry (OWNER BASICS 3).
+  events?: EventsWindow | null;
   dte?: number | null;
   suggested_delta: number | null;
   suggested_premium: number | null;
@@ -269,6 +272,7 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
               {th("Data")}
               {th("Regime")}
               {th("Expiry", "dte")}
+              {th("Events before expiry")}
               {th("Strike", "strike", true)}
               {th("Δ", "delta", true)}
               {th("Premium", "premium", true)}
@@ -331,6 +335,8 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
                         })()
                       : <span style={{ color: MUTED }}>—</span>}
                   </td>
+                  {/* NAMED, every row — the election week is why (OWNER BASICS 3). */}
+                  <td style={{ padding: "7px 8px" }}><EventChips w={r.events} compact /></td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_strike, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_delta, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_premium, 2)}</td>

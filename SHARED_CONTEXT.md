@@ -163,10 +163,27 @@ simulations, strategies, paper‑live, backtests, charts, health, admin, help).
 **Also fixed:** CSS `--surface` was never defined (modals rendered transparent);
 `install-launchd.sh` lost its opt‑in lane installs in #354 and they were restored in #359.
 
-**Next, in proposed order:** events calendar for the options board (basic 3 / O4);
-paper P&L ledger = broker‑confirmed fills by placement record, unattributed as its own
-line (owner: "not a clean way of saying if a strategy is making money"); sell‑off
-playbook as a pre‑registered study (O1 + basics 5/6/7).
+**2026‑11‑10 (later) — LEGACY APP DELETED; EVENTS CALENDAR LIVE (basic 3).**
+- Owner ruling: the app under `/` is gone (#361) — only `/desk`, `/universes`, `/settings`
+  remain; old paths redirect to the cockpit. Do not resurrect a page; build it as a desk view.
+- **Known events are one module, `tradepro_strategies/events.py`** (#362). It reads the
+  EXISTING `earnings_calendar` and `catalysts` stores — no new table. Market‑wide events
+  (FOMC, CPI, jobs, elections) are `catalysts` rows with the reserved symbol **`MARKET`**;
+  seed = `strategies/events/market_calendar.json` → `tradepro-events-sync --push`. Seeded
+  today: FOMC decision days through Dec 2027 + the 2028 election. **CPI/jobs NOT seeded**
+  (bls.gov blocks automated reads) — add from bls.gov/schedule/2027 via Settings → Catalysts,
+  symbol MARKET, kinds `cpi`/`jobs`.
+- Every short‑option row (options screen, puts board), every live‑book put and call, the
+  `[LIVE]` mail and MCP `get_events(symbol, days)` carry the SAME `events` block. Read
+  `verified` first: an empty list is clear ONLY when both stores answered and the MARKET
+  calendar is non‑empty; otherwise the gaps are named. Earnings stays a GATE; other events
+  are a named WARNING — weighed, not auto‑rejected (basic 3), the owner decides.
+- New event kind = three sites: `events.KINDS`, `EventChips.ICON`, the Settings form list.
+
+**Next, in order (owner confirmed 10 Nov):** paper P&L ledger = broker‑confirmed fills by
+placement record, unattributed as its own line (owner: "not a clean way of saying if a
+strategy is making money"); then sell‑off playbook as a pre‑registered study (O1 + basics
+5/6/7).
 
 ## Current truth — 2026-08-22 (evening)
 

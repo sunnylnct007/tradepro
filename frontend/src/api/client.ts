@@ -1962,6 +1962,13 @@ export const api = {
         suggested_strike: number | null;
         suggested_delta: number | null;
         suggested_premium: number | null;
+        /** Known dated events between today and this expiry, NAMED
+         *  (OWNER BASICS 3). Absent on artifacts produced before 10 Nov 2026. */
+        events?: {
+          events: Array<{ kind: string; label: string; on: string; title: string;
+                          scope: string; source: string; severity: string; short: string }>;
+          count: number; high: number; verified: boolean; gaps: string[]; names: string;
+        } | null;
       }>;
     }>("/api/options/candidates"),
   runScreener: () =>

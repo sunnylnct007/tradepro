@@ -26,6 +26,8 @@ can read and change. "CLOSE" here means "this crossed a line you set", never
 """
 from __future__ import annotations
 
+from typing import Callable
+
 import argparse
 import json
 import logging
@@ -144,9 +146,27 @@ def _sector_map() -> dict[str, str]:
 
 
 def build(positions: list[dict], *, rules: ManageRules | None = None,
-          today: date | None = None, nav_usd: float | None = None) -> dict:
-    """Positions -> the risk picture. Pure, so it is testable without a broker."""
+          today: date | None = None, nav_usd: float | None = None,
+          events_for: "Callable[[str, str], dict] | None" = None) -> dict:
+    """Positions -> the risk picture. Pure, so it is testable without a broker.
+
+    `events_for(symbol, expiry)` -> the known-events window dict (events.py)
+    for one contract. Injected rather than imported so the builder stays pure;
+    `main` passes the real one. None = events were not checked, and the rows
+    say so rather than showing an empty list."""
     today = today or date.today()
+
+    def _ev(sym: str, expiry: str) -> dict:
+        if events_for is None:
+            return {"events": [], "count": 0, "high": 0, "verified": False,
+                    "gaps": ["events not checked in this run"],
+                    "names": "events not checked in this run"}
+        try:
+            return events_for(sym, expiry)
+        except Exception as exc:  # noqa: BLE001 — carried, never raised
+            return {"events": [], "count": 0, "high": 0, "verified": False,
+                    "gaps": [f"events check failed: {str(exc)[:120]}"],
+                    "names": f"could not check events: {str(exc)[:120]}"}
     opts, stocks = [], []
     for p in positions:
         occ = parse_occ(str(p.get("symbol") or ""))
@@ -174,6 +194,7 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
             "unrealised": _f(p.get("unrealizedPnl")),
             # covered = shares on hand for the contracts sold (100/contract)
             "covered": int(min(held_qty.get(root, 0.0), q * 100)) or None,
+            "events": _ev(root, expiry),
         })
     spot = _spots({occ[0] for occ, _ in shorts})
 
@@ -201,6 +222,9 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
             "basis": v.effective_basis, "cushion_pct": v.basis_cushion_pct,
             "close_pnl": v.close_pnl, "hold_pnl": v.hold_pnl,
             "forfeit": v.forfeit,
+            # Known dated events between today and this expiry, NAMED (OWNER
+            # BASICS 3). The election week is the reason this field exists.
+            "events": _ev(root, expiry),
         })
     # Worst first: a board read top-down must start with what forces a
     # decision soonest, then by how little time is left to make it.
@@ -243,6 +267,9 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
             sectors=_sector_map(), nav_usd=nav_usd),
         "positions": rows,
         "calls": calls,
+        # Every distinct event any contract in the book runs across, soonest
+        # first — the one list to read before the week starts.
+        "events": _book_events(rows + calls),
         "equity": [{"symbol": p.get("symbol"), "qty": p.get("quantity"),
                     "unrealised": _f(p.get("unrealizedPnl")),
                     "covered_call": next((f"{c['strike']:.0f}C {c['expiry']}" for c in calls
@@ -250,6 +277,22 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
                    for _o, p in stocks],
         },
     }
+
+
+def _book_events(contracts: list[dict]) -> dict:
+    seen: dict[tuple, dict] = {}
+    gaps: set[str] = set()
+    verified = True
+    for c in contracts:
+        w = c.get("events") or {}
+        if not w.get("verified"):
+            verified = False
+            gaps.update(w.get("gaps") or [])
+        for e in w.get("events") or []:
+            key = (e.get("on"), e.get("kind"), e.get("scope"))
+            seen.setdefault(key, e)
+    evs = sorted(seen.values(), key=lambda e: (e.get("on") or "", e.get("kind") or ""))
+    return {"events": evs, "count": len(evs), "verified": verified, "gaps": sorted(gaps)}
 
 
 # ── exposure, which is the part that was avoidable ────────────────────────
@@ -382,12 +425,24 @@ def _alert_text(art: dict) -> str:
         ]
     for e in (art.get("exposures") or []):
         lines += ["", f"EXPOSURE — {e.get('detail')}"]
+    # KNOWN EVENTS the book runs across. Named, every time (OWNER BASICS 3);
+    # when the check could not complete the mail says that, in the same place.
+    be = art.get("events") or {}
+    if be.get("events"):
+        lines += ["", "KNOWN EVENTS BEFORE YOUR EXPIRIES", "---------------------------------"]
+        for e in be["events"]:
+            lines.append(f"  {e.get('on')}  {e.get('short')}")
+    if not be.get("verified", True):
+        lines += ["", "Events calendar NOT fully checked: " + "; ".join(be.get("gaps") or [])]
     if act:
         lines += ["", "TO CLOSE", "--------"]
         for r in act:
             lines.append(
                 f"  {r['symbol']} {r['strike']:.0f}P {r['expiry']} "
                 f"({r['dte']}d) — {r['why']}")
+            ev = (r.get("events") or {}).get("events") or []
+            if ev:
+                lines.append("      events before expiry: " + " · ".join(e["short"] for e in ev))
     else:
         lines += ["", "Nothing crosses a close line today."]
     lines += ["", "TradePro reads this account and never places an order into "
@@ -506,7 +561,12 @@ def main() -> int:
               "which would read as 'you hold nothing'", file=sys.stderr)
         return 1
 
-    art = build(positions, nav_usd=a.nav_usd)
+    from ..events import window_for_contract
+
+    def _events_for(sym: str, expiry: str) -> dict:
+        return window_for_contract(sym, expiry, api_base=base).to_dict()
+
+    art = build(positions, nav_usd=a.nav_usd, events_for=_events_for)
     c = art["artifact"]["counts"]
     print(f"{c['short_puts']} short puts · {c['close']} CLOSE · {c['watch']} watch "
           f"· {c['hold']} hold · {c['unknown']} unknown")

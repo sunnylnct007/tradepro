@@ -492,6 +492,18 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_earnings_calendar(symbol, back_days, ahead_days))
 
     @mcp.tool()
+    @instrumented("get_events")
+    def get_events(symbol: str, days: int = 60) -> str:
+        """Every KNOWN dated event between today and today+days for this
+        symbol and for the market — earnings, FOMC, CPI, jobs, elections,
+        ex-dividend, owner-added notes. This is the check OWNER BASICS 3
+        requires before any short option is proposed: NAME each event inside
+        the expiry window; default to an expiry that clears it; if proposing
+        across one, say why. Read `verified` first — an empty list with
+        verified=false means the calendar could not be checked, not clear."""
+        return _json(t.get_events(symbol, days))
+
+    @mcp.tool()
     @instrumented("get_straddle_scan")
     def get_straddle_scan() -> str:
         """Latest earnings-straddle scan — implied move vs the name's own

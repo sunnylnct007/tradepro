@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
+import { EventChips } from "./EventChips";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
 import { WheelBoardTable } from "./WheelBoardTable";
 import { AnalysisPanel } from "./AnalysisPanel";
@@ -790,6 +791,10 @@ function BestPick({ best, onAnalyze, onRecord, busy }: { best: Candidate | null;
           <span style={{ color: c, fontWeight: 600 }}> {best.regime}</span> regime ·
           IV-Rank {best.iv_rank != null ? `${best.iv_rank.toFixed(0)}%` : "n/a"} ·
           highest yield among {/* eligible */}the names that clear every gate
+        </div>
+        <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)" }}>Before expiry:</span>
+          <EventChips w={(best as any).events} />
         </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>

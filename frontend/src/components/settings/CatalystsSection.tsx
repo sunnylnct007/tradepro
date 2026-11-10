@@ -47,6 +47,10 @@ const SEVERITY_DEFINITION: Record<Catalyst["severity"], string> = {
 const KIND_ICONS: Record<string, string> = {
   election:      "🗳️",
   earnings:      "💼",
+  fomc:          "🏦",
+  cpi:           "📈",
+  jobs:          "👷",
+  index_rebalance: "⚖️",
   central_bank:  "🏦",
   commodity:     "🛢️",
   regulatory:    "⚖️",
@@ -388,6 +392,12 @@ function AddCatalystForm() {
         extractor-supplied catalysts in audit. Re-submitting the same
         (symbol, kind, date, operator) updates in place via the
         endpoint's ON CONFLICT.
+        <br />
+        <b>Symbol <code>MARKET</code> = market-wide</b> (FOMC, CPI, jobs,
+        elections…): it is named on every contract whose expiry it falls
+        before — the options screen, the puts board, the live book and its
+        mail. FOMC decisions are seeded through Dec 2027 by
+        <code> tradepro-events-sync</code>; add anything else here.
       </div>
       <div style={{
         display: "grid",
@@ -397,7 +407,7 @@ function AddCatalystForm() {
         <input
           value={symbol}
           onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-          placeholder="SYMBOL"
+          placeholder="SYMBOL or MARKET"
           style={inputStyle}
         />
         <select
@@ -406,8 +416,9 @@ function AddCatalystForm() {
           style={inputStyle}
         >
           {[
-            "operator_note", "election", "earnings", "central_bank",
-            "commodity", "regulatory", "m&a", "ex_dividend",
+            "operator_note", "election", "fomc", "cpi", "jobs", "earnings",
+            "central_bank", "commodity", "regulatory", "m&a", "ex_dividend",
+            "index_rebalance",
           ].map((k) => (
             <option key={k} value={k}>{k}</option>
           ))}

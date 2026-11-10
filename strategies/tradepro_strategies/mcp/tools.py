@@ -3666,6 +3666,27 @@ def get_earnings_calendar(symbol: str, back_days: int = 30, ahead_days: int = 90
     return {"ok": True, **d}
 
 
+def get_events(symbol: str, days: int = 60) -> dict:
+    """Known dated events for `symbol` AND the market between today and
+    today+days — the OWNER BASICS 3 check, as the lanes run it. Read
+    `verified` before `events`: an empty list is only "clear" when it is
+    True; otherwise `gaps` names what could not be checked."""
+    from datetime import date, timedelta
+    from ..events import events_between
+    try:
+        w = events_between(symbol, date.today(),
+                           date.today() + timedelta(days=max(1, min(365, int(days)))),
+                           api_base=_api_base())
+    except Exception as exc:  # noqa: BLE001
+        return {"_source": "error://get_events", "ok": False, "symbol": symbol,
+                "error": str(exc)}
+    return {"_source": "tradepro://events", "ok": True, "symbol": symbol.upper(),
+            "rule": ("OWNER BASICS 3: name every known event between today and expiry; "
+                     "default is an expiry that clears it; a trade proposed across "
+                     "one must say why"),
+            **w.to_dict()}
+
+
 def get_straddle_scan() -> dict:
     """Latest earnings-straddle scan (OBSERVATIONAL — nothing here is
     tradeable until the spec's pre-registered gates clear on forward data).
