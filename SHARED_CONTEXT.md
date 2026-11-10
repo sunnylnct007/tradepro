@@ -113,13 +113,19 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
   Most short-term trading is impacted by market sentiment.
   The sentiment then goes away, but while it lasts it gives short-term
   traders a massive opportunity.
-  Status: UNTESTED.
+  Status: NOT SUPPORTED as a buy‑the‑sell‑off rule — SELLOFF_PLAYBOOK_GATES_V1
+  (10 Nov 2026): 4,143 trades, edge vs a same‑stock quiet‑day null +0.36pt @20,
+  −0.96pt @40; sign flips across time×symbol cells. The one place an edge
+  showed is the HIGH‑BETA tercile (+2.16pt @20) — see basic 7.
 - **O4 (2026-11-09) — market events, sector events and news are key.**
   Market events, sector events and news matter a great deal to outcomes.
   Owner's lesson: we missed the American election completely. It gave a
   major blow to AI stocks (they are recovering), yet the date was known
   well in advance — we should not have entered short put options across it.
-  Status: UNTESTED.
+  Status: SUPPORTED on the sell‑off half — SELLOFF_PLAYBOOK_GATES_V1 S2: a
+  10%‑OTM 21‑session put sold INTO a sector sell‑off expires worthless 86% of
+  the time vs 96% on a quiet day (−10pt, worst breach −70%). The events half
+  is now enforced by the events calendar (basic 3).
 
 ---
 
@@ -189,7 +195,15 @@ per strategy/broker/currency; reconciler‑written fills (`assumed_via_*`, `stan
 reconciler that writes fills must add its prefix to `PaperLedger.AssumedPrefixes` or its
 fills count as money.
 
-**Next (owner confirmed 10 Nov):** sell‑off playbook as a pre‑registered study (O1 + basics 5/6/7).
+**2026‑11‑10 (night) — SELL‑OFF PLAYBOOK STUDY RUN (SELLOFF_PLAYBOOK_GATES_V1.md, frozen
+first, ef7b0c03).** 133 clustered sell‑off episodes 2006–2026, 4,143 constituent trades.
+S1 buy‑the‑sell‑off FAILS vs a same‑stock null (+0.36/−0.96/+1.34pt @20/40/60, cells flip).
+S2 sell‑a‑put‑into‑it FAILS hard: 86% expire worthless vs 96% null — 3.5× the assignment
+rate. S3 (basics 5/6, descriptive): the book you hold when it hits draws down −7.3% median
+concentrated vs −4.7% capped‑45% vs −3.8% capped+20% cash (worst −51/−39/−31%). S4 (basic 7):
+only the high‑beta tercile shows edge (+2.16pt @20). O1 stays as graded 29 Aug (recovers,
+no edge). No entry rule ships. **Next:** name "sector ETF ≥8% off its 20‑day high" as a
+risk on every short‑put row (the S2 base rate), via the same events block.
 
 ## Current truth — 2026-08-22 (evening)
 
