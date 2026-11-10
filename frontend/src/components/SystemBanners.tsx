@@ -156,7 +156,7 @@ function PositionDriftBanner() {
         {" — broker holdings disagree with our records"}
       </span>
       <a
-        href="/admin/data"
+        href="/desk?view=portfolio"
         style={{
           marginLeft: "auto", fontSize: 11,
           color: "var(--text-dim)", textDecoration: "underline",
