@@ -123,6 +123,51 @@ SUPPORTED — and, once tested, a pointer to the study that decided it.
 
 ---
 
+## 2026-11-09/10 — LIVE READ-ONLY LANE IS RUNNING; UNIVERSE CUT 956→84; TEN SCREENS + COMPARE LANE DELETED
+
+Read OWNER BASICS above first; this section is what changed in the system to honour them.
+
+**Live account (basic 1).** `tradepro-live-risk --push --email` reads the live book
+through IBKR Flex, judges each short put on the **effective basis** (strike − credit)
+and **hold‑to‑expiry P&L**, NOT the option mark (the old 2× rule flagged 13 of 18 on a
+book where 6 were above basis; owner: "is not a real evaluation"). First real run
+10 Nov 08:51Z. The mark and the hold‑to‑expiry figure are BOTH shown on the Live
+screen (`/desk?view=live`) and in the `[LIVE]` mail; the gap between them is time
+value, and reporting the mark alone had overstated the drawdown roughly threefold.
+(No account figures in this file: the repo is public.)
+Credentials come from Secrets Manager `tradepro/ibkr-flex` (keys `token`,
+`positions_query_id`) — env vars override. **Trap:** `secrets.get_secret()` prefixes
+`/tradepro/` (leading slash); the API's secondary secrets have no slash → use
+`secrets.get_json_secret("tradepro/ibkr-flex")`. Nightly lane
+`com.tradepro.live-risk` (Mon–Fri 22:50 local, opt‑in
+`TRADEPRO_AWS_PROFILE=<profile> install-launchd.sh --live-risk`) fails LOUDLY when the
+Mac's SSO lapses; a scoped IAM key is the permanent fix (owner's call). Every mail
+goes through `email_digest.labelled(LIVE|PAPER, ...)` — unlabelled mail cannot be built.
+
+**Why every screen was stale (basic 2).** Universe widened 244→956 on 21 Sep; the
+nightly 1d harvest went from 0.3 h to 12–61 h at ~48 s/symbol and landed the NEXT
+afternoon. Now a `harvest` flag in `strategies/universe/tradeable.json`: 960 tracked,
+**84 harvested** (31 exchange/sector/asset ETFs + live book + stocks round‑robin across
+the 11 GICS sectors from `api/universes/sp500`). `universe_symbols()` returns the
+flagged set by default. Owner toggles on `/universes?name=harvest` (INCLUDE=on,
+EXCLUDE=off; `tradepro-universe-sync --push` re‑ingests the file). 5m lane scope =
+candidates ∪ flagged (it previously skipped OPTIONS, so 13 of 19 live names had no
+intraday bars). First 84‑name harvest: 10 Nov 21:30.
+
+**Deleted (owner: "no more confusing screens").** Desk views decide, scan, risk,
+screeners, news, watchlist, quote, simulation, scanner, daily‑screener, plus
+`com.tradepro.worker`/`refresh.sh` (tradepro‑compare ran 23 h for the Decide screen).
+`DESK_VIEWS` == the rail. **Open ruling:** the legacy app under `/` (scanner, signals,
+simulations, strategies, paper‑live, backtests, charts, health, admin, help).
+
+**Also fixed:** CSS `--surface` was never defined (modals rendered transparent);
+`install-launchd.sh` lost its opt‑in lane installs in #354 and they were restored in #359.
+
+**Next, in proposed order:** events calendar for the options board (basic 3 / O4);
+paper P&L ledger = broker‑confirmed fills by placement record, unattributed as its own
+line (owner: "not a clean way of saying if a strategy is making money"); sell‑off
+playbook as a pre‑registered study (O1 + basics 5/6/7).
+
 ## Current truth — 2026-08-22 (evening)
 
 ### Store layout — CANONICAL as of 2026-08-22 (read this before touching data)
