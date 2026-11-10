@@ -54,6 +54,8 @@ import { HarvestView } from "../components/desk/HarvestView";
 import { OptionsDesk } from "../components/desk/OptionsDesk";
 import { StrangleDecisionsView } from "../components/desk/StrangleDecisionsView";
 import { OmsOrders } from "./OmsOrders";
+import { Universes } from "./Universes";
+import { Settings } from "./Settings";
 import type { PositionRow } from "../components/desk/PositionsByStrategy";
 
 const WIDE_BREAKPOINT = 1024;
@@ -78,7 +80,7 @@ function useWide(): boolean {
 // stale verdicts, and in decide's case its lane (tradepro-compare, 54 symbols
 // x 7 strategies) had been running for 23 hours to feed it. Deleted, with the
 // lane. Nothing that is not on the rail is routable.
-const DESK_VIEWS: DeskView[] = ["live", "candidates", "portfolio", "oms", "harvest", "options", "research", "swing", "momentum", "post-earnings-puts", "strangle-decisions"];
+const DESK_VIEWS: DeskView[] = ["live", "candidates", "portfolio", "oms", "harvest", "options", "research", "swing", "momentum", "post-earnings-puts", "strangle-decisions", "universes", "settings"];
 
 export function Desk() {
   const wide = useWide();
@@ -272,6 +274,8 @@ export function Desk() {
 
       {view === "oms"        && <OmsOrders />}
       {view === "harvest"    && <HarvestView />}
+      {view === "universes"  && <Universes />}
+      {view === "settings"   && <Settings />}
       {view === "research"   && <ResearchView />}
       {view === "candidates" && (
         <>

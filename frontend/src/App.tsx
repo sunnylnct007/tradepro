@@ -1,51 +1,37 @@
-import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
-import { Layout } from "./components/Layout";
 import { TradingModeProvider } from "./contexts/TradingMode";
-import { Settings } from "./pages/Settings";
-import { Universes } from "./pages/Universes";
 import { Desk } from "./pages/Desk";
 
-// ── THE LEGACY APP IS GONE (10 Nov 2026) ─────────────────────────────────
+// ── ONE SHELL (10 Nov 2026) ───────────────────────────────────────────────
 //
-// Owner ruling: "Delete the legacy app under / — scanner, signals,
-// simulations, strategies, paper-live, backtests, charts, health, admin,
-// help. I'd keep /universes and /settings. Yes."
-//
-// Twenty pages (~13k lines) that rendered inside the old <Layout> shell were
-// deleted, not hidden: they described strategies that had failed their gates,
-// read stores that were a session stale, or duplicated a /desk view under a
-// different name. Everything is recoverable from git history; nothing is
-// reachable by URL. The only surfaces now are:
-//
-//   /desk        — the cockpit (Live, Candidates, Portfolio, Orders, Data, …)
-//   /universes   — which symbols are tracked / harvested (the `harvest` flag)
-//   /settings    — configuration
-//
-// Old bookmarks land on the cockpit rather than a 404: a redirect carries the
-// reader to the view that replaced the page where one exists, and to the
-// cockpit index otherwise. The redirects name the old paths deliberately so a
-// grep for a deleted route finds this list, not silence.
+// The legacy app under `/` was deleted earlier today (#361) but Universes and
+// Settings were still framed by its sidebar. Owner: "if i go to universe link
+// i see old navigation link". They are now VIEWS inside the desk shell, so
+// there is exactly one navigation in the product. Old paths redirect into the
+// desk and keep their query (so /universes?name=harvest still lands on the
+// harvest toggle list). Everything else falls through to the cockpit.
+
+/** Redirect a legacy path into a desk view, carrying the original query string. */
+function ToDeskView({ view }: { view: string }) {
+  const { search } = useLocation();
+  const qs = new URLSearchParams(search);
+  qs.set("view", view);
+  return <Navigate to={`/desk?${qs.toString()}`} replace />;
+}
+
 const router = createBrowserRouter([
   { path: "/desk", element: <Desk /> },
-  {
-    path: "/",
-    element: <Layout />,
-    children: [
-      { index: true, element: <Navigate to="/desk" replace /> },
-      { path: "settings", element: <Settings /> },
-      { path: "universes", element: <Universes /> },
-      // Replaced by a /desk view.
-      { path: "portfolio", element: <Navigate to="/desk?view=portfolio" replace /> },
-      { path: "oms", element: <Navigate to="/desk?view=oms" replace /> },
-      { path: "trader", element: <Navigate to="/desk" replace /> },
-      { path: "trader-legacy", element: <Navigate to="/desk" replace /> },
-      // Deleted outright — scanner, signals, simulations, strategies/*,
-      // paper-live/*, paper-backtest, backtests, charts, health, admin/*,
-      // help/*, documents/*, symbol/*, intraday/*.
-      { path: "*", element: <Navigate to="/desk" replace /> },
-    ],
-  },
+  { path: "/", element: <Navigate to="/desk" replace /> },
+  { path: "/universes", element: <ToDeskView view="universes" /> },
+  { path: "/settings", element: <ToDeskView view="settings" /> },
+  { path: "/portfolio", element: <Navigate to="/desk?view=portfolio" replace /> },
+  { path: "/oms", element: <Navigate to="/desk?view=oms" replace /> },
+  { path: "/trader", element: <Navigate to="/desk" replace /> },
+  { path: "/trader-legacy", element: <Navigate to="/desk" replace /> },
+  // Deleted outright — scanner, signals, simulations, strategies/*, paper-live/*,
+  // backtests, charts, health, admin/*, help/*, documents/*, symbol/*, intraday/*.
+  { path: "*", element: <Navigate to="/desk" replace /> },
 ]);
 
 export default function App() {
