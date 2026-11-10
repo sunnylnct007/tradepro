@@ -79,13 +79,26 @@ public static class PaperLedger
         return Origin.BrokerConfirmed;
     }
 
+    /// <summary>Brokers whose fill rows cannot be turned into money by
+    /// price × qty: IG CFDs carry a point value per contract that the OMS
+    /// never stored, so FIFO over (price − price) × qty understates by orders
+    /// of magnitude (the first live readout showed −£0.47 over 36 FX trades).
+    /// Their realised comes from the broker's own closed-deal history
+    /// (/api/integrations/ig/history), and this ledger says so instead of
+    /// printing a wrong number.</summary>
+    public static readonly string[] NoFifoBrokerPrefixes = { "IG" };
+
+    public static bool FifoIsMoney(string broker) =>
+        !NoFifoBrokerPrefixes.Any(p => (broker ?? "").StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
     public sealed record Line(
         string Key,                 // strategy_id, or "unattributed"
         string? StrategyId,
         string Broker,
         string Currency,
-        decimal RealisedLtd,        // money — confirmed fills only
-        decimal RealisedToday,
+        bool MoneyComputable,       // false → RealisedLtd/Today are null, see Notes
+        decimal? RealisedLtd,       // money — confirmed fills only
+        decimal? RealisedToday,
         int ClosedTrades,
         int WinningTrades,
         double? WinRatePct,
@@ -112,7 +125,9 @@ public static class PaperLedger
         + "Fills the reconcilers wrote to make the OMS agree with the broker are counted as "
         + "ASSUMED and never enter the money. Orders with no strategy_id are UNATTRIBUTED, "
         + "their own line. A sell with no confirmed buy lot is reported as unmatched quantity, "
-        + "not realised against a zero basis. Open (unrealised) P&L is deliberately absent: "
+        + "not realised against a zero basis. IG CFD sleeves show no FIFO money (no point value "
+        + "on the fill rows) — their realised is the broker's closed-deal history. Open (unrealised) "
+        + "P&L is deliberately absent: "
         + "it is a mark, not a result.";
 
     public static Result Build(IEnumerable<FillRow> fills, DateTime utcNow)
@@ -173,10 +188,13 @@ public static class PaperLedger
             if (g.Key == UnattributedKey)
                 notes.Add("no placement record claims these fills (manual order, or a reconcile adjustment with no owner) — never folded into a strategy");
 
+            var computable = FifoIsMoney(g.Broker);
+            if (!computable)
+                notes.Insert(0, $"{g.Broker}: fills carry no contract point value, so price × qty is not money — realised for this sleeve comes from the broker's closed-deal history (/api/integrations/ig/history); fill counts here are still real");
             var line = new Line(
-                g.Key, g.StrategyId, g.Broker, g.Currency,
-                ltd, tod, closed, won,
-                closed > 0 ? 100.0 * won / closed : null,
+                g.Key, g.StrategyId, g.Broker, g.Currency, computable,
+                computable ? ltd : null, computable ? tod : null, closed, won,
+                computable && closed > 0 ? 100.0 * won / closed : null,
                 unmatched, g.ConfirmedFills, g.AssumedFills, g.AssumedQty,
                 g.SymbolsSeen.Count, g.First, g.Last, notes);
             (g.Key == UnattributedKey ? unattributed : strategies).Add(line);
