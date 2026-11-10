@@ -794,6 +794,13 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
             strategy_id=strategy_id,
             params={
                 "symbols": symbols,
+                # WHICH BROKER THIS SLEEVE RUNS ON. Without it the strategy's
+                # broker read had nothing to route on and asked IBKR what T212
+                # held (10 Nov 2026: 29 of 30 T212 positions "dropped" as not
+                # held, every run since 8 Nov — the closer believed the book
+                # was empty). The ichimoku branch above has passed this since
+                # August; this branch never did.
+                "broker": args.broker,
                 "capital": args.capital_usd,
                 # Fraction of capital per position. The screen fires ~7 times a
                 # week across 244 names, so positions accumulate quickly; the

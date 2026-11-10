@@ -290,10 +290,28 @@ class MeanReversionSwingStrategy(Strategy):
             #
             # One query parameter is the difference between a guard and a
             # decoration.
-            r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
-                             params={"fresh": "true"},
-                             headers={"Authorization": f"Bearer {token}"} if token else {},
-                             timeout=30)
+            # ROUTE THE READ BY THE SLEEVE'S BROKER (10 Nov 2026). This asked
+            # /integrations/ibkr/positions whichever broker the sleeve ran on,
+            # so the T212 momentum lane asked IBKR what T212 held and "dropped"
+            # 29 of its 30 positions as not held — on every run since 8 Nov.
+            # The one that survived was a name the IBKR momentum sleeve also
+            # happened to hold. Nothing was ever going to close the other 29.
+            broker = str(self._p().get("broker") or "ibkr").lower()
+            hdr = {"Authorization": f"Bearer {token}"} if token else {}
+            if broker.startswith("t212"):
+                r = requests.get(f"{base.rstrip('/')}/api/integrations/trading212/positions",
+                                 params={"account": "demo", "fresh": "true"},
+                                 headers=hdr, timeout=30)
+            elif broker.startswith("ibkr"):
+                r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
+                                 params={"fresh": "true"},
+                                 headers=hdr,
+                                 timeout=30)
+            else:
+                _log.warning("no broker position read for broker=%r — treating the "
+                             "broker as UNREADABLE (nothing managed, nothing flattened)",
+                             broker)
+                return None
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
             rows = r.json()

@@ -2123,3 +2123,34 @@ close and close-to-close of SPY/QQQ, the sector ETFs and the high-beta tercile o
 FOMC/CPI/jobs days vs the same-stock null, 2006–2026, with the null and the gates
 written first (the 29 Aug / 10 Nov pattern). FOMC history is fetchable from the Fed;
 CPI/jobs history needs a source we can read by script — that is the first blocker.
+
+## 2026-11-10 (23:00) — RULING: one broker per strategy; T212 momentum lane retired; IG retired; the closer asked the wrong broker
+
+Owner, after "how are we struggling with opening and closing positions in paper":
+"go ahead with one broker" → corrected to ONE BROKER PER STRATEGY once the ledger
+showed T212 confirms fills (momentum_t212 32, ichimoku_equity 47) — my "T212 cannot
+confirm" was a misread of a July memory about the IBKR clones. Owner: "yes".
+
+DONE tonight:
+* `com.tradepro.paper-momentum-t212` unloaded and parked in
+  `~/Library/LaunchAgents/disabled/` (hand-installed plist, no repo source). Momentum
+  runs on IBKR only.
+* IG rows `ichimoku_fx_mr` and `intraday_flat` DELETED from strategy_broker_map (no
+  lane ran them since Aug; IG money is not computable from fills). The IG hosted
+  services in the API (snapshot harvester, fill poller) still run — code removal is a
+  fresh-session job; the EC2 `.env` still has IG credentials.
+* ROOT CAUSE of "cannot close" on T212: `MeanReversionSwingStrategy._broker_positions`
+  called `/integrations/ibkr/positions` for EVERY broker, and the swing/momentum
+  construction never passed `broker` into params (ichimoku's did since Aug). The T212
+  lane asked IBKR what T212 held → "dropped 29 of 30 positions the BROKER does not
+  hold", 52 times since 8 Nov; the survivor was a name the IBKR momentum sleeve also
+  held. Fixed: read routes by the sleeve's broker; IG → unreadable (None), tested.
+
+OPEN — owner-visible: momentum_pullback_t212 still holds 30 positions at T212 demo
+(≈ −$2.7k unrealised) with NO lane managing them. Flatten through the OMS in the
+11 Nov session (paper), or re-run the lane once in --wind-down with the fix so its
+rules exit them. Not done at 23:00 with the market shut.
+
+Ichimoku equity = THE strategy (T212, 47 confirmed fills, backtested edge). Next
+pre-registered change for it: stock-vs-sector-vs-index correlation as an entry gate
+(basic 7); the sell-off study's S4 says the edge sits in the high-beta tercile.
