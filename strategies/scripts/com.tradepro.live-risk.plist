@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nightly read of the LIVE account — basis verdicts, exposure, [LIVE] mail.
+
+  Read-only by construction (IBKR Flex). Never places an order (OWNER
+  BASICS 1, 2026-11-09). Runs Mon-Fri 22:50 local, after the 84-name daily
+  harvest lands (~22:45), so the card describes today's close.
+
+  Credentials: Secrets Manager tradepro/ibkr-flex via AWS_PROFILE below.
+  A lapsed SSO session fails LOUDLY (see live-risk.sh). Permanent fix is an
+  IAM key scoped to GetSecretValue on that one secret — the owner's call.
+
+  Opt-in install:  bash strategies/scripts/install-launchd.sh [flag: live-risk]
+  Logs:            ~/.tradepro/logs/live-risk-<date>.log  (+ .out/.err)
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradepro.live-risk</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{PROJECT_DIR}}/scripts/live-risk.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/opt/anaconda3/bin:/usr/bin:/bin</string>
+    <key>TRADEPRO_PROJECT_DIR</key>
+    <string>{{PROJECT_DIR}}</string>
+    <key>AWS_PROFILE</key>
+    <string>infoccit-admin</string>
+    <key>TRADEPRO_LIVE_NAV_USD</key>
+    <string>245000</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>50</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>50</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>50</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>50</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>50</integer></dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.tradepro/logs/live-risk.out</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.tradepro/logs/live-risk.err</string>
+</dict>
+</plist>

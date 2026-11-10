@@ -17,6 +17,7 @@
 #   bash install-launchd.sh --algo          # + systematic slow-loop + digest
 #   bash install-launchd.sh --data-worker   # + trustworthy-data ops queue
 #   bash install-launchd.sh --catalysts-sweep
+#   bash install-launchd.sh --live-risk      # + nightly live-account read + [LIVE] mail
 #
 # Any previously installed com.tradepro.worker / .refresh / .heartbeat is
 # unloaded so a reinstall cannot resurrect the compare loop.
@@ -28,6 +29,7 @@ WITH_EPS_SNAPSHOT=0
 WITH_ALGO=0
 WITH_DATA_WORKER=0
 WITH_CATALYSTS_SWEEP=0
+WITH_LIVE_RISK=0
 for arg in "$@"; do
   case "$arg" in
     --intraday|--with-intraday) WITH_INTRADAY=1 ;;
@@ -44,6 +46,11 @@ for arg in "$@"; do
     # (06:00 UTC). Off by default — opt-in because populating the
     # registry across the trader's universe touches yfinance hard.
     --catalysts-sweep|--with-catalysts-sweep) WITH_CATALYSTS_SWEEP=1 ;;
+    # --live-risk installs the nightly READ of the live account (basis
+    # verdicts, exposure, [LIVE] mail). Read-only by construction; it
+    # never places an order. Opt-in because it needs AWS access to the
+    # Flex secret on this machine.
+    --live-risk|--with-live-risk) WITH_LIVE_RISK=1 ;;
     -h|--help)
       sed -n '1,/^set -eu/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -61,6 +68,7 @@ chmod +x \
     "$PROJECT_DIR/scripts/intraday-engine.sh" \
     "$PROJECT_DIR/scripts/eps-snapshot.sh" \
     "$PROJECT_DIR/scripts/data-worker.sh" \
+    "$PROJECT_DIR/scripts/live-risk.sh" \
     2>/dev/null || true
 
 install_one() {
@@ -106,3 +114,14 @@ uninstall_one() {
 uninstall_one "com.tradepro.worker"
 uninstall_one "com.tradepro.refresh"
 uninstall_one "com.tradepro.heartbeat"
+
+# OPT-IN LANES. These were nested inside the deleted worker-mode block and
+# were dropped with it on 9 Nov (#354) — a reinstall would have silently
+# removed every opt-in lane. Restored here, unconditional of any mode.
+if (( WITH_INTRADAY )); then install_one "com.tradepro.intraday-engine"; else uninstall_one "com.tradepro.intraday-engine"; fi
+if (( WITH_EPS_SNAPSHOT )); then install_one "com.tradepro.eps-snapshot"; else uninstall_one "com.tradepro.eps-snapshot"; fi
+if (( WITH_CATALYSTS_SWEEP )); then install_one "com.tradepro.catalysts-daily-sweep"; else uninstall_one "com.tradepro.catalysts-daily-sweep"; fi
+if (( WITH_ALGO )); then install_one "com.tradepro.live-portfolio"; install_one "com.tradepro.algo-digest"
+else uninstall_one "com.tradepro.live-portfolio"; uninstall_one "com.tradepro.algo-digest"; fi
+if (( WITH_DATA_WORKER )); then install_one "com.tradepro.data-worker"; else uninstall_one "com.tradepro.data-worker"; fi
+if (( WITH_LIVE_RISK )); then install_one "com.tradepro.live-risk"; else uninstall_one "com.tradepro.live-risk"; fi
