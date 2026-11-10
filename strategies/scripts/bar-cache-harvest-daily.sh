@@ -155,3 +155,17 @@ if [[ $RECON_RC -ne 0 ]]; then
     exit $RECON_RC
 fi
 log "push complete and VERIFIED — the chart store matches the golden parquet"
+
+# ── Sector stress (SELLOFF_PLAYBOOK_GATES_V1 §S2, 10 Nov 2026) ──────────────
+# With tonight's bars settled, publish which sector ETFs (and SPY/QQQ) sit ≥ 8%
+# below their 20-day high. Every events window (options screen, puts board,
+# live-risk mail at 22:50, MCP) reads this artifact and NAMES a sell-off on
+# short-put rows — a put sold in that state expired worthless 86% of the time
+# vs 96% on a quiet day. Absent artifact = a named gap on every row, so a
+# failure here is loud downstream; it must not fail the harvest itself.
+log "publishing sector stress"
+if "$UV" run tradepro-sector-stress --push >>"$LOG" 2>&1; then
+    log "sector stress published"
+else
+    log "WARNING: sector stress publish FAILED (exit $?) — every events window will say 'not published' until the next run. See $LOG"
+fi
