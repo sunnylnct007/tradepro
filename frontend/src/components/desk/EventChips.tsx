@@ -28,7 +28,7 @@ export type EventsWindow = {
 const ICON: Record<string, string> = {
   earnings: "💼", fomc: "🏦", central_bank: "🏦", cpi: "📈", jobs: "👷",
   election: "🗳️", ex_dividend: "💰", index_rebalance: "⚖️", regulatory: "⚖️",
-  commodity: "🛢️", "m&a": "🤝", operator_note: "📝",
+  commodity: "🛢️", "m&a": "🤝", operator_note: "📝", sector_selloff: "📉",
 };
 
 const TONE = { warn: "#d29922", bad: "#f85149", dim: "var(--text-dim)", muted: "var(--text-muted)" };

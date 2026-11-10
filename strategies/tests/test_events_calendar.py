@@ -25,6 +25,13 @@ def _fetch(*, earnings=None, store=FRESH_STORE, symbol_rows=None, market_rows=No
         if path == "/api/catalysts/":
             rows = market_rows if params["symbol"] == ev.MARKET_SYMBOL else symbol_rows
             return None if rows is None else {"catalysts": rows}
+        if path.startswith("/api/today-setups/sector-stress/"):
+            # A fresh, calm sector-stress artifact: no sector or market sell-off today.
+            from tradepro_strategies import sector_stress as ss
+            etfs = {e: {"symbol": e, "dd_pct": -1.0, "stressed": False}
+                    for e in list(ss.SECTOR_ETF.values()) + list(ss.MARKET_ETFS)}
+            return {"artifact": {"as_of_date": date.today().isoformat(), "etfs": etfs,
+                                 "stressed": [], "sector_of": {}}}
         raise AssertionError(path)
     return f
 

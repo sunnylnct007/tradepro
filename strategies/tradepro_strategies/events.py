@@ -72,6 +72,11 @@ KINDS: dict[str, dict] = {
     "commodity":      {"label": "commodity",       "severity": "medium"},
     "m&a":            {"label": "M&A",             "severity": "high"},
     "operator_note":  {"label": "note",            "severity": "medium"},
+    # Computed, not dated: the stock's sector ETF (or the market) is ≥ 8% below
+    # its 20-session high TODAY. SELLOFF_PLAYBOOK_GATES_V1 S2 — a put sold in
+    # that state is assigned 3.5x more often. Published daily by
+    # `tradepro-sector-stress --push`; see sector_stress.py.
+    "sector_selloff": {"label": "sector sell‑off", "severity": "high"},
 }
 
 
@@ -302,6 +307,21 @@ def events_between(symbol: str, start: date, end: date, *, api_base: str,
                 e = _event_from_catalyst(r)
                 if e and start <= e.on <= end and not _dup(w.events, e):
                     w.events.append(e)
+
+    # 4) Sector / market sell-off state — the study's one shipped result. The
+    #    artifact is published after the daily harvest; absent or stale it is a
+    #    NAMED gap, because "no sell-off" and "nobody checked" must not look alike.
+    from .sector_stress import ARTIFACT_UNIVERSE, stress_events_for
+    art = f(f"/api/today-setups/{ARTIFACT_UNIVERSE}/latest", {})
+    stress, gap = stress_events_for(sym, (art or {}).get("artifact") if art else None)
+    if gap:
+        w.verified = False
+        w.gaps.append(gap)
+    for sd in stress:
+        e = Event(kind=sd["kind"], on=date.fromisoformat(sd["on"]), title=sd["title"],
+                  scope=sd["scope"], source=sd["source"], severity=sd["severity"])
+        if not _dup(w.events, e):
+            w.events.append(e)
 
     w.events.sort(key=lambda e: (e.on, 0 if e.severity == "high" else 1, e.kind))
     return w
