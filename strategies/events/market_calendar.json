@@ -4,28 +4,246 @@
     "Push with `tradepro-events-sync --push`; every lane then NAMES any of these that fall between today and a contract's expiry (OWNER BASICS 3).",
     "Config, not code: add a row here (or from Settings → Catalysts with symbol MARKET) and re-run the sync. Dates are the DECISION / RELEASE day, not the first day of a two-day meeting.",
     "Each entry carries the URL it was read from. FOMC dates are tentative until confirmed at the preceding meeting (the Fed's own wording).",
-    "NOT SEEDED YET: CPI and jobs-report dates. bls.gov refused automated reads on 10 Nov 2026; add them from https://www.bls.gov/schedule/2027/home.htm (kinds `cpi`, `jobs`) when a browser session is to hand, or via the Settings form."
+    "CPI and jobs-report dates for 2027 were pasted by the owner from https://www.bls.gov/schedule/2027/home.htm (last modified 9 Oct 2026) on 10 Nov 2026. NOT SEEDED: the Nov/Dec 2026 CPI and jobs releases (not in that paste) and 2028 onwards — add when published."
   ],
   "events": [
-    {"kind": "fomc", "on": "2026-12-09", "title": "FOMC rate decision (meeting 8–9 Dec, SEP)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-01-27", "title": "FOMC rate decision (meeting 26–27 Jan)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-03-17", "title": "FOMC rate decision (meeting 16–17 Mar, SEP)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-04-28", "title": "FOMC rate decision (meeting 27–28 Apr)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-06-09", "title": "FOMC rate decision (meeting 8–9 Jun, SEP)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-07-28", "title": "FOMC rate decision (meeting 27–28 Jul)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-09-15", "title": "FOMC rate decision (meeting 14–15 Sep, SEP)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-10-27", "title": "FOMC rate decision (meeting 26–27 Oct)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "fomc", "on": "2027-12-08", "title": "FOMC rate decision (meeting 7–8 Dec, SEP)", "severity": "high",
-     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
-    {"kind": "election", "on": "2028-11-07", "title": "US presidential and congressional election", "severity": "high",
-     "url": "https://www.usa.gov/election-day"}
+    {
+      "kind": "fomc",
+      "on": "2026-12-09",
+      "title": "FOMC rate decision (meeting 8–9 Dec, SEP)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-01-08",
+      "title": "Employment Situation (jobs report) for Dec 2026, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-01-13",
+      "title": "Consumer Price Index for Dec 2026, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-01-27",
+      "title": "FOMC rate decision (meeting 26–27 Jan)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-02-05",
+      "title": "Employment Situation (jobs report) for Jan 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-02-11",
+      "title": "Consumer Price Index for Jan 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-03-05",
+      "title": "Employment Situation (jobs report) for Feb 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-03-10",
+      "title": "Consumer Price Index for Feb 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-03-17",
+      "title": "FOMC rate decision (meeting 16–17 Mar, SEP)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-04-02",
+      "title": "Employment Situation (jobs report) for Mar 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-04-13",
+      "title": "Consumer Price Index for Mar 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-04-28",
+      "title": "FOMC rate decision (meeting 27–28 Apr)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-05-07",
+      "title": "Employment Situation (jobs report) for Apr 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-05-12",
+      "title": "Consumer Price Index for Apr 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-06-04",
+      "title": "Employment Situation (jobs report) for May 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-06-09",
+      "title": "FOMC rate decision (meeting 8–9 Jun, SEP)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-06-10",
+      "title": "Consumer Price Index for May 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-07-02",
+      "title": "Employment Situation (jobs report) for Jun 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-07-14",
+      "title": "Consumer Price Index for Jun 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-07-28",
+      "title": "FOMC rate decision (meeting 27–28 Jul)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-08-06",
+      "title": "Employment Situation (jobs report) for Jul 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-08-11",
+      "title": "Consumer Price Index for Jul 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-09-03",
+      "title": "Employment Situation (jobs report) for Aug 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-09-14",
+      "title": "Consumer Price Index for Aug 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-09-15",
+      "title": "FOMC rate decision (meeting 14–15 Sep, SEP)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-10-08",
+      "title": "Employment Situation (jobs report) for Sep 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-10-14",
+      "title": "Consumer Price Index for Sep 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-10-27",
+      "title": "FOMC rate decision (meeting 26–27 Oct)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-11-05",
+      "title": "Employment Situation (jobs report) for Oct 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-11-10",
+      "title": "Consumer Price Index for Oct 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "jobs",
+      "on": "2027-12-03",
+      "title": "Employment Situation (jobs report) for Nov 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "fomc",
+      "on": "2027-12-08",
+      "title": "FOMC rate decision (meeting 7–8 Dec, SEP)",
+      "severity": "high",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "kind": "cpi",
+      "on": "2027-12-10",
+      "title": "Consumer Price Index for Nov 2027, 08:30 ET",
+      "severity": "medium",
+      "url": "https://www.bls.gov/schedule/2027/home.htm"
+    },
+    {
+      "kind": "election",
+      "on": "2028-11-07",
+      "title": "US presidential and congressional election",
+      "severity": "high",
+      "url": "https://www.usa.gov/election-day"
+    }
   ]
 }
