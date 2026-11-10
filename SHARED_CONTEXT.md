@@ -2106,3 +2106,20 @@ them otherwise.
 Paper, today: zero orders, zero fills across every sleeve; last fill 6 Nov. No
 sleeve is demonstrably profitable on confirmed fills (momentum −$1,313 @27% win,
 swing −$669 @48%).
+
+## 2026-11-10 (22:00) — the desk missed today's CPI; O5 logged
+
+Owner: "today was event in US CPI date … we need to handle things like that as well".
+The calendar had NO 2026 CPI/jobs rows (seed carried 2027 only; bls.gov blocks the
+fetch). Four rows added and pushed (#370): CPI 10 Nov + 10 Dec, jobs 6 Nov + 4 Dec.
+FOMC 9 Dec was already there. STRUCTURAL GAP STANDS: the macro calendar is hand-seeded.
+Until a scripted source exists, every January the next year's BLS schedule must be
+pasted in or the desk goes blind to CPI/jobs again.
+
+**O5 (owner, 10 Nov, UNTESTED):** scheduled macro days — CPI, jobs, FOMC (a December
+hike/cut in particular) — are opportunity days, possibly SHORT-selling days. Not built.
+Next session: pre-register an event-day study BEFORE touching the screens — open-to-
+close and close-to-close of SPY/QQQ, the sector ETFs and the high-beta tercile on
+FOMC/CPI/jobs days vs the same-stock null, 2006–2026, with the null and the gates
+written first (the 29 Aug / 10 Nov pattern). FOMC history is fetchable from the Fed;
+CPI/jobs history needs a source we can read by script — that is the first blocker.
