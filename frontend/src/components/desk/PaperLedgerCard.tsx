@@ -105,8 +105,8 @@ export function PaperLedgerCard() {
 }
 
 function Row({ l, unattributed = false }: { l: Line; unattributed?: boolean }) {
-  const hasMoney = l.confirmedFills > 0;
-  const tone = !hasMoney ? TONE.muted : l.realisedLtd > 0 ? TONE.ok : l.realisedLtd < 0 ? TONE.bad : TONE.dim;
+  const hasMoney = l.confirmedFills > 0 && l.moneyComputable && l.realisedLtd != null;
+  const tone = !hasMoney ? TONE.muted : (l.realisedLtd ?? 0) > 0 ? TONE.ok : (l.realisedLtd ?? 0) < 0 ? TONE.bad : TONE.dim;
   const caveats: string[] = [];
   if (l.assumedFills > 0) caveats.push(`${l.assumedFills} assumed`);
   if (l.unmatchedSellQty > 0) caveats.push(`${l.unmatchedSellQty} sold w/o lot`);
@@ -118,7 +118,7 @@ function Row({ l, unattributed = false }: { l: Line; unattributed?: boolean }) {
         <span style={{ color: TONE.muted, fontSize: 10 }}> · {l.broker}</span>
       </span>
       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: tone }}>
-        {hasMoney ? money(l.realisedLtd, l.currency) : "no money"}
+        {hasMoney ? money(l.realisedLtd, l.currency) : l.moneyComputable ? "no money" : "see broker history"}
       </span>
       <span style={{ fontFamily: "var(--font-mono)", color: l.realisedToday ? (l.realisedToday > 0 ? TONE.ok : TONE.bad) : TONE.muted }}>
         {hasMoney && l.realisedToday ? money(l.realisedToday, l.currency) : "—"}

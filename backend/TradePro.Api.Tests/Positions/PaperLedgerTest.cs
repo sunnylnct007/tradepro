@@ -95,6 +95,22 @@ public class PaperLedgerTest
     }
 
     [Fact]
+    public void An_IG_cfd_sleeve_shows_no_fifo_money_and_says_why()
+    {
+        var r = PaperLedger.Build(new[]
+        {
+            F("fx", "EURUSD", "BUY", 1, 1.10m, "d1", "1", broker: "IG_DEMO", ccy: "GBP"),
+            F("fx", "EURUSD", "SELL", 1, 1.20m, "d2", "2", broker: "IG_DEMO", ccy: "GBP"),
+        }, Now);
+        var ig = Assert.Single(r.Strategies);
+        Assert.False(ig.MoneyComputable);
+        Assert.Null(ig.RealisedLtd);
+        Assert.Null(ig.WinRatePct);
+        Assert.Equal(2, ig.ConfirmedFills);           // the fills are still real
+        Assert.Contains(ig.Notes, n => n.Contains("closed-deal history"));
+    }
+
+    [Fact]
     public void Currencies_and_brokers_are_never_blended()
     {
         var r = PaperLedger.Build(new[]
@@ -107,7 +123,7 @@ public class PaperLedgerTest
         Assert.Equal(2, r.Strategies.Count);
         var gbp = Assert.Single(r.Strategies, l => l.Currency == "GBP");
         var usd = Assert.Single(r.Strategies, l => l.Currency == "USD");
-        Assert.Equal(0.10m, gbp.RealisedLtd);
+        Assert.Null(gbp.RealisedLtd);                 // IG: not FIFO money, see the test above
         Assert.Equal(-0.10m, usd.RealisedLtd);
         Assert.Equal("IG_DEMO", gbp.Broker);
     }

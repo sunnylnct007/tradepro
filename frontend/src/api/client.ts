@@ -629,7 +629,8 @@ export const api = {
       unexplainedBrokerPositionsError?: string | null;
       strategies: Array<{
         key: string; strategyId: string | null; broker: string; currency: string;
-        realisedLtd: number; realisedToday: number;
+        moneyComputable: boolean;
+        realisedLtd: number | null; realisedToday: number | null;
         closedTrades: number; winningTrades: number; winRatePct: number | null;
         unmatchedSellQty: number; confirmedFills: number; assumedFills: number; assumedQty: number;
         symbols: number; firstFillAtUtc: string | null; lastFillAtUtc: string | null;
@@ -637,7 +638,8 @@ export const api = {
       }>;
       unattributed: Array<{
         key: string; strategyId: string | null; broker: string; currency: string;
-        realisedLtd: number; realisedToday: number;
+        moneyComputable: boolean;
+        realisedLtd: number | null; realisedToday: number | null;
         closedTrades: number; winningTrades: number; winRatePct: number | null;
         unmatchedSellQty: number; confirmedFills: number; assumedFills: number; assumedQty: number;
         symbols: number; firstFillAtUtc: string | null; lastFillAtUtc: string | null;
