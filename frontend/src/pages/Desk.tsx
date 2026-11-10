@@ -38,7 +38,7 @@ import { MomentumView } from "../components/desk/MomentumView";
 import { AccountSummaryGrid } from "../components/desk/AccountSummaryGrid";
 import { StrategyHealthPanel } from "../components/desk/StrategyHealthPanel";
 import { EquityTrackingCard } from "../components/desk/EquityTrackingCard";
-import { PnlTruthCard } from "../components/desk/PnlTruthCard";
+import { PaperLedgerCard } from "../components/desk/PaperLedgerCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { ActionBoard } from "../components/desk/ActionBoard";
@@ -199,7 +199,7 @@ export function Desk() {
 
           <div style={{ columnCount: wide ? 3 : 1, columnGap: 12 }}>
             {[
-              <PnlTruthCard key="pnl" />,
+              <PaperLedgerCard key="pnl" />,
               <SignalAuditCard key="sig" />,
               <BrokerBookCard key="brk" />,
               // Compact indicator only — the full run-log stream lives on the

@@ -3666,6 +3666,18 @@ def get_earnings_calendar(symbol: str, back_days: int = 30, ahead_days: int = 90
     return {"ok": True, **d}
 
 
+def get_paper_ledger() -> dict:
+    """The paper P&L LEDGER: realised money from BROKER-CONFIRMED fills only,
+    per strategy / broker / currency, with the reconcile-written fills counted
+    as `assumedFills` (never money) and fills no placement record claims under
+    `unattributed`. Read `basis` before quoting a number. PAPER account only."""
+    try:
+        d = _get("/api/pnl/ledger")
+    except ApiUnreachable as exc:
+        return _unreachable_envelope("get_paper_ledger", exc)
+    return {"_source": "tradepro://pnl/ledger", "ok": d.get("error") is None, **d}
+
+
 def get_events(symbol: str, days: int = 60) -> dict:
     """Known dated events for `symbol` AND the market between today and
     today+days — the OWNER BASICS 3 check, as the lanes run it. Read
