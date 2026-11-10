@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
+import { EventChips, type EventsWindow } from "./EventChips";
 import { requestScreenRun, watchJob } from "../../firebase";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30", dim: "var(--text-muted)" };
@@ -36,6 +37,8 @@ type Row = {
   premium_usd?: number | null; yield_pct?: number | null; annual_yield_pct?: number | null;
   breakeven?: number | null; iv_pct?: number | null; delta?: number | null;
   assign_prob_pct?: number | null; pricing_note?: string | null;
+  // Known dated events between today and this expiry (OWNER BASICS 3).
+  events?: EventsWindow | null;
 };
 type Market = { ok: boolean | null; reason: string; spy_close?: number;
                 spy_sma200?: number; pct_above?: number; as_of?: string };
@@ -140,7 +143,7 @@ export function PostEarningsPutsView() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Reported", "Report move", "Spot", "Sell put at", "Expiry", "Premium", "Yield", "Annualised", "Break-even", "IV", "Delta", "Assign", "Size", "Collateral"].map((x) => (
+                {["Symbol", "Reported", "Report move", "Spot", "Sell put at", "Expiry", "Events before expiry", "Premium", "Yield", "Annualised", "Break-even", "IV", "Delta", "Assign", "Size", "Collateral"].map((x) => (
                   <th key={x} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{x}</th>
                 ))}
               </tr>
@@ -168,6 +171,7 @@ export function PostEarningsPutsView() {
                       </>
                     ) : <span style={{ color: TONE.dim }}>—</span>}
                   </td>
+                  <td style={{ padding: "8px 10px" }}><EventChips w={r.events} compact /></td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
                     {r.premium_usd != null ? (
                       <>

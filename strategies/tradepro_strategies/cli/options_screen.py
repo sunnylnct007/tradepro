@@ -646,6 +646,29 @@ def solve_iv_and_crosscheck(*, premium: float | None, spot: float | None,
     }
 
 
+def _events_for(sym: str, dte: int, expiry: str | None) -> dict:
+    """Known events between today and this contract's expiry, NAMED.
+
+    OWNER BASICS 3 (9 Nov 2026): the earnings gate above was the only event
+    this screen knew about; the US election sat inside every expiry on the
+    board that week and no row said so. `events.py` is the one place the
+    question is answered (earnings store + catalysts + the MARKET calendar),
+    so this screen, the puts board, the live lane and the MCP tool name the
+    same events. A failure to check is returned AS a failure — never as an
+    empty list that reads as clear."""
+    from ..events import window_for_contract, window_for_dte
+    try:
+        from .push_to_api import load_credentials
+        base, _tok = load_credentials()
+        w = (window_for_contract(sym, expiry, api_base=base) if expiry
+             else window_for_dte(sym, dte, api_base=base))
+        return w.to_dict()
+    except Exception as exc:  # noqa: BLE001 — the gap is carried, not raised
+        return {"events": [], "count": 0, "high": 0, "verified": False,
+                "gaps": [f"events check failed: {str(exc)[:120]}"],
+                "names": f"could not check events: {str(exc)[:120]}"}
+
+
 def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
                    chain_source: str | None, premium_source: str | None,
                    oi_source: str | None = None,
@@ -653,6 +676,7 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
                    iv_solved: dict | None, open_interest: int | None,
                    div_yield: float | None, div_yield_source: str | None, is_etf: bool,
                    earnings_in_window: bool | None,
+                   events: dict | None = None,
                    now: "datetime | None" = None) -> dict:
     """Every input behind ONE wheel row, in ONE shape.
 
@@ -840,6 +864,15 @@ def row_provenance(*, bars_prov: dict | None, spot_basis: str | None,
                     if earnings_in_window else
                     "no confirmed print inside the expiry window"),
             now=now))
+
+    # 8) Known events through expiry — FOMC, CPI, elections, the name's own
+    #    dated catalysts. NAMED, per OWNER BASICS 3; "could not check" is a
+    #    distinct state from "none", and it grades as missing.
+    if events is not None:
+        b.entries.append(describe(
+            input="events", label="Events through expiry",
+            source=("events_calendar" if events.get("verified") else None),
+            detail=str(events.get("names") or ""), now=now))
 
     return b.to_dict()
 
@@ -2008,10 +2041,28 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
                 log.warning("%s: short-tier evaluation failed: %s", sym, e)
                 short_tier = {"status": "error", "detail": str(e)[:200]}
 
+    # ── Known events through expiry (OWNER BASICS 3) ────────────────────
+    # Earnings stays a GATE (above). Every other dated event is NAMED and
+    # carried as a warning: "weighed, not auto-rejected ... the owner decides".
+    _events = _events_for(sym, dte, chain_expiry)
+    _row_warnings = list(decision.warnings or [])
+    _named = [e for e in (_events.get("events") or [])
+              if e.get("kind") != "earnings" and e.get("severity") == "high"]
+    if _named:
+        _row_warnings.append(
+            "EVENT inside the expiry window: "
+            + "; ".join(e["short"] for e in _named)
+            + " — default is an expiry that clears it; proposing across it needs "
+              "a stated reason (OWNER BASICS 3)")
+    if not _events.get("verified"):
+        _row_warnings.append("events calendar could not be fully checked: "
+                             + "; ".join(_events.get("gaps") or []))
+
     return {
         "symbol": sym,
         "tier": "standard",
         "already_in_book": bool(book and sym in (book.get("open_symbols") or [])),
+        "events": _events,
         "short_tier": short_tier,
         "regime": regime,
         "iv_rank": round(ivr.iv_rank, 1) if (ivr.available and ivr.iv_rank is not None) else None,
@@ -2049,7 +2100,7 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
         "blocks": decision.blocks,
         "data_blocks": decision.data_blocks,
         "merit_ok": decision.merit_ok,
-        "warnings": decision.warnings,
+        "warnings": _row_warnings,
         "suggested_strike": strike,
         "suggested_delta": delta,
         # THE STRUCTURE, AND WHAT IT COSTS TO BE WRONG. Until today every row
@@ -2122,7 +2173,8 @@ def _screen_symbol(ib, ib_insync, sym: str, cfg: OptionsRiskConfig, market_open:
             iv_solved=iv_solved, open_interest=oi, oi_source=oi_source,
             div_yield=_div_y, div_yield_source=_div_src,
             is_etf=(sym in _ETF_UNDERLYINGS),
-            earnings_in_window=earnings_in_window),
+            earnings_in_window=earnings_in_window,
+            events=_events),
         "ref_close": round(ref_close, 2) if ref_close else None,
         "spot_basis": spot_basis,
         "spot_divergence_pct": round(spot_divergence * 100, 1) if spot_divergence is not None else None,

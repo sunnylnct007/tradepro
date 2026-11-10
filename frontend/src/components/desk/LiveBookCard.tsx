@@ -22,6 +22,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
+import { EventChips } from "./EventChips";
 
 const TONE = {
   act: "#f85149", watch: "#d29922", ok: "#3fb950",
@@ -218,6 +219,8 @@ export function LiveBookCard() {
                   </span>
                 )}
                 <span style={{ color: TONE.muted, flex: 1, minWidth: 220 }}>{r.why}</span>
+                {/* Known events before this expiry — named, every row (OWNER BASICS 3). */}
+                <EventChips w={r.events} compact />
               </div>
             );
           })}
@@ -274,6 +277,7 @@ export function LiveBookCard() {
                   <span style={{ color: TONE.dim, fontFamily: "var(--font-mono)" }}>
                     {c.strike}C {c.expiry?.slice(5)} · {c.dte}d
                   </span>
+                  <EventChips w={c.events} compact />
                   <span style={{ color: (c.unrealised ?? 0) < 0 ? TONE.act : TONE.ok,
                                  fontFamily: "var(--font-mono)" }}>{usd(c.unrealised)}</span>
                   <span style={{ color: TONE.muted, fontSize: 11.5 }}>

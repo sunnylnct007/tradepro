@@ -504,6 +504,21 @@ def build_artifact(base: str | None = None, token: str | None = None) -> tuple[d
         log.warning("option pricing unavailable (%s) — candidates keep their "
                     "bars-derived strike and size", str(exc)[:120])
 
+    # Known events between today and each contract's expiry — NAMED on the row
+    # (OWNER BASICS 3). Uses the listed expiry when pricing found one, else the
+    # target DTE. A failed check is carried as a failure, never as "none".
+    from ..events import window_for_contract, window_for_dte
+    for c in cands:
+        try:
+            w = (window_for_contract(c["symbol"], c["expiry"], api_base=base)
+                 if c.get("expiry") else
+                 window_for_dte(c["symbol"], int(c.get("dte_target") or DTE_TARGET), api_base=base))
+            c["events"] = w.to_dict()
+        except Exception as exc:  # noqa: BLE001
+            c["events"] = {"events": [], "count": 0, "high": 0, "verified": False,
+                           "gaps": [f"events check failed: {str(exc)[:120]}"],
+                           "names": f"could not check events: {str(exc)[:120]}"}
+
     art = {
         "kind": "post_earnings_puts",
         "as_of_utc": _dt.datetime.now(_dt.UTC).isoformat(),

@@ -1,0 +1,31 @@
+{
+  "_about": [
+    "Market-wide dated events — the seed for the `catalysts` table rows with symbol MARKET.",
+    "Push with `tradepro-events-sync --push`; every lane then NAMES any of these that fall between today and a contract's expiry (OWNER BASICS 3).",
+    "Config, not code: add a row here (or from Settings → Catalysts with symbol MARKET) and re-run the sync. Dates are the DECISION / RELEASE day, not the first day of a two-day meeting.",
+    "Each entry carries the URL it was read from. FOMC dates are tentative until confirmed at the preceding meeting (the Fed's own wording).",
+    "NOT SEEDED YET: CPI and jobs-report dates. bls.gov refused automated reads on 10 Nov 2026; add them from https://www.bls.gov/schedule/2027/home.htm (kinds `cpi`, `jobs`) when a browser session is to hand, or via the Settings form."
+  ],
+  "events": [
+    {"kind": "fomc", "on": "2026-12-09", "title": "FOMC rate decision (meeting 8–9 Dec, SEP)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-01-27", "title": "FOMC rate decision (meeting 26–27 Jan)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-03-17", "title": "FOMC rate decision (meeting 16–17 Mar, SEP)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-04-28", "title": "FOMC rate decision (meeting 27–28 Apr)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-06-09", "title": "FOMC rate decision (meeting 8–9 Jun, SEP)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-07-28", "title": "FOMC rate decision (meeting 27–28 Jul)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-09-15", "title": "FOMC rate decision (meeting 14–15 Sep, SEP)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-10-27", "title": "FOMC rate decision (meeting 26–27 Oct)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "fomc", "on": "2027-12-08", "title": "FOMC rate decision (meeting 7–8 Dec, SEP)", "severity": "high",
+     "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"},
+    {"kind": "election", "on": "2028-11-07", "title": "US presidential and congressional election", "severity": "high",
+     "url": "https://www.usa.gov/election-day"}
+  ]
+}
