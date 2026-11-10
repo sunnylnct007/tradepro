@@ -1,5 +1,5 @@
 /**
- * DeskTabs — the tabbed work-area: Positions · Orders · Trades · Balances.
+ * DeskTabs — the tabbed work-area: Orders · Trades · Balances.
  * Underline-active, blue (IBKR style). Positions is the centerpiece (its own
  * component); the others wire to existing endpoints with simple dense tables:
  *   - Orders   → api.omsOrders() (live OMS orders, all states)
@@ -19,10 +19,9 @@ import { prettySymbol, bareSymbol, productOf } from "../../util/brokerSymbols";
 import { fmtWhenDate } from "../../util/time";
 import { fmtQty } from "../../util/numbers";
 import { useSort } from "../../util/useSort";
-import { PositionsByStrategy, type PositionRow } from "./PositionsByStrategy";
 import { fmtMoney, fmtNum, signColour } from "./deskFormat";
 
-type Tab = "positions" | "orders" | "trades" | "balances";
+type Tab = "orders" | "trades" | "balances";
 
 // api.omsOrders(undefined, ORDER_FETCH_LIMIT) returns the most-recent orders
 // across ALL dates, newest-first, capped at this count (backend:
@@ -41,22 +40,24 @@ const TRADES_FETCH_LIMIT = 400;
 const TRADES_SHOW_MAX = 100;
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "positions", label: "Positions" },
   { key: "orders", label: "Orders" },
   { key: "trades", label: "Trades" },
   { key: "balances", label: "Balances" },
 ];
 
+// NO POSITIONS TAB (owner, 10 Nov 2026: "still see screen which is unreliable
+// … we need reliability and not too much data"). It computed money from the
+// OMS — momentum_pullback_ibkr read +$697 on it while the ledger, two cards
+// up, said −$1,313 realised — and stamped every sleeve EXECUTION UNCONFIRMED.
+// What you hold is the broker book card (golden source); what it made is the
+// ledger (broker-confirmed fills only). Orders and Trades remain: they are
+// records, not money.
 export function DeskTabs({
   onOpenSymbol,
-  onPositionsRowsChange,
 }: {
   onOpenSymbol?: (symbol: string, strategyId?: string | null) => void;
-  /** Forwarded from PositionsByStrategy so Desk.tsx can keep a copy of rows
-   * for the SymbolPositionCard in the right rail (avoids a second fetch). */
-  onPositionsRowsChange?: (rows: PositionRow[]) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("positions");
+  const [tab, setTab] = useState<Tab>("orders");
 
   return (
     <div
@@ -86,12 +87,6 @@ export function DeskTabs({
         })}
       </div>
       <div style={{ padding: 10 }}>
-        {tab === "positions" && (
-          <PositionsByStrategy
-            onSelectSymbol={onOpenSymbol}
-            onRowsChange={onPositionsRowsChange}
-          />
-        )}
         {tab === "orders" && <OrdersTab onOpenSymbol={onOpenSymbol} />}
         {tab === "trades" && <TradesTab onOpenSymbol={onOpenSymbol} />}
         {tab === "balances" && <BalancesTab />}

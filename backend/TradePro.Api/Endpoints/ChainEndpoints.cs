@@ -66,8 +66,17 @@ public static class ChainEndpoints
                     monthsResult.Error ?? $"no underlying contract for {sym}"));
             var underlyingConId = monthsResult.ConId.Value;
 
+            // THE MONTH MUST COME FROM THE TENOR, NOT THE LIST ORDER (10 Nov 2026).
+            // With no explicit month this took Months.First() — the NEAREST listed
+            // month — and only then looked for the expiry closest to targetDte
+            // INSIDE it. A 38-day spread asked on 10 Nov was therefore priced off
+            // NOV26, a month that cannot hold a December expiry, and the desk
+            // reported "IBKR returned NO strikes for conid 4391 month NOV26" on AMD
+            // — a symbol with a full chain. Pick the month whose standard expiry
+            // (third Friday) is nearest today + targetDte; the per-expiry pick
+            // below then chooses the weekly inside it.
             var chosenMonth = string.IsNullOrWhiteSpace(month)
-                ? monthsResult.Months.FirstOrDefault()
+                ? PickMonth(monthsResult.Months, DateOnly.FromDateTime(DateTime.UtcNow), targetDte)
                 : monthsResult.Months.FirstOrDefault(
                       m => string.Equals(m, month, StringComparison.OrdinalIgnoreCase))
                   ?? month;
@@ -317,6 +326,38 @@ public static class ChainEndpoints
         => quotes.Count > 0
            && (quotes.All(q => q.Delta is null)
                || quotes.Count(q => q.Bid is null && q.Ask is null) * 2 > quotes.Count);
+
+    /// <summary>The listed month (IBKR "MMMyy", e.g. NOV26) whose third-Friday
+    /// expiry is nearest <paramref name="today"/> + <paramref name="targetDte"/>.
+    /// Without a tenor, the first listed month (legacy). A month that does not
+    /// parse is skipped; if none parse, the first listed month.</summary>
+    public static string? PickMonth(IReadOnlyList<string> months, DateOnly today, int? targetDte)
+    {
+        if (months.Count == 0) return null;
+        if (targetDte is not > 0) return months[0];
+        var target = today.AddDays(targetDte.Value);
+        string? best = null; var bestGap = int.MaxValue;
+        foreach (var m in months)
+        {
+            var exp = ThirdFriday(m);
+            if (exp is null) continue;
+            var gap = Math.Abs(exp.Value.DayNumber - target.DayNumber);
+            if (gap < bestGap) { bestGap = gap; best = m; }
+        }
+        return best ?? months[0];
+    }
+
+    /// <summary>Third Friday of an IBKR "MMMyy" month, or null if it does not parse.</summary>
+    public static DateOnly? ThirdFriday(string month)
+    {
+        if (!DateOnly.TryParseExact(month.Trim(), "MMMyy",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var first))
+            return null;
+        first = new DateOnly(first.Year, first.Month, 1);
+        var offset = ((int)DayOfWeek.Friday - (int)first.DayOfWeek + 7) % 7;
+        return first.AddDays(offset + 14);
+    }
 }
 
 public sealed record ChainLeg(

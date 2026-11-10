@@ -2080,3 +2080,29 @@ stops passing and the failure expresses as SILENCE.
 **NOT REPAIRED — owner's call.** One row, obvious fix, and exactly the tidy-up
 that becomes an unexplained backtest change in six weeks. If repaired, re-source
 from the golden chain (auditable); never hand-edit the parquet.
+
+## 2026-11-10 (late) — Portfolio cut to what the broker confirms; chain month from the tenor
+
+Owner, seeing the Portfolio view: "still see screen which is unreliable … we need
+reliability and not too much data". The OMS-computed positions table read
+momentum_pullback_ibkr +$697 while the ledger above it said −$1,313 realised, and
+stamped every sleeve EXECUTION UNCONFIRMED. CUT: that Positions tab, the
+per-strategy health bar, the account P&L grid and the three Ichimoku cards.
+Portfolio now = KPI strip · paper ledger (broker-confirmed money) · broker book
+(holdings, golden source) · run-log indicator · Orders/Trades/Balances (records).
+The symbol rail reads positions from the broker account state.
+
+Chain bug, found from the Candidates "Build the spread" popup: "IBKR returned NO
+strikes for conid 4391 month NOV26" on AMD, 38d. The endpoint took the FIRST listed
+month and matched targetDte inside it, so a December tenor was asked of November.
+Now the month whose third Friday is nearest today+DTE is chosen (`PickMonth`, tested).
+
+NOT noise: the health banner's 40 "Option legs vs book" rows are the 20 spreads the
+autobooker placed on paper on 28 Oct, BEFORE it had a record endpoint; no record
+exists anywhere (history is empty). They are real orphans at the paper broker and
+expire NOV/DEC. Owner decision: let them expire or flatten them — nothing will close
+them otherwise.
+
+Paper, today: zero orders, zero fills across every sleeve; last fill 6 Nov. No
+sleeve is demonstrably profitable on confirmed fills (momentum −$1,313 @27% win,
+swing −$669 @48%).
