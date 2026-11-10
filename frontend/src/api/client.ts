@@ -102,6 +102,29 @@ export interface OptionsPositionEventBody {
   notes?: string | null;
 }
 
+// Lifted from types/cockpit.ts when the legacy cockpit types module was deleted
+// with the rest of the old app (10 Nov 2026).
+export type T212PosResp = {
+  enabled: boolean;
+  mode: string;
+  positionCount: number;
+  positions: Array<{
+    ticker: string;
+    yahooSymbol: string | null;
+    quantity: number;
+    averagePricePaid: number | null;
+    currentPrice: number | null;
+    unrealisedPct: number | null;
+    unrealisedAbs: number | null;
+    currency: string | null;
+    // Position open date (broker-reported) — when the entry was first taken.
+    createdAt: string | null;
+  }>;
+  error?: string | null;
+  fromCache?: boolean;
+  ageSeconds?: number;
+};
+
 export const api = {
   health: () => get<{ status: string }>("/health"),
   // Strangle decision history — every evaluation INCLUDING stand-asides, which
@@ -1365,7 +1388,7 @@ export const api = {
 
   // T212 open positions (equity). account = demo | live.
   t212Positions: (account: "demo" | "live" = "demo") =>
-    get<import("../types/cockpit").T212PosResp>(
+    get<T212PosResp>(
       "/api/integrations/trading212/positions", { account }),
 
   // Flatten (net to flat) open IG deals. Pass { dealId } to close one

@@ -102,19 +102,16 @@ const optionsNav: NavItem[] = [
   { to: "/desk?view=post-earnings-puts", label: "Puts"     },
 ];
 
-// Operational surfaces the platform needs to RUN — deliberately not signal
-// surfaces. Health/IT Data matter more than usual right now because a second
-// developer owns the harvest + connectivity work.
+// Operational surfaces. Only Settings and Universes survive the 10 Nov 2026
+// deletion of the legacy app; this shell exists solely to frame those two.
 const moreSections: NavSection[] = [
   { label: "Options — no passed gates yet", items: optionsNav },
   { label: "Winding down — exits only", items: windingDownNav },
+  // Health / IT Data / Support / IT Guide were deleted with the legacy app
+  // (10 Nov 2026 ruling). Desk health is the banner on every /desk view.
   { label: "System", items: [
-    { to: "/settings",           label: "Settings"  },
-    { to: "/health",             label: "Health"    },
-    { to: "/admin/data",         label: "IT Data"   },
-    { to: "/universes",          label: "Universes" },
-    { to: "/help/trade-support", label: "Support"   },
-    { to: "/help/ops-runbook",   label: "IT Guide"  },
+    { to: "/settings",  label: "Settings"  },
+    { to: "/universes", label: "Universes" },
   ]},
 ];
 
