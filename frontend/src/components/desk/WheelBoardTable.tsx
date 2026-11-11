@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { EventChips, type EventsWindow } from "./EventChips";
+import { EventChips, MarketEventsStrip, type EventsWindow } from "./EventChips";
 
 /**
  * The wheel / CSP board as a SCANNABLE table.
@@ -264,6 +264,7 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
       </div>
 
       <div style={{ overflowX: "auto" }}>
+        <MarketEventsStrip windows={rows.map((r) => r.events)} />
         <table style={{ width: "100%", borderCollapse: "collapse",
                         fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>
           <thead>
@@ -272,7 +273,7 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
               {th("Data")}
               {th("Regime")}
               {th("Expiry", "dte")}
-              {th("Events before expiry")}
+              {th("Its own events")}
               {th("Strike", "strike", true)}
               {th("Δ", "delta", true)}
               {th("Premium", "premium", true)}
@@ -336,7 +337,7 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
                       : <span style={{ color: MUTED }}>—</span>}
                   </td>
                   {/* NAMED, every row — the election week is why (OWNER BASICS 3). */}
-                  <td style={{ padding: "7px 8px" }}><EventChips w={r.events} compact /></td>
+                  <td style={{ padding: "7px 8px" }}><EventChips w={r.events} compact only="own" /></td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_strike, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_delta, 2)}</td>
                   <td style={{ padding: "7px 8px", textAlign: "right" }}>{num(r.suggested_premium, 2)}</td>

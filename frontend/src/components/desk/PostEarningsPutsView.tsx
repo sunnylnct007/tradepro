@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
-import { EventChips, type EventsWindow } from "./EventChips";
+import { EventChips, MarketEventsStrip, type EventsWindow } from "./EventChips";
 import { requestScreenRun, watchJob } from "../../firebase";
 
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30", dim: "var(--text-muted)" };
@@ -140,10 +140,11 @@ export function PostEarningsPutsView() {
         </div>
       ) : (
         <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
+          <MarketEventsStrip windows={cands.map((r) => r.events)} />
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2)", textAlign: "left" }}>
-                {["Symbol", "Reported", "Report move", "Spot", "Sell put at", "Expiry", "Events before expiry", "Premium", "Yield", "Annualised", "Break-even", "IV", "Delta", "Assign", "Size", "Collateral"].map((x) => (
+                {["Symbol", "Reported", "Report move", "Spot", "Sell put at", "Expiry", "Its own events", "Premium", "Yield", "Annualised", "Break-even", "IV", "Delta", "Assign", "Size", "Collateral"].map((x) => (
                   <th key={x} style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-dim)", whiteSpace: "nowrap" }}>{x}</th>
                 ))}
               </tr>
@@ -171,7 +172,7 @@ export function PostEarningsPutsView() {
                       </>
                     ) : <span style={{ color: TONE.dim }}>—</span>}
                   </td>
-                  <td style={{ padding: "8px 10px" }}><EventChips w={r.events} compact /></td>
+                  <td style={{ padding: "8px 10px" }}><EventChips w={r.events} compact only="own" /></td>
                   <td style={{ padding: "8px 10px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
                     {r.premium_usd != null ? (
                       <>
