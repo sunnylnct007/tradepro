@@ -76,7 +76,7 @@ instead of re-trying — so to see the *real* error, poll `/ibkr/status` slower 
 
 **Market data is account-agnostic** — identical whether you authenticate paper or live (it's gated by
 your IBKR *data subscriptions*, not the account). So the harvest needs **read scope only, no order
-permissions**, and stored bars need no paper/live tag. Fits `docs/DATA_CONTRACT.md` as a real bar/quote
+permissions**, and stored bars need no paper/live tag. Fits `docs/DATA_ARCHITECTURE.md` as a real bar/quote
 provider (better than the yfinance stopgap).
 
 ## Safety (TradePro side)
