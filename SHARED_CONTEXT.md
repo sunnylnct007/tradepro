@@ -2204,6 +2204,37 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-11 (19:40) — the 5m lane NEVER wrote the open session; a dark quote left no trace
+
+Owner direction today: "logging and diagnostics is key", "data harvesting is key as all
+decisions depend on it", "lets sort any api connectivity".
+
+**Data.** `com.tradepro.bar-cache-harvest-5m` runs every 30 min through the US session and
+reported `109 complete / 7 partial / 0 failed … source=cache` at 16:26Z, 16:58Z and 19:07Z —
+while NO symbol held a single 5m bar for 11 Nov. Reproduced on SPY with a window covering
+Mon–Wed: "78/78 gold, source=cache" (78 bars = ONE session). Cause: the delta-mode block in
+`BarStore.get` capped the fetch at `_last_settled_session` for EVERY resolution; the
+non-delta clamp 50 lines below has carried `_is_daily_or_coarser` since 1 Sep. Same file,
+two write sites, half an idea applied. Fixed (intraday exempt; the daily guard and the
+clock-stable GRADE are unchanged) with a behavioural test that drives `BarStore.get` with a
+recording provider + frozen clock and FAILS on the unpatched store (1 call, 0 bars).
+Expect: from the first 5m run after the Mac lane syncs, today's partial bars appear;
+`good_for_today` still grades on settled sessions only.
+
+**Connectivity.** IBKR market data was DARK 14:31Z–17:18Z (one OK at 16:32Z) with the line
+budget peaking at 20/80 — so NOT our oversubscription and NOT contention (the owner confirms
+all IBKR access is centralised; live is read-only via the website + Flex). Live again by
+19:13Z, cold symbols included: IBKR-side, self-healing, the 12 Sep shape. The only record was
+the 15-min probe lane's log; the API's dark branch logged NOTHING and told readers "another
+client holds the session". Fixed: structured warning per dark read (symbol, conid,
+availability code, lines in-use/max/peak, saturated, auth state), reason text states the
+three causes and how to tell them apart, `marketData.lines` returned, probe records it.
+Probe also flagged `fill read UNPRIMED` at 15:01Z/16:02Z/19:08Z; `/ibkr/orders` answered 40
+rows at 19:14Z — intermittent, not yet explained, server logs needed (AWS SSO expired).
+
+**Not needed:** more Flex queries — Flex is end-of-day LIVE statement data; this gap is paper
+intraday market data + the logging around it.
+
 ### 2026-11-11 (15:15) — "THE strategy" places nothing: ichimoku_equity has run NOWHERE since 23 Sep
 
 Found while asking why T212 demo holds 0 positions yet the ledger shows ichimoku_equity with
