@@ -846,8 +846,11 @@ public static class IntegrationsEndpoints
         // data — this is the live-quote source for the desk + the MCP quote tool.
         app.MapGet("/integrations/ibkr/quote", async (
             string symbol, string? fields,
-            TradePro.Api.Providers.IBKR.IBKRClient ibkr, CancellationToken ct) =>
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            TradePro.Api.Providers.IBKR.IBKRMarketDataLines lines,
+            ILoggerFactory lf, CancellationToken ct) =>
         {
+            var log = lf.CreateLogger("ibkr.quote");
             if (string.IsNullOrWhiteSpace(symbol))
                 return Results.BadRequest(new { error = "symbol is required" });
             // 31=last 84=bid 86=ask 85=askSize 88=bidSize 82=changeAbs 83=change%
@@ -945,18 +948,40 @@ public static class IntegrationsEndpoints
                 }
                 else
                 {
-                    // The genuine contention signature: contract resolved, and IBKR
-                    // returned NOTHING at all — not even a close.
+                    // Contract resolved, and IBKR returned NOTHING at all — not even
+                    // a close. Three causes share this signature and have had three
+                    // different fixes in this repo, so the text states the FACTS and
+                    // the discriminators instead of asserting one cause:
+                    //   (a) our own line budget saturated (16 Sep) — `lines` below;
+                    //   (b) IBKR serving empty fields and self-healing within the
+                    //       hour (12 Sep, and 14:31Z–17:18Z on 11 Nov 2026 while
+                    //       the budget peaked at 20/80 — NOT contention);
+                    //   (c) another client holding the one market-data session.
+                    // Until 11 Nov 2026 this branch LOGGED NOTHING: a dark feed left
+                    // no trace unless a human happened to call the endpoint, and the
+                    // 15-minute probe lane was the only record of a three-hour outage.
                     state = "dark";
-                    reason = "MARKET-DATA SESSION UNAVAILABLE — the contract RESOLVED at IBKR "
+                    var saturated = lines.PeakUtilisation >= 1.0;
+                    reason = "NO LIVE PRICE — the contract RESOLVED at IBKR "
                            + $"(conid {conid}), so auth and reference data are fine, but IBKR "
-                           + "returned no value at all — not even a previous close. IBKR allows "
-                           + "ONE market-data session per account: the usual cause is the IBKR "
-                           + "portal, TWS, or another client (including an MCP connector) "
-                           + "holding it. Close those and retry. This is NOT an entitlement "
-                           + "problem and NOT an auth problem."
+                           + "returned no value at all, not even a previous close, while the "
+                           + "market is open. Not an entitlement problem, not an auth problem. "
+                           + $"Our market-data lines: {lines.InUse}/{lines.Max} in use, peak "
+                           + $"{lines.HighWater.Peak}" + (saturated
+                               ? " — SATURATED: this is us oversubscribing our own session."
+                               : " — budget fine, so not our oversubscription.")
+                           + " If this persists beyond an hour with the budget fine, suspect "
+                           + "another client (portal, TWS, MCP connector) holding the account's "
+                           + "single market-data session; if it clears by itself, it was IBKR."
                            + (string.IsNullOrWhiteSpace(availability)
                               ? "" : $" IBKR availability code: {availability}.");
+                    log.LogWarning(
+                        "IBKR quote DARK for {Symbol} (conid {Conid}): availability={Availability} "
+                        + "lines {InUse}/{Max} peak {Peak} saturated={Saturated} "
+                        + "auth={Auth} authStatusAt={AuthAt:o}",
+                        symbol.ToUpperInvariant(), conid, availability ?? "-",
+                        lines.InUse, lines.Max, lines.HighWater.Peak, saturated,
+                        ibkr.LastAuthenticated, ibkr.LastAuthStatusAtUtc);
                 }
 
                 return Results.Ok(new
@@ -969,7 +994,13 @@ public static class IntegrationsEndpoints
                     live,
                     // state: live | closed | halted | dark. "closed" and "dark"
                     // both mean no live price and mean entirely different things.
-                    marketData = new { state, reason, availability },
+                    marketData = new
+                    {
+                        state, reason, availability,
+                        // The discriminator for a dark read, so the probe lane and
+                        // the desk can LOG it instead of guessing at the cause.
+                        lines = new { inUse = lines.InUse, max = lines.Max, peak = lines.HighWater.Peak },
+                    },
                     // The previous close when that is all IBKR has. Useful, and
                     // explicitly NOT presented as `quote` — a caller has to ask
                     // for it by name rather than receive it where it would be

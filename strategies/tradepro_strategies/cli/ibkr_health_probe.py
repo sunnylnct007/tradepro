@@ -64,12 +64,24 @@ def main() -> int:
     if authenticated:
         # Two attempts with the documented warm-up pause — a single cold miss
         # is normal; two misses = the feed is genuinely dark right now.
+        dark_detail = ""
         for attempt in range(2):
             try:
                 r = requests.get(
                     f"{base}/api/integrations/ibkr/quote?symbol=SPY&fields=31,7283",
                     headers=headers, timeout=45)
-                snap = (r.json() or {}).get("snapshot") or {}
+                body = r.json() or {}
+                snap = body.get("snapshot") or {}
+                md = body.get("marketData") or {}
+                if md.get("state") == "dark":
+                    # Record the discriminator the API now returns. The three-hour
+                    # dark spell on 11 Nov 2026 is known ONLY from this lane's log,
+                    # and that log said "contention or outage" with nothing to tell
+                    # them apart.
+                    ln = md.get("lines") or {}
+                    dark_detail = (
+                        f"availability={md.get('availability') or '-'} "
+                        f"lines={ln.get('inUse')}/{ln.get('max')} peak={ln.get('peak')}")
                 # "N/A" IS NOT A QUOTE (fixed 18 Aug 2026). IBKR returns the
                 # literal STRING "N/A" for a field it cannot serve, and
                 # `"N/A" is not None` is True — so this probe reported
@@ -124,7 +136,10 @@ def main() -> int:
                 status = "degraded"
                 detail = detail or (
                     "auth VALID but snapshot DARK (SPY served no last/IV after warm-up "
-                    "retry) — market-data session contention or IBKR-side outage")
+                    "retry) — " + (dark_detail or "no marketData block in the reply")
+                    + ". Budget fine + clears within the hour = IBKR-side; budget "
+                    "saturated = our oversubscription; persists with budget fine = "
+                    "another client holding the session")
 
     # ── FILL-READ CANARY ──────────────────────────────────────────────
     # Read-only. Asserts the blotter answers PRIMED ("snapshot":true), which is
