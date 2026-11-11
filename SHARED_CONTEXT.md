@@ -2204,7 +2204,7 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
-### 2026-11-11 (21:00) — step 2 of the ruling: API `bar_cache` provider (PR #381)
+### 2026-11-11 (20:15) — step 2 of the ruling: API `bar_cache` provider (PR #381)
 
 `/marketdata/candles` can now be served from the golden store: `BarCacheStoreProvider`
 (Parquet.Net + AWSSDK.S3, or a local directory, or UNCONFIGURED = empty labelled series) is
