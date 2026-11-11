@@ -207,3 +207,26 @@ def test_get_events_is_on_the_read_only_mcp_surface():
     from tradepro_strategies.mcp.server import build_server
     names = {t.name for t in build_server(read_only=True)._tool_manager.list_tools()}
     assert "get_events" in names
+
+
+def test_one_print_per_symbol_even_when_the_store_holds_every_estimate():
+    """11 Nov 2026: DELL showed earnings 23 Nov AND 24 Nov — two bulk uploads,
+    two estimates, nothing retired the old one. One company, one print."""
+    from tradepro_strategies.events import one_row_per_print
+    rows = [
+        {"report_date": "2026-11-23T00:00:00", "uploaded_at": "2026-10-30T21:15:48Z"},
+        {"report_date": "2026-11-24T00:00:00", "uploaded_at": "2026-11-10T21:15:49Z"},
+        {"report_date": "2027-02-25T00:00:00", "uploaded_at": "2026-10-30T21:15:48Z"},
+        {"report_date": "garbage"},
+    ]
+    out = one_row_per_print(rows)
+    assert [r.get("report_date", "")[:10] for r in out] == ["2026-11-24", "2027-02-25", "garbage"]
+
+
+def test_the_window_names_a_moved_estimate_once():
+    from tradepro_strategies.events import events_between
+    w = events_between(
+        "DELL", date(2026, 11, 1), date(2026, 11, 30), api_base="http://x",
+        fetch=_fetch(earnings=[{"report_date": "2026-11-23", "uploaded_at": "2026-10-30T00:00:00Z"},
+                               {"report_date": "2026-11-24", "uploaded_at": "2026-11-10T00:00:00Z"}]))
+    assert [e.short() for e in w.events if e.kind == "earnings"] == ["DELL earnings 24 Nov"]
