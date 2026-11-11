@@ -2204,6 +2204,31 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-11 (20:30) — RULING: one golden bar store, one writer, one read path (PR #380)
+
+Owner: *"one golden source", "one centralized data store and endpoint", "cut down redundant
+codes", "clear the documentation and start from fresh if u need to", "why do we come to this
+again and again".* Inventory (read-only agent, 11 Nov): TWO live stores (Postgres
+`ibkr_price_bars` + parquet/S3 bar_cache) and THREE legacy caches still written
+(`~/.tradepro/cache/yahoo/1d`, `~/.tradepro/cache/intraday`, write-on-miss everywhere); four
+writers into Postgres; `/marketdata/candles` is LIVE YAHOO + a Postgres tail; the intraday
+chart reads Postgres; ~30 direct parquet readers; an analysis-server lane with no consumer.
+
+The ruling now lives IN THE REPO: `docs/DATA_ARCHITECTURE.md` (store / writer / read path /
+freshness / provenance; full inventory with KEEP or RETIRE per item; 7-step migration order;
+superseded docs) and `strategies/tests/test_one_golden_bar_store.py`, which FAILS the suite on
+any new `ibkr_price_bars` reference, direct parquet read of bar_cache, or direct yfinance bar
+fetch outside a frozen allow-list that may only shrink. Proven: a planted file fails it.
+Removed: DATA_CONTRACT.md, data-sourcing.md, PARQUET_HISTORY_GAP.md, the volue/Sentinel
+artefacts and the SpecFlow leftovers in docs/. Kept: docs/*.py (the trader's quant spec).
+
+Next PRs in order: (2) API `bar_cache` provider (Parquet.Net + S3; local dir for tests) as the
+default for `/marketdata/candles` — BLOCKED on the EC2 role reading `bar_cache/*`: the
+ccit-infra change is written at the owner's request as a patch (my runner refuses to author
+IAM grants); (3) frontend single call; (4) Postgres writers off, table dropped after a parity
+week; (5) direct readers through `BarStore.get`; (6) legacy caches deleted (adj_factor
+decision); (7) newest-bar timestamp beside every grade.
+
 ### 2026-11-11 (20:05) — a THIRD diagnostics gap: /ibkr/status reported a structural null (PR #379)
 
 `competing`, `connected`, `authStatusRaw`, `accountSelected` on `/api/integrations/ibkr/status`

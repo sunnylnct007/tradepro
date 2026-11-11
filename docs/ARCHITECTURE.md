@@ -306,20 +306,13 @@ Given a number on a chart, you can:
 
 ---
 
-## 10. Parquet + DuckDB cache on the Mac
+## 10. Bar store
 
-`~/.tradepro/cache/<provider>/<interval>/<symbol>.parquet` plus a
-`<symbol>.meta.json` sidecar.
-
-Why:
-- Yahoo + Stooq are rate-limited. Caching prevents re-downloading the same
-  15 years of daily bars on every backtest.
-- Keeps the server path (F1 60 CPU-min) cheap.
-- DuckDB can query across all parquet files (`SELECT * FROM 'cache/*/*.parquet'`)
-  for universe-wide analytics.
-
-Refresh cadence: `tradepro-refresh --watchlist uk --years 10` nightly via
-`launchd`. Idempotent — merges by timestamp, so re-runs top up today's bar.
+One golden bar store, one writer, one read path. See
+[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) — the ruling of 11 Nov 2026,
+the inventory of everything that still has to be retired, and the test that
+keeps it true. The `~/.tradepro/cache` layout this section used to describe is
+a legacy cache on that retire list.
 
 ---
 
