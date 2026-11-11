@@ -2183,3 +2183,23 @@ Paper only; both scripts read the BROKER (never the OMS) before sending, dry-ran
 Lesson: the ledger keys a lot by the symbol it was BOUGHT under; a broker rename makes
 every later read of that lot "net 0". Any flatten/close must resolve names through the
 map, and the map must be writable without a deploy.
+
+### 2026-11-11 (15:00) — PNM closed; T212 demo FLAT; correction + the fill-stamp race
+
+* **Correction to 14:45:** the `broker_ticker_map` row (T212_DEMO, TXNM → PNM_US_EQ)
+  had existed since 17 Jun (catalog rebuild, note `exact`). The OMS would have routed a
+  SELL of **TXNM_US_EQ** correctly all along; my flatten script sold under the BROKER's
+  name (PNM) and the oversell gate rightly saw no PNM lot. Rule: a flatten through the
+  OMS uses the OMS symbol and lets the map do the routing. The new admin endpoint still
+  stands — a rename the catalog cannot see needs a writable row.
+* SELL 17 TXNM_US_EQ (momentum_pullback_t212) → broker order 57850349511, T212 history
+  FILLED at 58.55. **T212 demo now holds 0 positions.** OMS 30/30 sells done.
+* **Fill-stamp race (PR #376):** all 29 earlier sells sit in the ledger as ASSUMED
+  (`assumed_via_position_reconcile`, fillOrigin position-reconcile) because the
+  GoldenSourceReconciler settled them at 14:39 before the poller's tick — so the
+  sleeve's realised stays 0 although T212 history has an execution id + price for every
+  one. Fix: `ConfirmAssumedFillAsync` + a bounded confirmation sweep in `OmsFillPoller`
+  that re-reads T212 history and rewrites ONLY reconciler-written rows. After it deploys
+  the ledger should show the sleeve's retirement P&L as money.
+* IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
+  at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
