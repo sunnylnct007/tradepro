@@ -984,6 +984,55 @@ public sealed class PostgresOmsService : IOmsService
         return true;
     }
 
+    /// <summary>Patterns the reconcilers stamp on fills they write to make the
+    /// OMS agree with the broker. Mirrors PaperLedger.AssumedPrefixes — a fill
+    /// matching one of these is bookkeeping, not an execution report.</summary>
+    private const string AssumedFillPredicate =
+        "(broker_fill_id LIKE 'assumed_via_%' OR broker_fill_id LIKE 'standing_reconcile%')";
+
+    public async Task<bool> ConfirmAssumedFillAsync(Guid orderId, decimal price, string brokerFillId, string actor)
+    {
+        if (price <= 0)
+            throw new ArgumentException("confirmed price must be > 0", nameof(price));
+        if (string.IsNullOrWhiteSpace(brokerFillId))
+            throw new ArgumentException("broker fill id required", nameof(brokerFillId));
+
+        await using var conn = await _db.OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+
+        var parent = await conn.QueryFirstOrDefaultAsync<OmsOrder>($@"
+            SELECT {OmsOrderProjection}
+            FROM oms_orders o
+            WHERE id = @orderId FOR UPDATE;",
+            new { orderId }, transaction: tx);
+        if (parent is null) return false;
+        if (parent.State != OmsState.Filled && parent.State != OmsState.PartiallyFilled)
+            return false;
+
+        // Only the reconciler-written rows are rewritten; a fill the broker
+        // already reported keeps its own id and price.
+        var rewritten = await conn.ExecuteAsync($@"
+            UPDATE oms_fills
+               SET broker_fill_id = @brokerFillId, price = @price
+             WHERE order_id = @orderId AND {AssumedFillPredicate};",
+            new { orderId, brokerFillId, price }, transaction: tx);
+        if (rewritten == 0) return false;
+
+        await conn.ExecuteAsync(@"
+            UPDATE oms_orders SET avg_fill_price = @price WHERE id = @orderId;",
+            new { orderId, price }, transaction: tx);
+
+        await InsertEventAsync(conn, tx, orderId,
+            eventType: "FILL_CONFIRMED_FROM_BROKER",
+            priorState: parent.State,
+            newState: parent.State,
+            actor: actor,
+            detail: new { price, brokerFillId, rewritten, priorAvgFillPrice = parent.AvgFillPrice });
+
+        await tx.CommitAsync();
+        return true;
+    }
+
     public async Task<IReadOnlyList<OmsPosition>> ListPositionsAsync(string? strategyId)
     {
         await using var conn = await _db.OpenConnectionAsync();

@@ -241,6 +241,63 @@ public sealed class OmsFillPoller : BackgroundService
             try { await Task.Delay(_perOrderDelay, ct); }
             catch (OperationCanceledException) { return; }
         }
+
+        // 5. Confirmation sweep — FILLED T212 orders whose fill was written by
+        //    the POSITION reconciler, not reported by the broker. The
+        //    GoldenSourceReconciler settles a SUBMITTED sell as soon as the
+        //    broker shows the position gone, which beats this poller's tick
+        //    (11 Nov 2026: 29 retire-flatten sells, all FILLED at a real price,
+        //    all stamped assumed_via_position_reconcile — the ledger's realised
+        //    for the sleeve stayed 0 by its own rule). T212 history carries the
+        //    execution for each; when it does, rewrite the stamp so the ledger
+        //    can count the money. Same bounds and pacing as the backfill sweep.
+        var assumed = (await conn.QueryAsync<(Guid OrderId, string BrokerId)>(@"
+            SELECT o.id AS OrderId, o.broker_order_id AS BrokerId
+            FROM oms_orders o
+            WHERE o.broker = 'T212_DEMO'
+              AND o.state IN ('FILLED', 'PARTIALLY_FILLED')
+              AND o.broker_order_id IS NOT NULL
+              AND o.created_at_utc > NOW() - INTERVAL '7 days'
+              AND EXISTS (SELECT 1 FROM oms_fills f
+                           WHERE f.order_id = o.id
+                             AND (f.broker_fill_id LIKE 'assumed_via_position_reconcile%'
+                                  OR f.broker_fill_id LIKE 'standing_reconcile%'))
+            ORDER BY o.created_at_utc DESC
+            LIMIT 20;")).ToList();
+        if (assumed.Count > 0)
+            _log.LogInformation(
+                "OmsFillPoller: confirmation sweep — {Count} FILLED T212 order(s) carry a reconciler-written fill",
+                assumed.Count);
+        foreach (var (orderId, brokerIdRaw) in assumed)
+        {
+            if (ct.IsCancellationRequested) return;
+            if (!long.TryParse(brokerIdRaw, out var brokerId)) continue;
+            try
+            {
+                var status = await demo.GetOrderStatusAsync(brokerId, ct);
+                if (status is null || !string.Equals(status.Status, "FILLED", StringComparison.OrdinalIgnoreCase))
+                    continue;   // broker does not (yet) report it filled — leave the stamp honest
+                var price = status.FillPrice is decimal fp && fp > 0m
+                    ? fp
+                    : (status.FilledValue is decimal v
+                        && status.FilledQuantity is decimal q
+                        && q > 0) ? v / q : 0m;
+                if (price <= 0m) continue;
+                var ok = await oms.ConfirmAssumedFillAsync(
+                    orderId, price, status.BrokerOrderId.ToString(), "poller:T212_DEMO:confirm");
+                if (ok)
+                    _log.LogInformation(
+                        "OmsFillPoller: confirmed reconciler-written fill for order {OrderId} from T212 history at {Price}",
+                        orderId, price);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogWarning(ex,
+                    "OmsFillPoller: confirmation lookup failed for {OrderId}", orderId);
+            }
+            try { await Task.Delay(_perOrderDelay, ct); }
+            catch (OperationCanceledException) { return; }
+        }
     }
 
     private async Task ReconcileAsync(
