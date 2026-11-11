@@ -2204,6 +2204,23 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-11 (20:05) — a THIRD diagnostics gap: /ibkr/status reported a structural null (PR #379)
+
+`competing`, `connected`, `authStatusRaw`, `accountSelected` on `/api/integrations/ibkr/status`
+read null on the live box ALL DAY — not because nothing happened, but because `IBKRClient` is a
+transient typed HttpClient and those verdicts were auto-properties on the instance that ran
+ssodh/init. Every other instance, including the one serving /status, read null. The `connected`
+flag is THE discriminator between "our brokerage session is not connected" and "IBKR's feed is
+dark", and it was unreadable from the desk while the feed was dark 14:31–17:18Z and again from
+the 19:38Z redeploy onward (still dark at 19:43Z, lines 0/80). Moved onto the singleton
+`IBKRSessionCache`; the client reads through. Rule: a diagnostic that CAN only ever say
+"unknown" reads as "nothing to report" — check the lifetime of whatever holds it.
+
+Also recorded: the 5m lane's own run with #378 wrote SPY 62 bars for 11 Nov (14:30→19:35Z)
+— from **yfinance**, labelled, because `ibkr_web` history failed `network` at 19:40Z in the
+same dark spell. Three IBKR reads (snapshot, history, account/orders) failing together =
+session-level, not a market-data entitlement.
+
 ### 2026-11-11 (19:40) — the 5m lane NEVER wrote the open session; a dark quote left no trace
 
 Owner direction today: "logging and diagnostics is key", "data harvesting is key as all
