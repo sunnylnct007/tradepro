@@ -2204,19 +2204,7 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
-### 2026-11-11 (20:15) — step 2 of the ruling: API `bar_cache` provider (PR #381)
-
-`/marketdata/candles` can now be served from the golden store: `BarCacheStoreProvider`
-(Parquet.Net + AWSSDK.S3, or a local directory, or UNCONFIGURED = empty labelled series) is
-registered as provider `bar_cache` beside `yahoo`. Reads the harvester's monthly partitions,
-half-open window, 15m/30m/1h derived from 5m with worst-of provenance; the series now carries
-`sources`, `newestBar`, `location`. Nine tests incl. one that reads a real pandas-written
-partition from this Mac (UTC + session-hour invariants). Default provider stays `yahoo` until
-the EC2 role can read `bar_cache/*` (ccit-infra patch written, owner to apply); then flip
-`Providers__Default=bar_cache` + `BarCache__Bucket` in docker-compose.aws.yaml and verify
-the chart against the harvest log's newest bar. Step 3 (frontend single call) follows.
-
-### 2026-11-11 (21:30) — dead code: sidecar + Stooq/Binance DELETED (PR #382); data-ops lane MAPPED for the next PR
+### 2026-11-11 (20:30) — dead code: sidecar + Stooq/Binance DELETED (PR #382); data-ops lane MAPPED for the next PR
 
 Owner: *"IG is not doing any harm, so we can keep that as is"* — IG stays; struck from the
 retire list. Deleted in #382 (no consumer anywhere): `cli/analysis_server.py` + console entry,
@@ -2240,9 +2228,9 @@ nothing):** the `tradepro-data-worker` / `data_ops` lane, disabled since 23 Sep.
 - MCP: `tools.py` `ibkr_fetch_bars` (3244–~3320); `server.py` allow-list line 46, comment 652–656, tool 809–~850.
 Verify: backend build, `npm run build`, python import, gate test; then grep the five route names repo-wide = 0.
 
-CI note: GitHub Actions runs for #381 and #382 sat QUEUED with no jobs from 20:19Z (Actions
-status page green; a "Deploy API to Azure App Service" run has been queued since 08:03Z — a
-workflow not present in main). Merges wait on CI; no admin override.
+CI note: ci-tests runs for #381 and #382 queued from 20:19Z with no jobs assigned for 10+ min
+(Actions status page green; a "Deploy API to Azure App Service" run from a workflow not in main
+has been queued since 08:03Z). Merges wait on CI; no admin override.
 
 ### 2026-11-11 (20:30) — RULING: one golden bar store, one writer, one read path (PR #380)
 
