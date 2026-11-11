@@ -2203,3 +2203,29 @@ map, and the map must be writable without a deploy.
   the ledger should show the sleeve's retirement P&L as money.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
+
+### 2026-11-11 (15:15) — "THE strategy" places nothing: ichimoku_equity has run NOWHERE since 23 Sep
+
+Found while asking why T212 demo holds 0 positions yet the ledger shows ichimoku_equity with
+47 confirmed fills. Facts, all read from the OMS, the broker and the schedulers:
+* ichimoku_equity (T212_DEMO): 83 orders, 10 Jul → **23 Sep**. 47 BUYs broker-confirmed;
+  36 SELLs of which **35 are reconciler-written** (`position-reconcile`) and 1 broker-confirmed.
+  closedTrades 0, realised 0 — by the ledger's own rule, and permanently (T212 history keeps
+  ~250 orders; the Sep executions are gone).
+* 28 Sep note: "T212 clear, Ichimoku retired from it." That is when the 35 exits were stamped.
+  The 11 ichimoku lots the OMS still shows are offset 1:1 by strategy-less shorts written the
+  same day — net 0 per symbol, so no sync is needed; the per-strategy view is the phantom.
+* **No scheduler runs it**: no launchd plist on the Mac (momentum-ibkr, swing-ibkr only),
+  no EventBridge rule in eu-west-2 (only `signal-audit-equity`, which AUDITS signals nightly
+  and places nothing). `ichimoku_equity_ibkr` (the IBKR clone) has 2 July fills and no lane either.
+* desk-check (pushed 15:12) rates it `[ok] … DORMANT, not failing — last was 49 days ago`.
+  It states the number, so it is not a silent all-clear, but a retired strategy graded ok is
+  how 10 Nov's "Ichimoku on T212 = THE strategy to prove" went unchallenged for a day.
+
+Owner decision needed (not mine): revive ichimoku_equity on IBKR paper under the one-broker-
+per-strategy ruling (its clone config exists: `ichimoku_equity_ibkr`, DUP656969), or declare
+it a backtest-only result. Until then every "THE strategy" claim is about a backtest, not paper.
+
+Lesson of the day: a sleeve's fill COUNT is not evidence it is running. Ask three things
+before calling anything live: last order date, which scheduler fires it, and whether its
+exits are broker-confirmed or reconciler-written.
