@@ -307,14 +307,6 @@ export const api = {
   symbolVerdictCached: (symbol: string) =>
     get<CanonicalVerdict>("/api/compare/verdict",
       { symbol: symbol.trim().toUpperCase() }),
-  /** Canonical multi-strategy verdict computed LIVE for ANY symbol via the
-   *  Python sidecar (same compare() pipeline). Slow (~15-30s) and needs the
-   *  analysis sidecar running — used as a fallback for symbols not in a
-   *  cached universe. */
-  symbolVerdict: (symbol: string, lookbackYears?: number) =>
-    get<CanonicalVerdict>(
-      `/api/symbol-analysis/${encodeURIComponent(symbol.trim().toUpperCase())}/verdict`,
-      lookbackYears ? { lookbackYears } : undefined),
   scanSignals: (req: ScanRequest) =>
     post<ScanResult, ScanRequest>("/api/signals/scan", req),
   hitRate: (req: HitRateRequest) =>

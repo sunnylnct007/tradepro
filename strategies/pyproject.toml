@@ -66,7 +66,6 @@ dev = [
 ]
 
 [project.scripts]
-tradepro-analysis-server = "tradepro_strategies.cli.analysis_server:main"
 tradepro-post-earnings-puts = "tradepro_strategies.cli.post_earnings_puts:main"
 tradepro-candidates-digest = "tradepro_strategies.cli.candidates_digest:main"
 tradepro-trade-alerts = "tradepro_strategies.cli.trade_alerts:main"
