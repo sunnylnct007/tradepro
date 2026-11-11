@@ -85,3 +85,36 @@ export function EventChips({ w, compact = false, only }: {
     </span>
   );
 }
+
+/** The market calendar drawn ONCE for a board, not on every row (owner, 11 Nov
+ *  2026: "that screen is difficult to read"). Takes every row's window, keeps
+ *  the market-wide events, dedupes them, and draws them in date order. Rows
+ *  then show only what is theirs via <EventChips only="own" />. */
+export function MarketEventsStrip({ windows, label = "MARKET EVENTS BEFORE YOUR EXPIRIES" }: {
+  windows: (EventsWindow | null | undefined)[]; label?: string;
+}) {
+  const seen = new Set<string>();
+  const events: KnownEvent[] = [];
+  let verified = true;
+  const gaps: string[] = [];
+  for (const w of windows) {
+    if (!w) continue;
+    if (!w.verified) { verified = false; for (const g of w.gaps ?? []) if (!gaps.includes(g)) gaps.push(g); }
+    for (const e of w.events ?? []) {
+      if (!isMarketEvent(e)) continue;
+      const k = `${e.kind}-${e.on}`;
+      if (seen.has(k)) continue;
+      seen.add(k); events.push(e);
+    }
+  }
+  events.sort((a, b) => a.on.localeCompare(b.on));
+  if (events.length === 0 && verified) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap",
+                  padding: "6px 0 8px", fontSize: 11.5, color: TONE.muted }}>
+      <span style={{ fontWeight: 600, letterSpacing: 0.3 }}>{label}</span>
+      <EventChips w={{ events, count: events.length, high: 0, verified, gaps, names: "" }}
+                  compact only="market" />
+    </div>
+  );
+}
