@@ -391,8 +391,22 @@ class BarStore:
                     # sessions whose bars cannot be reached, while this one kept
                     # REQUESTING them. One half of the store knew today's bar
                     # does not exist yet; the other half asked for it anyway.
-                    _last_settled = self._last_settled_session(
-                        plugin, _ds, _de, now_utc=datetime.now(timezone.utc))
+                    # DAILY-OR-COARSER ONLY — the same exemption the non-delta
+                    # clamp below has carried since 1 Sep 2026, missing HERE
+                    # until 11 Nov 2026. Measured that day: the 5m lane ran
+                    # every 30 minutes through the US session, each run graded
+                    # every symbol complete, and not one symbol held a single
+                    # bar for the session in progress — this cap had quietly
+                    # turned every intraday delta into `delta_unsettled_skip`.
+                    # A 5m bar that has printed is final; only a DAILY bar for
+                    # an open session is a wrong number wearing a date. The
+                    # GRADE still excludes today (`_sum_expected_bar_count`),
+                    # so fetching the partial session does not move it.
+                    _last_settled = (
+                        self._last_settled_session(
+                            plugin, _ds, _de, now_utc=datetime.now(timezone.utc))
+                        if _is_daily_or_coarser(resolution) else None
+                    )
                     if _last_settled is not None:
                         _cap = min(_de, _last_settled)
                         if _cap <= _ds:
