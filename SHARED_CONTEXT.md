@@ -2154,3 +2154,32 @@ rules exit them. Not done at 23:00 with the market shut.
 Ichimoku equity = THE strategy (T212, 47 confirmed fills, backtested edge). Next
 pre-registered change for it: stock-vs-sector-vs-index correlation as an entry gate
 (basic 7); the sell-off study's S4 says the edge sits in the high-beta tercile.
+
+## 2026-11-11 (14:45) — T212 momentum FLATTENED (29/30), 40 orphan IBKR paper legs CLOSED (38/40); ticker-rename row is now an API call
+
+Owner authorised both flattens ("yes continue in that order", "Flatten them i guess").
+Paper only; both scripts read the BROKER (never the OMS) before sending, dry-ran first.
+
+* **momentum_pullback_t212** — 30 MARKET SELLs posted to the OMS at 14:33Z, one per
+  symbol the broker held. 29 SUBMITTED with a brokerOrderId on the create call itself
+  (approve then 409s "already SUBMITTED" — that is the auto-submit path, NOT a refusal;
+  an OMS 409 still hides both). T212 demo re-read fresh: 29 gone, OMS 29 FILLED.
+  The 30th, **PNM**, was refused by the oversell gate: the OMS lot is booked as **TXNM**
+  (renamed PNM at T212). Selling PNM = net 0 in the ledger; selling TXNM = a ticker T212
+  no longer knows. The designed fix is a `broker_ticker_map` row (T212_DEMO, TXNM →
+  PNM_US_EQ), and there was NO API to write one (only the catalog rebuild, which cannot
+  see a rename). Added `GET/PUT/DELETE /api/admin/broker-ticker-map/{broker}/{source}`
+  this PR; then PUT the row and SELL 17 TXNM under the sleeve so the ledger closes the lot.
+* **40 orphan option legs (28 Oct autobook, no record endpoint then)** — 20 short puts
+  bought back FIRST (closingOnly), then 20 long puts sold, 1 s pacing, 14:37Z. IBKR
+  accepted all 40; 38 filled within a minute. **ABBV 262.5P and KO 86P (20 Nov, LONG)
+  sat Submitted** — zero-bid market sells. Max loss is premium already paid; left to
+  fill or cancel at the close. The desk-check orphan banner should now be down to 2.
+* Harvest universe widened 84 → 106 ON this morning via `/api/universes/harvest/overrides`
+  (industrials, defence, healthcare, pharma); measured 20d rotation IT −12.6% vs those
+  +8 to +11%.
+* The parked what-if draft was swept into #372 by `git add -A`; removed in #374.
+
+Lesson: the ledger keys a lot by the symbol it was BOUGHT under; a broker rename makes
+every later read of that lot "net 0". Any flatten/close must resolve names through the
+map, and the map must be writable without a deploy.
