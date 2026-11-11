@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TradePro.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.8" />
@@ -16,6 +20,8 @@
     <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.400.6" />
     <PackageReference Include="AWSSDK.Lambda" Version="3.7.400.6" />
     <PackageReference Include="AWSSDK.SQS" Version="3.7.400.6" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.400.6" />
+    <PackageReference Include="Parquet.Net" Version="5.1.1" />
     <PackageReference Include="Npgsql" Version="8.0.4" />
     <PackageReference Include="Dapper" Version="2.1.35" />
   </ItemGroup>

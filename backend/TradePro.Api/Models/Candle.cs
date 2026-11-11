@@ -26,4 +26,9 @@ public record CandleSeries(
     string Symbol,
     string Interval,
     string Provider,
-    IReadOnlyList<Candle> Candles);
+    IReadOnlyList<Candle> Candles,
+    // Provenance (bar_cache provider; null from live providers). A grade or a
+    // chart is not complete without the newest bar's timestamp beside it.
+    IReadOnlyDictionary<string, int>? Sources = null,
+    DateTime? NewestBar = null,
+    string? Location = null);
