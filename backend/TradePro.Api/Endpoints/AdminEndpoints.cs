@@ -689,6 +689,85 @@ public static class AdminEndpoints
             return Results.Ok(new { deleted = strategy_id });
         });
 
+        // ── broker_ticker_map: operator-maintained symbol routing ────
+        // broker_ticker_map (broker, source_ticker) → broker_ticker is what
+        // OMS placement consults FIRST (PostgresOmsService.ResolveBrokerSymbolAsync)
+        // before the suffix heuristic. The rebuild above derives rows from the
+        // catalog by exact ticker / ISIN, which cannot see a RENAME: on
+        // 11 Nov 2026 the OMS carried TXNM (17 shares, momentum_pullback_t212)
+        // while T212 had renamed the instrument PNM_US_EQ, so the retire-flatten
+        // SELL of PNM was refused as an oversell (ledger net 0 for PNM) and a
+        // SELL of TXNM would have been sent to a ticker T212 no longer knows.
+        // The fix is a map row, not a hardcoded rename: PUT it here, then book
+        // the SELL under the OMS symbol so the ledger closes the right lot.
+        // GET  /api/admin/broker-ticker-map?broker=T212_DEMO
+        // PUT  /api/admin/broker-ticker-map/{broker}/{source_ticker}  { brokerTicker, note? }
+        // DELETE /api/admin/broker-ticker-map/{broker}/{source_ticker}
+        g.MapGet("/broker-ticker-map", async (string? broker, NpgsqlDataSource db) =>
+        {
+            await using var conn = await db.OpenConnectionAsync();
+            var rows = await conn.QueryAsync(@"
+                SELECT broker, source_ticker, broker_ticker, exchange, note, updated_at_utc
+                FROM broker_ticker_map
+                WHERE (@broker IS NULL OR broker = @broker)
+                ORDER BY broker, source_ticker;",
+                new { broker = string.IsNullOrWhiteSpace(broker) ? null : broker.Trim().ToUpperInvariant() });
+            return Results.Ok(new { mappings = rows.AsList() });
+        });
+
+        g.MapPut("/broker-ticker-map/{broker}/{source_ticker}", async (
+            string broker,
+            string source_ticker,
+            BrokerTickerMapPutBody body,
+            NpgsqlDataSource db) =>
+        {
+            if (!validBrokers.Contains(broker, StringComparer.OrdinalIgnoreCase))
+                return Results.BadRequest(new
+                {
+                    error = "invalid broker",
+                    detail = $"broker must be one of: {string.Join(", ", validBrokers)}",
+                });
+            if (string.IsNullOrWhiteSpace(source_ticker) || string.IsNullOrWhiteSpace(body.BrokerTicker))
+                return Results.BadRequest(new { error = "source_ticker (path) and brokerTicker (body) required" });
+
+            // The OMS looks the row up by the BARE source ticker ("TXNM_US_EQ" → "TXNM"),
+            // so store it that way whatever the caller typed.
+            var bare = TradePro.Api.Oms.SymbolHarmonization.BareSourceTicker(source_ticker.Trim()).ToUpperInvariant();
+            var b = broker.Trim().ToUpperInvariant();
+            await using var conn = await db.OpenConnectionAsync();
+            await conn.ExecuteAsync(@"
+                INSERT INTO broker_ticker_map (broker, source_ticker, broker_ticker, note, updated_at_utc)
+                VALUES (@b, @bare, @bt, @note, NOW())
+                ON CONFLICT (broker, source_ticker) DO UPDATE
+                SET broker_ticker = EXCLUDED.broker_ticker,
+                    note          = EXCLUDED.note,
+                    updated_at_utc = NOW();",
+                new
+                {
+                    b, bare,
+                    bt = body.BrokerTicker.Trim(),
+                    note = string.IsNullOrWhiteSpace(body.Note) ? "operator" : body.Note.Trim(),
+                });
+            var row = await conn.QuerySingleAsync(@"
+                SELECT broker, source_ticker, broker_ticker, exchange, note, updated_at_utc
+                FROM broker_ticker_map WHERE broker = @b AND source_ticker = @bare;",
+                new { b, bare });
+            return Results.Ok(new { row });
+        });
+
+        g.MapDelete("/broker-ticker-map/{broker}/{source_ticker}", async (
+            string broker, string source_ticker, NpgsqlDataSource db) =>
+        {
+            var bare = TradePro.Api.Oms.SymbolHarmonization.BareSourceTicker(source_ticker.Trim()).ToUpperInvariant();
+            var b = broker.Trim().ToUpperInvariant();
+            await using var conn = await db.OpenConnectionAsync();
+            var n = await conn.ExecuteAsync(
+                "DELETE FROM broker_ticker_map WHERE broker = @b AND source_ticker = @bare;", new { b, bare });
+            return n == 0
+                ? Results.NotFound(new { error = $"no mapping for ({b}, {bare})" })
+                : Results.Ok(new { deleted = new { broker = b, source_ticker = bare } });
+        });
+
         // POST /api/admin/oms/heal-false-cancels — retroactively flip
         // CANCELLED orders with reason 'broker_not_found_assume_terminal'
         // to FILLED. These are orders T212 actually filled but our
@@ -775,6 +854,8 @@ public static class AdminEndpoints
         // Opaque JSON the daemon interprets; null leaves the existing value intact.
         System.Text.Json.JsonElement? RuntimeConfig
     );
+
+    public sealed record BrokerTickerMapPutBody(string BrokerTicker, string? Note);
 
     public sealed record T212SmokeOrderBody(
         string Ticker,
