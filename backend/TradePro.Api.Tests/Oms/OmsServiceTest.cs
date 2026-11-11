@@ -446,4 +446,58 @@ public sealed class OmsServiceTest
         Assert.False(ok);
         Assert.Null((await oms.GetAsync(row.Id))!.AvgFillPrice);
     }
+
+    [Fact]
+    public async Task Confirm_rewrites_a_reconciler_written_fill_as_broker_confirmed()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+        // The position reconciler got there first: FILLED at the broker's
+        // price, but stamped as assumed — the ledger keeps it out of the money.
+        var filled = await oms.RecordFillAsync(
+            row.Id, 10m, 14.92m, 0m, "USD", "assumed_via_position_reconcile:57850347997", "reconciler:T212_DEMO");
+        Assert.Equal(OmsState.Filled, filled.State);
+        Assert.Equal("position-reconcile", filled.FillOrigin);
+
+        var ok = await oms.ConfirmAssumedFillAsync(row.Id, 14.92m, "57850347997", "poller:T212_DEMO:confirm");
+
+        Assert.True(ok);
+        var after = (await oms.GetAsync(row.Id))!;
+        Assert.Equal("broker", after.FillOrigin);
+        Assert.Equal(14.92m, after.AvgFillPrice);
+        Assert.Equal(OmsState.Filled, after.State);        // state untouched
+        Assert.Equal(filled.FilledQty, after.FilledQty);   // qty untouched
+        var events = await oms.ListEventsAsync(row.Id);
+        Assert.Contains(events, e => e.EventType == "FILL_CONFIRMED_FROM_BROKER");
+    }
+
+    [Fact]
+    public async Task Confirm_never_touches_a_fill_the_broker_reported()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");
+        await oms.RecordFillAsync(row.Id, 10m, 100m, 0m, "USD", "57850347997", "poller:T212_DEMO");
+
+        var ok = await oms.ConfirmAssumedFillAsync(row.Id, 999m, "other-id", "poller:T212_DEMO:confirm");
+
+        Assert.False(ok);
+        var after = (await oms.GetAsync(row.Id))!;
+        Assert.Equal(100m, after.AvgFillPrice);
+        Assert.Equal("broker", after.FillOrigin);
+    }
+
+    [Fact]
+    public async Task Confirm_is_a_noop_for_a_non_terminal_order()
+    {
+        var oms = NewService();
+        var row = await oms.EnqueueAsync(SampleIntent(), "test");
+        await oms.ApproveAsync(row.Id, "operator");   // SUBMITTED
+
+        var ok = await oms.ConfirmAssumedFillAsync(row.Id, 50m, "x", "poller:T212_DEMO:confirm");
+
+        Assert.False(ok);
+        Assert.Equal(OmsState.Submitted, (await oms.GetAsync(row.Id))!.State);
+    }
 }

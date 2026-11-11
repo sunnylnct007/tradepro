@@ -86,6 +86,18 @@ public interface IOmsService
     /// a genuine fill price. Returns true when a correction was applied.</summary>
     Task<bool> BackfillFillPriceAsync(Guid orderId, decimal price, string actor);
 
+    /// <summary>Upgrade an ASSUMED fill to a BROKER-CONFIRMED one. The position
+    /// reconciler settles a SUBMITTED sell the moment the broker shows the
+    /// position gone, stamping the fill <c>assumed_via_position_reconcile:…</c>;
+    /// when the broker's own history later reports the execution (id + price)
+    /// that stamp is wrong, and the ledger keeps the money out of the sleeve
+    /// for ever (11 Nov 2026: 29 retire-flatten sells, realised 0). Rewrites
+    /// the assumed fill row(s) with the broker's fill id and price and sets
+    /// avg_fill_price, WITHOUT changing qty or state. Returns false when the
+    /// order is not terminal or carries no assumed fill — a real fill is never
+    /// overwritten.</summary>
+    Task<bool> ConfirmAssumedFillAsync(Guid orderId, decimal price, string brokerFillId, string actor);
+
     /// <summary>Event trail for an order, oldest first.</summary>
     Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId);
 
