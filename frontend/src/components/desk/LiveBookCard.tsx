@@ -22,7 +22,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
-import { EventChips } from "./EventChips";
+import { EventChips, isMarketEvent, type KnownEvent } from "./EventChips";
 
 const TONE = {
   act: "#f85149", watch: "#d29922", ok: "#3fb950",
@@ -81,6 +81,20 @@ export function LiveBookCard() {
                                   || r.action === "UNKNOWN");
   const resting = rows.filter((r) => r.action === "HOLD");
   const shown = showAll ? [...acting, ...resting] : acting;
+
+  // MARKET EVENTS ONCE, NOT ON EVERY ROW (owner, 11 Nov 2026: "that screen is
+  // difficult to read"). Twelve rows each carried the same ten chips — jobs,
+  // FOMC, CPI, jobs, CPI… — and the one chip that differed per row, its own
+  // earnings date, was lost among them. The market calendar is one fact about
+  // the whole book; it is drawn one time, here. Rows keep what is theirs:
+  // earnings and the sector flag.
+  const marketEvents: KnownEvent[] = (() => {
+    const seen = new Set<string>();
+    return ((art?.events?.events ?? []) as KnownEvent[])
+      .filter(isMarketEvent)
+      .filter((e) => { const k = `${e.kind}-${e.on}`; if (seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a, b) => a.on.localeCompare(b.on));
+  })();
 
   return (
     <div style={{
@@ -193,6 +207,16 @@ export function LiveBookCard() {
             </div>
           )}
 
+          {marketEvents.length > 0 && (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap",
+                          padding: "6px 0 8px", fontSize: 11.5, color: TONE.muted }}>
+              <span style={{ fontWeight: 600, letterSpacing: 0.3 }}>MARKET EVENTS BEFORE YOUR EXPIRIES</span>
+              <EventChips w={{ events: marketEvents, count: marketEvents.length, high: 0,
+                               verified: art?.events?.verified ?? true, gaps: art?.events?.gaps ?? [], names: "" }}
+                          compact only="market" />
+            </div>
+          )}
+
           {shown.map((r) => {
             const a = ACTION[r.action] ?? ACTION.HOLD;
             return (
@@ -224,8 +248,9 @@ export function LiveBookCard() {
                   </span>
                 )}
                 <span style={{ color: TONE.muted, flex: 1, minWidth: 220 }}>{r.why}</span>
-                {/* Known events before this expiry — named, every row (OWNER BASICS 3). */}
-                <EventChips w={r.events} compact />
+                {/* The row's OWN events — earnings, sector flag (OWNER BASICS 3).
+                    Market-wide ones are in the strip above, once. */}
+                <EventChips w={r.events} compact only="own" />
               </div>
             );
           })}
@@ -282,7 +307,7 @@ export function LiveBookCard() {
                   <span style={{ color: TONE.dim, fontFamily: "var(--font-mono)" }}>
                     {c.strike}C {c.expiry?.slice(5)} · {c.dte}d
                   </span>
-                  <EventChips w={c.events} compact />
+                  <EventChips w={c.events} compact only="own" />
                   <span style={{ color: (c.unrealised ?? 0) < 0 ? TONE.act : TONE.ok,
                                  fontFamily: "var(--font-mono)" }}>{usd(c.unrealised)}</span>
                   <span style={{ color: TONE.muted, fontSize: 11.5 }}>

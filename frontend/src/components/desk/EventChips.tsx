@@ -38,11 +38,26 @@ function day(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : `${d.getDate()} ${d.toLocaleString("en-GB", { month: "short" })}`;
 }
 
-export function EventChips({ w, compact = false }: { w?: EventsWindow | null; compact?: boolean }) {
+/** A market-wide event is one the catalysts store files under the reserved
+ *  MARKET symbol (FOMC, CPI, jobs, elections). Everything else — earnings,
+ *  the sector sell-off flag, an FDA date — belongs to the row it sits on. */
+export function isMarketEvent(e: KnownEvent): boolean {
+  return e.scope === "MARKET";
+}
+
+export function EventChips({ w, compact = false, only }: {
+  w?: EventsWindow | null; compact?: boolean;
+  /** "own" = only the row's own events (market ones are shown once, elsewhere);
+   *  "market" = only market-wide ones. Default: everything. */
+  only?: "own" | "market";
+}) {
   if (!w) {
     return <span style={{ fontSize: 11, color: TONE.muted }} title="This row was produced before the events check existed; re-run the lane.">events not checked</span>;
   }
-  const chips = (w.events ?? []).map((e) => (
+  const all = w.events ?? [];
+  const list = only === "own" ? all.filter((e) => !isMarketEvent(e))
+             : only === "market" ? all.filter(isMarketEvent) : all;
+  const chips = list.map((e) => (
     <span key={`${e.kind}-${e.on}-${e.scope}`}
           title={`${e.title} — ${e.on} (${e.scope === "MARKET" ? "market-wide" : e.scope}; ${e.source})`}
           style={{
@@ -58,7 +73,7 @@ export function EventChips({ w, compact = false }: { w?: EventsWindow | null; co
   return (
     <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
       {chips}
-      {chips.length === 0 && w.verified && (
+      {chips.length === 0 && w.verified && only !== "own" && (
         <span style={{ fontSize: 11, color: TONE.muted }}>no events through expiry</span>
       )}
       {!w.verified && (

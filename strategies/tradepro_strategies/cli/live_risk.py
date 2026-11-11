@@ -46,6 +46,14 @@ log = logging.getLogger("tradepro.live_risk")
 ARTIFACT_UNIVERSE = "live-book-risk"
 
 
+def redact_flex(text: str, token: str | None) -> str:
+    """Strip a Flex token (and any t=/q= query value) out of an error string."""
+    import re as _re
+    if token:
+        text = text.replace(token, "***")
+    return _re.sub(r"([?&][tq]=)[^&\s)]+", r"\1***", text)
+
+
 def _flex_direct(token: str, query_id: str) -> list[dict]:
     """Pull the Open Positions report straight from IBKR.
 
@@ -537,7 +545,11 @@ def main() -> int:
             positions = _flex_direct(flex_token, flex_query)
             log.info("Flex read directly from IBKR — %d position(s)", len(positions))
         except Exception as exc:  # noqa: BLE001
-            print(f"direct Flex read failed: {exc}", file=sys.stderr)
+            # NEVER THE TOKEN. A requests error carries the full URL, and the
+            # Flex URL carries t=<token>; on 11 Nov 2026 a DNS blip printed the
+            # live account's Flex token into the lane log twice. Lanes log the
+            # SOURCE of a credential, never its value — this applies to errors.
+            print(f"direct Flex read failed: {redact_flex(str(exc), flex_token)}", file=sys.stderr)
             return 1
     else:
         r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/flex/positions",

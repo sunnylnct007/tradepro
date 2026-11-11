@@ -261,7 +261,7 @@ def events_between(symbol: str, start: date, end: date, *, api_base: str,
         if not authoritative:
             w.verified = False
             w.gaps.append("earnings store not authoritative (empty or stale)")
-        for ev in data.get("events") or []:
+        for ev in one_row_per_print(data.get("events") or []):
             try:
                 d = date.fromisoformat(str(ev.get("report_date"))[:10])
             except (TypeError, ValueError):
@@ -325,6 +325,44 @@ def events_between(symbol: str, start: date, end: date, *, api_base: str,
 
     w.events.sort(key=lambda e: (e.on, 0 if e.severity == "high" else 1, e.kind))
     return w
+
+
+#: Two estimates of the SAME print closer than this are one event, not two.
+PRINT_CLUSTER_DAYS = 14
+
+
+def one_row_per_print(rows: list[dict]) -> list[dict]:
+    """Collapse the earnings store's history of estimates to one row per print.
+
+    11 Nov 2026, the Live screen: DELL "earnings 23 Nov" AND "earnings 24 Nov",
+    NVDA 17 AND 25 Nov, CRWV 11 AND 16 Nov, MRVL, CRDO, MDB, SNOW the same. One
+    company has one print. The store keeps every bulk upload's estimate (DELL's
+    23 Nov row was uploaded 30 Oct, the 24 Nov row 10 Nov) and nothing retires
+    the old one, so the board showed the whole history as separate events.
+
+    Rows within PRINT_CLUSTER_DAYS of each other are one print; the row with
+    the LATEST upload wins (the provider's freshest estimate), ties broken by
+    the later report_date. Rows without a parseable date pass through so the
+    caller's own parsing decides what to do with them.
+    """
+    dated, undated = [], []
+    for r in rows:
+        try:
+            dated.append((date.fromisoformat(str(r.get("report_date"))[:10]), r))
+        except (TypeError, ValueError):
+            undated.append(r)
+    dated.sort(key=lambda t: t[0])
+    clusters: list[list[tuple[date, dict]]] = []
+    for d, r in dated:
+        if clusters and (d - clusters[-1][-1][0]).days <= PRINT_CLUSTER_DAYS:
+            clusters[-1].append((d, r))
+        else:
+            clusters.append([(d, r)])
+    out = []
+    for cl in clusters:
+        best = max(cl, key=lambda t: (str(t[1].get("uploaded_at") or ""), t[0]))
+        out.append(best[1])
+    return out + undated
 
 
 def _dup(have: list[Event], e: Event) -> bool:
