@@ -342,11 +342,11 @@ public sealed class IBKRClient
                     var r = initDoc.RootElement;
                     bool Flag(string n) => r.TryGetProperty(n, out var v)
                         && v.ValueKind == System.Text.Json.JsonValueKind.True;
-                    LastAuthenticated = Flag("authenticated");
-                    LastCompeting = Flag("competing");
-                    LastConnected = Flag("connected");
-                    LastAuthStatusRaw = initText.Length > 400 ? initText[..400] : initText;
-                    LastAuthStatusAtUtc = DateTime.UtcNow;
+                    // Stored on the SINGLETON session cache, not this transient
+                    // instance — see IBKRSessionCache.LastAuthenticated.
+                    _session.SetInitVerdict(
+                        Flag("authenticated"), Flag("competing"), Flag("connected"),
+                        initText.Length > 400 ? initText[..400] : initText);
 
                     // REPORT THE FLAGS. DO NOT DIAGNOSE FROM THEM.
                     //
@@ -388,7 +388,7 @@ public sealed class IBKRClient
                 }
                 catch (System.Text.Json.JsonException)
                 {
-                    LastAuthStatusRaw = "unparseable: " + (initText.Length > 200 ? initText[..200] : initText);
+                    _session.SetInitRaw("unparseable: " + (initText.Length > 200 ? initText[..200] : initText));
                 }
             }
 
@@ -446,8 +446,7 @@ public sealed class IBKRClient
                         System.Text.Encoding.UTF8, "application/json");
                     using var selResp = await _http.SendAsync(selReq, ct);
                     var selText = await selResp.Content.ReadAsStringAsync(ct);
-                    LastAccountSelectOk = selResp.IsSuccessStatusCode;
-                    LastAccountSelectRaw = selText.Length > 300 ? selText[..300] : selText;
+                    _session.SetAccountSelect(selResp.IsSuccessStatusCode, selText.Length > 300 ? selText[..300] : selText);
                     if (selResp.IsSuccessStatusCode)
                         _log.LogInformation(
                             "IBKR brokerage session bound to account {Acct}: {Body}",
@@ -461,8 +460,7 @@ public sealed class IBKRClient
                 }
                 catch (Exception ex)
                 {
-                    LastAccountSelectOk = false;
-                    LastAccountSelectRaw = ex.Message;
+                    _session.SetAccountSelect(false, ex.Message);
                     _log.LogError(ex,
                         "IBKR account selection threw for {Acct} — order/execution reads "
                         + "will return EMPTY", _options.AccountId);
@@ -1021,16 +1019,14 @@ public sealed class IBKRClient
                 HttpMethod.Post, "v1/api/iserver/account",
                 new { acctId = _options.AccountId }, ct);
             var text = await resp.Content.ReadAsStringAsync(ct);
-            LastAccountSelectOk = resp.IsSuccessStatusCode;
-            LastAccountSelectRaw = text.Length > 300 ? text[..300] : text;
+            _session.SetAccountSelect(resp.IsSuccessStatusCode, text.Length > 300 ? text[..300] : text);
             _log.LogInformation("IBKR account bind (on demand) {Code}: {Body}",
                 (int)resp.StatusCode, LastAccountSelectRaw);
             return ((int)resp.StatusCode, text.Length > 1000 ? text[..1000] : text, null);
         }
         catch (Exception ex)
         {
-            LastAccountSelectOk = false;
-            LastAccountSelectRaw = ex.Message;
+            _session.SetAccountSelect(false, ex.Message);
             return (0, null, ex.Message);
         }
     }
@@ -1134,10 +1130,10 @@ public sealed class IBKRClient
     // whole point of these fields is to remove ambiguity from "auth VALID but
     // snapshot DARK" — reporting a default as a measurement would put it back.
     // null = not yet observed. Check LastAuthStatusAtUtc before believing them.
-    public bool? LastAuthenticated { get; private set; }
-    public bool? LastCompeting { get; private set; }
-    public bool? LastConnected { get; private set; }
-    public string? LastAuthStatusRaw { get; private set; }
+    public bool? LastAuthenticated => _session.LastAuthenticated;   // read-through: singleton cache, see IBKRSessionCache
+    public bool? LastCompeting => _session.LastCompeting;   // read-through: singleton cache, see IBKRSessionCache
+    public bool? LastConnected => _session.LastConnected;   // read-through: singleton cache, see IBKRSessionCache
+    public string? LastAuthStatusRaw => _session.LastAuthStatusRaw;   // read-through: singleton cache, see IBKRSessionCache
 
     /// <summary>Did POST /iserver/account bind this session to our account?
     /// null = not yet attempted. When false, /iserver/account/orders and
@@ -1145,9 +1141,9 @@ public sealed class IBKRClient
     /// <summary>The account this client is configured to act on (mode-resolved).</summary>
     public string? ConfiguredAccountId => _options.AccountId;
 
-    public bool? LastAccountSelectOk { get; private set; }
-    public string? LastAccountSelectRaw { get; private set; }
-    public DateTime? LastAuthStatusAtUtc { get; private set; }
+    public bool? LastAccountSelectOk => _session.LastAccountSelectOk;   // read-through: singleton cache, see IBKRSessionCache
+    public string? LastAccountSelectRaw => _session.LastAccountSelectRaw;   // read-through: singleton cache, see IBKRSessionCache
+    public DateTime? LastAuthStatusAtUtc => _session.LastAuthStatusAtUtc;   // read-through: singleton cache, see IBKRSessionCache
 
     public async Task<IBKROptionStrikesResult> GetOptionStrikesAsync(
         long underlyingConId, string month, CancellationToken ct = default)

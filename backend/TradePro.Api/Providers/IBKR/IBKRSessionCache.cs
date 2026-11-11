@@ -59,6 +59,50 @@ public sealed class IBKRSessionCache
     /// IBKR:SourceIp override is in play.</summary>
     public string? DetectedEgressIp { get; private set; }
 
+    /// <summary>
+    /// The verdict of the last brokerage-session bring-up (ssodh/init) and the
+    /// last account bind, kept HERE — on the singleton — and not on IBKRClient.
+    ///
+    /// IBKRClient is a transient typed HttpClient: a fresh instance per request.
+    /// Until 11 Nov 2026 these lived on the client, so the ONE request that ran
+    /// ssodh/init held them and every other instance, including the one serving
+    /// /integrations/ibkr/status, read null. The status endpoint reported
+    /// competing=null connected=null authStatusRaw=null on a live box all day,
+    /// through a three-hour dark feed, while the init log line on the server
+    /// (unreadable from the desk) carried the answer. A diagnostic that is
+    /// structurally always "unknown" is worse than none: it reads as "nothing
+    /// to report".
+    /// </summary>
+    public bool? LastAuthenticated { get; private set; }
+    public bool? LastCompeting { get; private set; }
+    public bool? LastConnected { get; private set; }
+    public string? LastAuthStatusRaw { get; private set; }
+    public DateTime? LastAuthStatusAtUtc { get; private set; }
+    public bool? LastAccountSelectOk { get; private set; }
+    public string? LastAccountSelectRaw { get; private set; }
+
+    public void SetInitVerdict(bool? authenticated, bool? competing, bool? connected, string? raw)
+    {
+        LastAuthenticated = authenticated;
+        LastCompeting = competing;
+        LastConnected = connected;
+        LastAuthStatusRaw = raw;
+        LastAuthStatusAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>ssodh/init answered but the body did not parse — keep the body, keep the time.</summary>
+    public void SetInitRaw(string raw)
+    {
+        LastAuthStatusRaw = raw;
+        LastAuthStatusAtUtc = DateTime.UtcNow;
+    }
+
+    public void SetAccountSelect(bool? ok, string? raw)
+    {
+        LastAccountSelectOk = ok;
+        LastAccountSelectRaw = raw;
+    }
+
     private DateTime _establishedUtc = DateTime.MinValue;
     private TimeSpan _lifetime = DefaultLifetime;
     private DateTime _lastFailureUtc = DateTime.MinValue;
