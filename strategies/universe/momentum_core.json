@@ -1,0 +1,508 @@
+{
+ "name": "momentum_core",
+ "as_of": "2026-11-12",
+ "decided_by": "owner, 12 Nov 2026: ~100 names, sector-balanced (the spec's 'whole harvest' was ~994 and too slow to keep current)",
+ "method": "S&P 500 members with a GICS sector label; one share class per company; the 9 most liquid per sector by median daily dollar volume over the last 60 sessions (yahoo consolidated volume, 12 Nov 2026). SPY and QQQ are regime inputs, never holdings.",
+ "survivor_bias": "Chosen from TODAY's S&P 500 by TODAY's liquidity. A backtest on this list starts with every name a winner of 2008-2026. The spec's universe check (point-in-time, with delisted names) is still owed before live money.",
+ "regime_inputs": [
+  "SPY",
+  "QQQ"
+ ],
+ "symbols": [
+  {
+   "symbol": "AAPL",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 12520493621
+  },
+  {
+   "symbol": "ABBV",
+   "sector": "Health Care",
+   "dollar_volume_60d": 1206519851
+  },
+  {
+   "symbol": "AEP",
+   "sector": "Utilities",
+   "dollar_volume_60d": 435762277
+  },
+  {
+   "symbol": "AMD",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 11011057770
+  },
+  {
+   "symbol": "AMGN",
+   "sector": "Health Care",
+   "dollar_volume_60d": 1067085042
+  },
+  {
+   "symbol": "AMT",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 464098661
+  },
+  {
+   "symbol": "AMZN",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 8868454048
+  },
+  {
+   "symbol": "APD",
+   "sector": "Materials",
+   "dollar_volume_60d": 295747374
+  },
+  {
+   "symbol": "APP",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 1228958454
+  },
+  {
+   "symbol": "AVGO",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 7958719134
+  },
+  {
+   "symbol": "AZO",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 717645193
+  },
+  {
+   "symbol": "BA",
+   "sector": "Industrials",
+   "dollar_volume_60d": 1265615526
+  },
+  {
+   "symbol": "BAC",
+   "sector": "Financials",
+   "dollar_volume_60d": 1888620654
+  },
+  {
+   "symbol": "BKNG",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 1132327223
+  },
+  {
+   "symbol": "BRK-B",
+   "sector": "Financials",
+   "dollar_volume_60d": 2319644670
+  },
+  {
+   "symbol": "CAT",
+   "sector": "Industrials",
+   "dollar_volume_60d": 1968764125
+  },
+  {
+   "symbol": "CBRE",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 282826505
+  },
+  {
+   "symbol": "CEG",
+   "sector": "Utilities",
+   "dollar_volume_60d": 827765648
+  },
+  {
+   "symbol": "CMCSA",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 646218862
+  },
+  {
+   "symbol": "COIN",
+   "sector": "Financials",
+   "dollar_volume_60d": 1444601765
+  },
+  {
+   "symbol": "COP",
+   "sector": "Energy",
+   "dollar_volume_60d": 812120017
+  },
+  {
+   "symbol": "COST",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 2027694454
+  },
+  {
+   "symbol": "CRH",
+   "sector": "Materials",
+   "dollar_volume_60d": 415321408
+  },
+  {
+   "symbol": "CVX",
+   "sector": "Energy",
+   "dollar_volume_60d": 1647665617
+  },
+  {
+   "symbol": "DASH",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 779771590
+  },
+  {
+   "symbol": "DE",
+   "sector": "Industrials",
+   "dollar_volume_60d": 791821784
+  },
+  {
+   "symbol": "DIS",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 810428775
+  },
+  {
+   "symbol": "DLR",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 340593408
+  },
+  {
+   "symbol": "DUK",
+   "sector": "Utilities",
+   "dollar_volume_60d": 450719465
+  },
+  {
+   "symbol": "ECL",
+   "sector": "Materials",
+   "dollar_volume_60d": 363127342
+  },
+  {
+   "symbol": "EQIX",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 566089590
+  },
+  {
+   "symbol": "ETN",
+   "sector": "Industrials",
+   "dollar_volume_60d": 845687117
+  },
+  {
+   "symbol": "FCX",
+   "sector": "Materials",
+   "dollar_volume_60d": 771829183
+  },
+  {
+   "symbol": "GE",
+   "sector": "Industrials",
+   "dollar_volume_60d": 1388164599
+  },
+  {
+   "symbol": "GEV",
+   "sector": "Industrials",
+   "dollar_volume_60d": 2360935810
+  },
+  {
+   "symbol": "GOOGL",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 8177198785
+  },
+  {
+   "symbol": "GS",
+   "sector": "Financials",
+   "dollar_volume_60d": 1833662575
+  },
+  {
+   "symbol": "HD",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 1325988498
+  },
+  {
+   "symbol": "HOOD",
+   "sector": "Financials",
+   "dollar_volume_60d": 1979244903
+  },
+  {
+   "symbol": "INTC",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 9374128417
+  },
+  {
+   "symbol": "JNJ",
+   "sector": "Health Care",
+   "dollar_volume_60d": 1700458595
+  },
+  {
+   "symbol": "JPM",
+   "sector": "Financials",
+   "dollar_volume_60d": 2249679855
+  },
+  {
+   "symbol": "KO",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 1463919329
+  },
+  {
+   "symbol": "LIN",
+   "sector": "Materials",
+   "dollar_volume_60d": 922331221
+  },
+  {
+   "symbol": "LLY",
+   "sector": "Health Care",
+   "dollar_volume_60d": 2846983494
+  },
+  {
+   "symbol": "MA",
+   "sector": "Financials",
+   "dollar_volume_60d": 1714284533
+  },
+  {
+   "symbol": "MCD",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 1254609972
+  },
+  {
+   "symbol": "MDLZ",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 456368604
+  },
+  {
+   "symbol": "MDT",
+   "sector": "Health Care",
+   "dollar_volume_60d": 909045927
+  },
+  {
+   "symbol": "META",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 11905629010
+  },
+  {
+   "symbol": "MLM",
+   "sector": "Materials",
+   "dollar_volume_60d": 395279186
+  },
+  {
+   "symbol": "MO",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 547814228
+  },
+  {
+   "symbol": "MPC",
+   "sector": "Energy",
+   "dollar_volume_60d": 917894664
+  },
+  {
+   "symbol": "MRK",
+   "sector": "Health Care",
+   "dollar_volume_60d": 1321771674
+  },
+  {
+   "symbol": "MRNA",
+   "sector": "Health Care",
+   "dollar_volume_60d": 3172288559
+  },
+  {
+   "symbol": "MRVL",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 4777908743
+  },
+  {
+   "symbol": "MSFT",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 10558319109
+  },
+  {
+   "symbol": "MU",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 23784063359
+  },
+  {
+   "symbol": "NEE",
+   "sector": "Utilities",
+   "dollar_volume_60d": 960707272
+  },
+  {
+   "symbol": "NEM",
+   "sector": "Materials",
+   "dollar_volume_60d": 736086778
+  },
+  {
+   "symbol": "NFLX",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 2421730450
+  },
+  {
+   "symbol": "NKE",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 1076354563
+  },
+  {
+   "symbol": "NRG",
+   "sector": "Utilities",
+   "dollar_volume_60d": 314826543
+  },
+  {
+   "symbol": "NUE",
+   "sector": "Materials",
+   "dollar_volume_60d": 311126912
+  },
+  {
+   "symbol": "NVDA",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 24649437334
+  },
+  {
+   "symbol": "O",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 399671946
+  },
+  {
+   "symbol": "OXY",
+   "sector": "Energy",
+   "dollar_volume_60d": 513443776
+  },
+  {
+   "symbol": "PCG",
+   "sector": "Utilities",
+   "dollar_volume_60d": 467525136
+  },
+  {
+   "symbol": "PEP",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 1173811319
+  },
+  {
+   "symbol": "PG",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 1277178378
+  },
+  {
+   "symbol": "PLD",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 454880460
+  },
+  {
+   "symbol": "PLTR",
+   "sector": "Information Technology",
+   "dollar_volume_60d": 4279237437
+  },
+  {
+   "symbol": "PM",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 828376457
+  },
+  {
+   "symbol": "PSX",
+   "sector": "Energy",
+   "dollar_volume_60d": 742893128
+  },
+  {
+   "symbol": "RTX",
+   "sector": "Industrials",
+   "dollar_volume_60d": 813506825
+  },
+  {
+   "symbol": "SHW",
+   "sector": "Materials",
+   "dollar_volume_60d": 552685514
+  },
+  {
+   "symbol": "SLB",
+   "sector": "Energy",
+   "dollar_volume_60d": 619701815
+  },
+  {
+   "symbol": "SO",
+   "sector": "Utilities",
+   "dollar_volume_60d": 517351149
+  },
+  {
+   "symbol": "T",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 957806460
+  },
+  {
+   "symbol": "TGT",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 567945359
+  },
+  {
+   "symbol": "TJX",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 976024573
+  },
+  {
+   "symbol": "TMO",
+   "sector": "Health Care",
+   "dollar_volume_60d": 1354174368
+  },
+  {
+   "symbol": "TMUS",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 821518755
+  },
+  {
+   "symbol": "TSLA",
+   "sector": "Consumer Discretionary",
+   "dollar_volume_60d": 12815429127
+  },
+  {
+   "symbol": "UBER",
+   "sector": "Industrials",
+   "dollar_volume_60d": 1139559346
+  },
+  {
+   "symbol": "UNH",
+   "sector": "Health Care",
+   "dollar_volume_60d": 1809089265
+  },
+  {
+   "symbol": "V",
+   "sector": "Financials",
+   "dollar_volume_60d": 2339389865
+  },
+  {
+   "symbol": "VLO",
+   "sector": "Energy",
+   "dollar_volume_60d": 1120339004
+  },
+  {
+   "symbol": "VMRK",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 309690992
+  },
+  {
+   "symbol": "VRT",
+   "sector": "Industrials",
+   "dollar_volume_60d": 1223310149
+  },
+  {
+   "symbol": "VST",
+   "sector": "Utilities",
+   "dollar_volume_60d": 691222828
+  },
+  {
+   "symbol": "VTR",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 268676142
+  },
+  {
+   "symbol": "VZ",
+   "sector": "Communication Services",
+   "dollar_volume_60d": 1022321905
+  },
+  {
+   "symbol": "WELL",
+   "sector": "Real Estate",
+   "dollar_volume_60d": 572329338
+  },
+  {
+   "symbol": "WFC",
+   "sector": "Financials",
+   "dollar_volume_60d": 1132325095
+  },
+  {
+   "symbol": "WMB",
+   "sector": "Energy",
+   "dollar_volume_60d": 540321447
+  },
+  {
+   "symbol": "WMT",
+   "sector": "Consumer Staples",
+   "dollar_volume_60d": 2438550237
+  },
+  {
+   "symbol": "XEL",
+   "sector": "Utilities",
+   "dollar_volume_60d": 422758308
+  },
+  {
+   "symbol": "XOM",
+   "sector": "Energy",
+   "dollar_volume_60d": 2098869064
+  }
+ ]
+}

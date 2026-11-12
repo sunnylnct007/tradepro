@@ -72,3 +72,13 @@ def test_the_provider_now_writes_raw_with_the_factor():
     assert np.allclose(n["close"], 100.0)
     assert np.allclose(n["adj_factor"], 0.9)
     assert "adj close" not in n.columns
+
+
+def test_volume_comes_from_yahoo_even_on_ibkr_rows():
+    y = _yahoo(DAYS, [100.0] * 4, np.array([1.0] * 4))
+    y["volume"] = [500, 600, 700, 800]
+    s = _stored(DAYS, [100] * 4, ["ibkr_web"] * 4)
+    s["volume"] = [3500, 4200, 4900, 5600]          # 7x off, as MU was
+    out, _ = convert(s, y)
+    assert list(out["volume"]) == [500, 600, 700, 800]
+    assert list(out["close"]) == [100.0] * 4

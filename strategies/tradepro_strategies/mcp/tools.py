@@ -4925,3 +4925,27 @@ def symbol_workup(symbol: str) -> dict:
         "fundamental story is your advisor loop's half. Both halves were "
         "needed for CRDO and both will be needed again.")
     return out
+
+
+# ── Momentum rotation (core engine) — backtest, READ-ONLY ────────────────
+# Owner, 12 Nov 2026: "we need to expose our functionality by mcp so claude
+# can optimize it". Both tools only COMPUTE: no orders, no writes. The rules
+# are pre-registered in MOMENTUM_ROTATION_GATES_V1.md; an override is a
+# variant to REPORT, not a new rule.
+
+def backtest_momentum_rotation(overrides: dict | None = None) -> dict:
+    """Backtest the monthly momentum rotation on the golden store."""
+    from dataclasses import fields
+
+    from ..momentum_rotation import Params, run
+    try:
+        return run(overrides)
+    except (TypeError, ValueError) as exc:
+        return {"error": f"bad override: {exc}",
+                "allowed": sorted(f.name for f in fields(Params))}
+
+
+def compare_momentum_rotation_variants(variants: list[dict]) -> dict:
+    """Run several variants on the same data; every row is reported."""
+    from ..momentum_rotation import compare
+    return compare(variants[:40])
