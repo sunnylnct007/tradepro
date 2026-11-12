@@ -24,7 +24,7 @@ deletion against a globbing screen loses that month silently.
 
 ## The allowlist is DEBT, not permission
 
-Nine CLIs predate this guard. They are listed so the debt is countable and so a
+The CLIs that predated this guard were listed so the debt is countable and so a
 NEW bypass cannot hide among them. The list may SHRINK, never grow. Adding an
 entry to make a build pass is precisely the trap this file exists to close —
 migrate the module instead; `post_earnings_puts` shows it is a small change.
@@ -50,20 +50,19 @@ ROOT_MODULES = ("daily_bars.py",)
 
 # Raw-globbing the bar cache. DEBT — shrink this list, never extend it.
 KNOWN_BYPASSES = {
-    # 9 Oct 2026: swing_candidates, momentum_candidates, name_context and
-    # build_universe left this list. They did not get fixed — their four
-    # near-identical loaders were merged into daily_bars.py, which still
-    # globs. One place to fix instead of four is progress; calling it fixed
-    # would be a lie, so daily_bars.py is listed below and still counted.
-    "today_setups.py",
-    "signal_audit.py",
-    "fill_replay.py",
-    "paper_session.py",
+    # 12 Nov 2026 (DATA_ARCHITECTURE step 5): today_setups, signal_audit,
+    # fill_replay and paper_session left this list, and daily_bars.py left the
+    # root list. All of them now read through daily_bars -> BarStore.read. The
+    # first three run on LAMBDA, where the glob found nothing: today-setups
+    # published 0 of 113 names as "missing" on 11 Nov.
+    #
+    # What remains is the store's own maintenance tooling, which inspects
+    # partitions as files on purpose.
     "check_daily_vs_intraday.py",
 }
 
-#: Same debt, package root rather than cli/.
-KNOWN_ROOT_BYPASSES = {"daily_bars.py"}
+#: Same debt, package root rather than cli/. Empty since 12 Nov 2026.
+KNOWN_ROOT_BYPASSES: set[str] = set()
 
 # A glob over a bar-cache partition path. The symbol segment may be an
 # interpolation (`{sym}/1d/`) OR a wildcard (`*/5m/`) — the first version of
@@ -112,8 +111,8 @@ def test_no_new_module_reads_the_bar_cache_by_glob():
         f"{offenders} read the bar cache with glob.glob(), bypassing "
         "BarStore._ensure_local and therefore the shared S3 store. That module "
         "will silently under-read wherever the local cache is incomplete.\n\n"
-        "Use BarStore.get(..., skip_fetch=True) — local, falling through to S3, "
-        "never calling a provider. See cli/post_earnings_puts.py::_bars.\n\n"
+        "Use daily_bars.load_daily / load_bars (BarStore.read underneath) — "
+        "local, falling through to S3, never calling a provider.\n\n"
         "Do NOT add the file to KNOWN_BYPASSES to make this pass."
     )
 

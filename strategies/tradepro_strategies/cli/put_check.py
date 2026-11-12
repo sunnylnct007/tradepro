@@ -42,25 +42,14 @@ def _load(sym: str, sessions: int = 1200):
 
     skip_fetch=True keeps it local + S3 and never calls a provider, so this
     stays a read-only research command.
+
+    UNTIL 12 Nov 2026 this built `BarStore()` with no base directory, which
+    raises — and the except below turned that into "no data" for EVERY symbol.
+    It now goes through the one loader.
     """
-    import datetime as _d
-    end = _d.datetime.now(_d.UTC)
-    start = end - _d.timedelta(days=int(sessions * 1.5))   # sessions -> calendar
-    try:
-        from ..bar_cache.store import BarStore
-        frame = BarStore().get(
-            canonical=sym, asset_class="us_etf", resolution="1d",
-            start=start, end=end,
-            allow_partial=True,
-            skip_fetch=True,
-            fetched_by="put_check",
-        )
-    except Exception:  # noqa: BLE001 — an unreadable symbol answers "no data"
-        return None
-    df = getattr(frame, "df", None)
-    if df is None or df.empty:
-        return None
-    return df[~df.index.duplicated(keep="last")].sort_index()
+    from ..daily_bars import load_daily
+    return load_daily(sym, lookback_days=int(sessions * 1.5),   # sessions -> calendar
+                      fetched_by="put_check")
 
 
 def _sma(c, i, n):

@@ -112,6 +112,31 @@ class S3Mirror:
             _log.warning("S3 upload failed for %s (kept local): %s", key, exc)
             return False
 
+    def list_names(self, directory: Path) -> Optional[list[str]]:
+        """Names directly under a local cache directory, as S3 holds them.
+
+        The store's own layout is the key space, so this answers "which months
+        does S3 hold for SYM/1d" without the caller knowing the layout. Returns
+        None when S3 is unreachable or denies the listing, so the caller can
+        tell "S3 holds nothing" (an empty list) from "could not ask" (None)."""
+        key = self._key(directory)
+        if key is None:
+            return None
+        prefix = key.rstrip("/") + "/"
+        names: list[str] = []
+        try:
+            pages = self._s3().get_paginator("list_objects_v2").paginate(
+                Bucket=self.bucket, Prefix=prefix, Delimiter="/")
+            for page in pages:
+                for obj in page.get("Contents") or []:
+                    names.append(obj["Key"][len(prefix):])
+                for cp in page.get("CommonPrefixes") or []:
+                    names.append(cp["Prefix"][len(prefix):].rstrip("/"))
+        except Exception as exc:  # noqa: BLE001 — fail-safe, caller decides
+            _log.warning("S3 list failed for %s: %s", prefix, exc)
+            return None
+        return names
+
     def download(self, path: Path) -> bool:
         """Read-through: fetch an object into the local cache on a local miss.
         Returns True if the file is now local (downloaded). False = not in S3

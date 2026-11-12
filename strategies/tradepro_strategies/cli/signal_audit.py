@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import glob
 import logging
 import os
 
@@ -42,13 +41,18 @@ _STRATEGIES = {
 }
 
 
-def _load_daily(cache_dir: str, sym: str):
+def _load_daily(sym: str):
+    """Daily bars through the golden store (local copy, then S3). Globbing the
+    local directory read NOTHING on Lambda, where this job runs."""
     import pandas as pd
 
-    files = sorted(glob.glob(f"{cache_dir}/{sym}/1d/*.parquet"))
-    if not files:
+    from ..daily_bars import RECENT_LOOKBACK_DAYS, load_daily
+
+    df = load_daily(sym, lookback_days=RECENT_LOOKBACK_DAYS,
+                    fetched_by="signal_audit")
+    if df is None:
         return None
-    df = pd.concat([pd.read_parquet(f) for f in files])
+    df = df.copy()
     df.columns = [c.lower() for c in df.columns]
     df.index = pd.to_datetime(df.index)
     try:
@@ -181,14 +185,14 @@ def _fetch_book(base: str, headers: dict, cfg: dict) -> tuple[list[dict], dict]:
     return positions, account
 
 
-def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
+def audit(strategy: str, base: str, headers: dict) -> dict:
     cfg = _STRATEGIES[strategy]
     positions, account = _fetch_book(base, headers, cfg)
 
     rows = []
     for p in positions:
         sym, qty, entry, price = p["symbol"], p["qty"], p["entry"], p["price"]
-        pos, last_exit = _signal(_load_daily(cache_dir, sym)) if sym else (None, None)
+        pos, last_exit = _signal(_load_daily(sym)) if sym else (None, None)
         pnl_pct = ((price / entry - 1) * 100) if (entry and price) else None
         if pos is None:
             cls = "blind"        # held but we have no bars → can't evaluate the exit
@@ -246,7 +250,7 @@ def audit(strategy: str, base: str, headers: dict, cache_dir: str) -> dict:
         for us in usyms:
             if us in held_syms or any(m["symbol"] == us for m in missed_buys):
                 continue
-            df = _load_daily(cache_dir, us)
+            df = _load_daily(us)
             pos, _ = _signal(df)
             if pos != 1.0:
                 continue
@@ -346,7 +350,6 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="tradepro-signal-audit")
     p.add_argument("--strategy", default="ichimoku_equity", choices=list(_STRATEGIES))
     p.add_argument("--api-base", default=None)
-    p.add_argument("--cache-dir", default=os.path.expanduser("~/.tradepro/bar_cache/us_etf"))
     p.add_argument("--json", action="store_true")
     p.add_argument("--push", action="store_true")
     args = p.parse_args()
@@ -358,7 +361,7 @@ def main() -> int:
     base = base.rstrip("/")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
-    art = audit(args.strategy, base, headers, args.cache_dir)
+    art = audit(args.strategy, base, headers)
 
     pnl = art["pnl"]
     log.info("%s: NLV %s vs start %s = total %s (%s%%) | held-unrealised %s | realized+costs %s",

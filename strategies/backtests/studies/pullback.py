@@ -10,11 +10,12 @@ own record can tell them apart.
 Split on the 5-session price change at entry, and on entry volume.
 """
 import os, statistics as st
+from tradepro_strategies.daily_bars import local_symbols
 from tradepro_strategies.cli.momentum_candidates import (
-    _tradeable, poison_check, _load, sma, _entry_signal, STOP_PCT, TRAIL_PCT, MAX_HOLD, BASE_DIR)
+    _tradeable, poison_check, _load, sma, _entry_signal, STOP_PCT, TRAIL_PCT, MAX_HOLD)
 
 rows = []
-for sym in [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)]:
+for sym in [s for s in local_symbols() if _tradeable(s)]:
     df = _load(sym)
     if df is None: continue
     c = df["close"].tolist(); h = df["high"].tolist(); l = df["low"].tolist()

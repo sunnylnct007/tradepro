@@ -97,16 +97,13 @@ _DIRECT_PARQUET = re.compile(
 )
 
 DIRECT_PARQUET_ALLOWED = {
-    # the store's own tooling (first four) is the writer; the rest are RETIRE (step 5)
+    # the store's own tooling: it writes, audits and grades partitions as files.
+    # Every CONSUMER left this list on 12 Nov 2026 (step 5) and reads through
+    # daily_bars -> BarStore.read.
     "strategies/tradepro_strategies/cli/bar_cache_audit.py",
     "strategies/tradepro_strategies/cli/bar_cache_cli.py",
     "strategies/tradepro_strategies/cli/bar_cache_harvest.py",
     "strategies/tradepro_strategies/cli/bar_cache_scorecard.py",
-    "strategies/tradepro_strategies/cli/build_universe.py",
-    "strategies/tradepro_strategies/cli/momentum_candidates.py",
-    "strategies/tradepro_strategies/cli/swing_candidates.py",
-    "strategies/tradepro_strategies/daily_bars.py",
-    "strategies/tradepro_strategies/mcp/tools.py",
 }
 
 

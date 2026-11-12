@@ -14,8 +14,9 @@ import sys
 
 sys.path.insert(0, ".")
 
+from tradepro_strategies.daily_bars import local_symbols
 from tradepro_strategies.cli.momentum_candidates import (  # noqa: E402
-    _tradeable, poison_check, _load, BASE_DIR)
+    _tradeable, poison_check, _load)
 
 DROP = -0.08
 LIQ_FLOOR = 25_000_000.0
@@ -30,7 +31,7 @@ def sma(c, i, n):
 def main() -> int:
     events = []          # one row per shock
     controls = {}        # symbol -> {horizon: mean forward return}
-    syms = [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)]
+    syms = [s for s in local_symbols() if _tradeable(s)]
 
     for sym in syms:
         df = _load(sym)

@@ -3734,25 +3734,19 @@ def get_symbol_outlook(symbols: list[str]) -> dict:
     The pooled edge across all names is the EVIDENCE (21,948 trades, 71% win).
     A single name's record is CONTEXT.
     """
-    import glob
-
+    from ..daily_bars import load_daily
     from ..symbol_outlook import swing_outlook
 
-    base = str(_bar_cache_base()) if "_bar_cache_base" in globals() else None
     out: dict[str, dict] = {}
     missing: list[str] = []
     for raw in symbols[:40]:
         sym = str(raw).upper().strip()
-        pattern = (f"{base}/*/{sym}/1d/*.parquet" if base
-                   else f"{__import__('pathlib').Path.home()}/.tradepro/bar_cache/*/{sym}/1d/*.parquet")
-        files = sorted(glob.glob(pattern))
-        if not files:
+        # Through the golden store: a remote MCP host holds no local copy.
+        df = load_daily(sym, fetched_by="mcp_swing_outlook")
+        if df is None:
             missing.append(sym)
             continue
         try:
-            import pandas as pd
-            df = pd.concat([pd.read_parquet(f) for f in files]).sort_index()
-            df = df[~df.index.duplicated(keep="last")]
             o = swing_outlook(
                 sym,
                 [float(x) for x in df["close"]], [float(x) for x in df["high"]],

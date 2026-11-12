@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import glob
 import logging
 import os
 
@@ -38,19 +37,19 @@ log = logging.getLogger("tradepro.today_setups")
 _MIN_BARS = 200          # need 200 for the SMA200/range context
 
 
-def _load_daily(cache_dir: str, sym: str):
+def _load_daily(sym: str):
+    """Daily bars through the golden store (local copy, then S3). Globbing the
+    local directory read NOTHING on Lambda, where this job runs."""
     import pandas as pd
 
-    files = sorted(glob.glob(f"{cache_dir}/{sym}/1d/*.parquet"))
-    if not files:
+    from ..daily_bars import RECENT_LOOKBACK_DAYS, load_daily
+
+    df = load_daily(sym, lookback_days=RECENT_LOOKBACK_DAYS,
+                    fetched_by="today_setups")
+    if df is None:
         return None
-    df = pd.concat([pd.read_parquet(f) for f in files])
+    df = df.copy()
     df.columns = [c.lower() for c in df.columns]
-    if not isinstance(df.index, pd.DatetimeIndex):
-        for c in ("date", "timestamp", "time", "datetime"):
-            if c in df.columns:
-                df = df.set_index(pd.to_datetime(df[c]))
-                break
     df.index = pd.to_datetime(df.index)
     try:
         df.index = df.index.tz_localize(None)
@@ -311,7 +310,6 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="tradepro-today-setups")
     p.add_argument("--universe", default="large_50", help="universe name (from the API)")
     p.add_argument("--api-base", default=None)
-    p.add_argument("--cache-dir", default=os.path.expanduser("~/.tradepro/bar_cache/us_etf"))
     p.add_argument("--top", type=int, default=12, help="max setups to keep (after excluded dropped)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--push", action="store_true")
@@ -362,7 +360,7 @@ def main() -> int:
 
     rows, missing = [], []
     for sym in syms:
-        s = _setup_for(_load_daily(args.cache_dir, sym))
+        s = _setup_for(_load_daily(sym))
         if s is None:
             missing.append(sym); continue
         s["symbol"] = sym

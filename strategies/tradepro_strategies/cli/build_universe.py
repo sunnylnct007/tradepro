@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import glob
 import json
 import logging
 import os
@@ -23,7 +22,6 @@ from ..universe import (MIN_PRICE, MIN_DOLLAR_VOLUME, MIN_SESSIONS, MAX_PHANTOM_
                         MIN_RECENT_COVERAGE, _instrument_ok, universe_path, poison_check)
 
 log = logging.getLogger("tradepro.build_universe")
-BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
 
 def _load(sym: str):
@@ -262,7 +260,8 @@ def main() -> int:
     a = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
-    syms = sorted(os.listdir(BASE_DIR))
+    from ..daily_bars import local_symbols
+    syms = local_symbols()
     rows = [assess(s) for s in syms]
     inc = [r for r in rows if r["include"]]
     exc = [r for r in rows if not r["include"]]

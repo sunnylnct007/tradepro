@@ -2237,6 +2237,30 @@ API harvester was pulling 169 symbols every 5 min — it competed with the golde
 IBKR's history budget. After deploy, watch the 5m lane's `Sources:` line and the probe log.
 Remaining: drop `ibkr_price_bars` by migration after a parity week.
 
+### 2026-11-12 (20:50) — STEP 5: every consumer reads bars through the store
+
+`BarStore.read` is the read-only path: it lists a series' months locally AND in S3 and never
+calls a provider. `daily_bars.load_daily` / `load_bars` / `latest_intraday_session` sit on it and
+are the only way consumers read bars. Moved onto it: the two candidate screens, build_universe,
+today_setups, signal_audit, fill_replay, paper_session's latest closes, put_check, the MCP symbol
+outlook, and seven studies. Both glob guards shrank to store tooling only.
+
+Found on the way, all three silent:
+- **Lambda read nothing.** today_setups, signal_audit and fill_replay run on Lambda and globbed an
+  empty local dir. today-setups published 0 of 113 names, all "missing", on 11 Nov. They now read
+  S3 with an 800-day lookback.
+- **put_check answered "no data" for every symbol.** It built `BarStore()` with no directory; the
+  TypeError was swallowed.
+- **The store could not read any `=F` future.** pyarrow read `CL=F` as a hive partition. Fixed at
+  all five read sites in store.py.
+
+Parity on this Mac before the switch: 994 of 1006 daily series byte-identical; the 12 others were
+the futures above, now identical closes. Intraday "latest price": a session older than 10 days
+now shows no price instead of a stale one (31 of the first 60 names had no 5m bar in 10 days).
+
+Open: the remote MCP container has no bucket setting and carries static SES keys that outrank the
+instance role, so its outlook tool still finds no bars (unchanged by this step).
+
 ### 2026-11-12 (17:10) — the start-of-run declines were IBKR WARM-UP (PR #388)
 
 First run with decline messages (#387): `ibkr_web_ok 112, yfinance_ok 4`, and the remaining
