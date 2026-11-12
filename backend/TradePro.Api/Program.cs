@@ -81,6 +81,30 @@ builder.Services.AddHttpClient<YahooSearchProvider>(c =>
 
 // Only Yahoo Finance is advertised to the registry today.
 builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<YahooFinanceProvider>());
+// The golden bar store (docs/DATA_ARCHITECTURE.md): parquet written by the
+// Python harvester, mirrored to S3. Registered as "bar_cache"; becomes the
+// default for /marketdata/candles via Providers:Default once the EC2 role can
+// read the bucket. S3 when BarCache:Bucket is set, a directory when
+// BarCache:LocalDir is set, otherwise a provider that answers EMPTY and says
+// it is unconfigured — never a silent fallback to a live feed.
+builder.Services
+    .AddOptions<TradePro.Api.Providers.BarCache.BarCacheOptions>()
+    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.BarCache.BarCacheOptions.SectionName));
+builder.Services.AddSingleton<TradePro.Api.Providers.BarCache.IBarCacheBlobs>(sp =>
+{
+    var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.BarCache.BarCacheOptions>>();
+    TradePro.Api.Providers.BarCache.IBarCacheBlobs inner =
+        !string.IsNullOrWhiteSpace(o.Value.Bucket)
+            ? new TradePro.Api.Providers.BarCache.S3BarCacheBlobs(o.Value.Bucket!, o.Value.Prefix, o.Value.Region)
+        : !string.IsNullOrWhiteSpace(o.Value.LocalDir)
+            ? new TradePro.Api.Providers.BarCache.LocalDirectoryBarCacheBlobs(o.Value.LocalDir!)
+        : new TradePro.Api.Providers.BarCache.UnconfiguredBarCacheBlobs();
+    sp.GetRequiredService<ILoggerFactory>().CreateLogger("bar_cache")
+      .LogInformation("bar_cache provider reads from {Location}", inner.Location);
+    return new TradePro.Api.Providers.BarCache.CachingBarCacheBlobs(inner, o);
+});
+builder.Services.AddScoped<TradePro.Api.Providers.BarCache.BarCacheStoreProvider>();
+builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<TradePro.Api.Providers.BarCache.BarCacheStoreProvider>());
 builder.Services.AddScoped<IMarketDataRegistry, MarketDataRegistry>();
 
 // Trading 212 integration — read-only portfolio + instruments registry.
