@@ -837,8 +837,8 @@ function MarketDataBanner() {
   const [pausing, setPausing] = useState(false);
 
   const refreshPaused = useCallback(() => {
-    api.ibkrHarvesterStatus()
-      .then((h) => setPaused(!!(h as { paused?: boolean })?.paused))
+    api.ibkrPauseState()
+      .then((h) => setPaused(!!h.paused))
       .catch(() => setPaused(null));
   }, []);
 

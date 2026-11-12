@@ -503,7 +503,6 @@ public static class StrangleDecisionLogEndpoints
         g.MapGet("/pnl", async (
             NpgsqlDataSource db,
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
-            TradePro.Api.Providers.IBKR.IBKRHarvesterStatus feed,
             CancellationToken ct,
             int days = 1) =>
         {
@@ -711,29 +710,38 @@ public static class StrangleDecisionLogEndpoints
             // whole afternoon and fell back to Yahoo -- and the position marks
             // drifted with it.
             //
-            // The system KNEW. harvester-status has said lastTickIbkr: 0 all
-            // along; nothing asked it. A dead feed produced a confident wrong
-            // number with no warning, which is the failure this desk keeps
-            // paying for.
+            // The system KNEW: the feed was dead and nothing asked. A dead feed
+            // produced a confident wrong number with no warning, which is the
+            // failure this desk keeps paying for.
+            //
+            // ASK THE FEED, NOW. Until 12 Nov 2026 this read the API bar
+            // harvester's last cycle ("IBKR served 0 of N symbols"). That measured
+            // HISTORY, not live prices — on 12 Nov history was rate-limited while
+            // quotes were fine, which would have raised a false alarm — and the
+            // harvester was retired (docs/DATA_ARCHITECTURE.md step 4). One live
+            // SPY snapshot, classified by the same rule the quote endpoint uses.
             //
             // This does NOT claim to detect every bad mark. It reports the one
             // condition we have actually seen corrupt them, and names it.
-            var ticked = feed.LastTickIbkr + feed.LastTickYahoo + feed.LastTickFailed;
-            var ibkrDry = feed.LastTickAtUtc is not null && ticked > 0 && feed.LastTickIbkr == 0;
+            var feed = await TradePro.Api.Providers.IBKR.IbkrLiveFeed.ProbeAsync(ibkr, "SPY", ct);
+            var ibkrDry = feed.State is TradePro.Api.Providers.IBKR.LiveFeedState.Dark
+                                     or TradePro.Api.Providers.IBKR.LiveFeedState.Unreachable;
             object marketData = new
             {
-                lastTickAtUtc = feed.LastTickAtUtc,
-                fromIbkr = feed.LastTickIbkr,
-                fromFallback = feed.LastTickYahoo,
-                failed = feed.LastTickFailed,
-                // Null = never ticked this process, which is NOT the same as
-                // unhealthy and must not raise the alarm on its own.
-                healthy = feed.LastTickAtUtc is null ? (bool?)null : !ibkrDry,
+                probe = feed.Symbol,
+                checkedAtUtc = feed.CheckedAtUtc,
+                state = feed.State.ToString().ToLowerInvariant(),
+                last = feed.Last,
+                // Closed/halted = no live print expected; NOT unhealthy, and must
+                // not raise the alarm on its own (null, not false).
+                healthy = feed.State == TradePro.Api.Providers.IBKR.LiveFeedState.Live
+                    ? true : ibkrDry ? false : (bool?)null,
                 note = ibkrDry
-                    ? $"IBKR served 0 of {ticked} symbols on the last cycle — the market-data "
-                    + "session is down and everything is on the fallback. The OPEN half below is "
-                    + "marked off that feed and has been seen to drift by hundreds while the "
-                    + "index did not move. Realised figures are unaffected: they come from fills."
+                    ? $"IBKR market data is {feed.State.ToString().ToUpperInvariant()} for {feed.Symbol} "
+                    + $"(checked {feed.CheckedAtUtc:HH:mm:ss}Z{(feed.Detail is null ? "" : ": " + feed.Detail)}). "
+                    + "The OPEN half below is marked off that feed and has been seen to drift by "
+                    + "hundreds while the index did not move. Realised figures are unaffected: they "
+                    + "come from fills."
                     : null,
             };
 

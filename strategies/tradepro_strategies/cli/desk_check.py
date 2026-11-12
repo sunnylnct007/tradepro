@@ -204,52 +204,50 @@ def _get(base: str, token: str | None, path: str, timeout: int = 30):
 
 
 # ── the checks ────────────────────────────────────────────────────────────
-def check_idle_machinery(base: str, token: str | None) -> list[Check]:
-    """Things that are ENABLED, consuming budget, and producing nothing.
+def check_golden_store(base: str, token: str | None, now_utc=None) -> list[Check]:
+    """Is the ONE bar store current, as the desk itself reads it?
 
-    Measured 4 Oct 2026: the IBKR bar harvester was enabled on 169 symbols,
-    looping every 300s through every US session, with lastTickAtUtc=null and
-    0 bars written — EVER. It exists to feed `orb`, a strategy that failed
-    its pre-registered gates (3 of 5) and does not run.
-
-    Nothing was wrong enough to alarm: no error, no failure, no red job. It
-    simply did nothing, expensively, in silence. That is the hardest class of
-    waste to notice and the easiest to leave running for months — so it gets
-    its own check rather than relying on anyone reading a status panel.
+    Replaces the "idle machinery" check, which watched the API bar harvester —
+    retired 12 Nov 2026 with the Postgres bar table (docs/DATA_ARCHITECTURE.md
+    step 4). Asks the live candles endpoint (the read path every screen uses)
+    for SPY's daily series and compares the newest bar with the last SETTLED
+    session from the store's own calendar, so a holiday is never a warning.
     """
+    import datetime as _dt
+    now = now_utc or _dt.datetime.now(_dt.timezone.utc)
+    frm = (now - _dt.timedelta(days=14)).strftime("%Y-%m-%d")
+    to = (now + _dt.timedelta(days=1)).strftime("%Y-%m-%d")
     try:
-        h = _get(base, token, "/api/integrations/ibkr/harvester-status", timeout=30)
+        s = _get(base, token, f"/api/marketdata/candles?symbol=SPY&interval=1d&from={frm}&to={to}",
+                 timeout=60)
     except Exception as exc:  # noqa: BLE001
-        return [Check("Idle machinery", UNKNOWN,
-                      f"could not read harvester status ({str(exc)[:60]})",
-                      "an unverified job is not a working one")]
-    if not isinstance(h, dict):
-        return [Check("Idle machinery", UNKNOWN, "harvester status was not an object")]
-
-    if not h.get("enabled"):
-        return [Check("Idle machinery", OK, "IBKR bar harvester is disabled — nothing idling")]
-
-    syms = h.get("configuredSymbolCount") or 0
-    secs = h.get("intervalSeconds") or 0
-    res = h.get("resolution") or "?"
-    if h.get("lastTickAtUtc") is None:
-        return [Check(
-            "Idle machinery", WARN,
-            f"IBKR bar harvester ENABLED on {syms} symbol(s) at {res} every {secs}s "
-            f"and has NEVER ticked (lastTickAtUtc is null, 0 bars written). "
-            f"{res} is read only by `orb`, which failed its gates and does not run.",
-            "disable it (IBKR:Harvester:Enabled=false) or give it a consumer")]
-
-    if (h.get("lastTickBarsWritten") or 0) == 0 and (h.get("backfilledSymbols") or 0) == 0:
-        return [Check(
-            "Idle machinery", WARN,
-            f"IBKR bar harvester ticked but wrote 0 bars and has backfilled "
-            f"0/{syms} symbol(s) at {res}",
-            "it is running and achieving nothing — disable it or fix the fetch")]
-
-    return [Check("Idle machinery", OK,
-                  f"IBKR bar harvester: {h.get('backfilledSymbols')}/{syms} backfilled, "
-                  f"last tick wrote {h.get('lastTickBarsWritten')} bar(s)")]
+        return [Check("Golden store", UNKNOWN,
+                      f"could not read candles ({str(exc)[:60]})",
+                      "the API may be down — check /health")]
+    if not isinstance(s, dict):
+        return [Check("Golden store", UNKNOWN, "candles reply was not an object")]
+    where = s.get("location") or "?"
+    if s.get("provider") != "bar_cache":
+        return [Check("Golden store", WARN,
+                      f"candles are served by '{s.get('provider')}', not the golden store",
+                      "Providers__Default should be bar_cache (docker-compose.aws.yaml)")]
+    newest = s.get("newestBar")
+    if s.get("note") or not newest:
+        return [Check("Golden store", BROKEN,
+                      f"no SPY daily bars from {where}: {(s.get('note') or 'empty series')[:90]}",
+                      "the API cannot read the store — check the EC2 role and the bucket")]
+    from tradepro_strategies.bar_cache.asset_classes import UsEtfPlugin
+    today = now.date()
+    sessions = [d for d in UsEtfPlugin().expected_session_dates(today - _dt.timedelta(days=14), today)
+                if d < today]
+    expected = max(sessions) if sessions else None
+    got = _dt.date.fromisoformat(str(newest)[:10])
+    srcs = s.get("sources") or {}
+    tail = f"newest SPY daily bar {got} (expected ≥ {expected}) · {where} · sources {srcs}"
+    if expected and got < expected:
+        return [Check("Golden store", WARN, tail,
+                      "the daily harvest did not land the last settled session — see bar-cache-harvest-daily")]
+    return [Check("Golden store", OK, tail)]
 
 
 def check_code_version() -> list[Check]:
@@ -929,7 +927,7 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_broker_agrees(base, token),
                lambda: check_round_trips(base, token),
                lambda: check_option_legs_vs_book(base, token),
-               lambda: check_idle_machinery(base, token),
+               lambda: check_golden_store(base, token),
                check_code_version,
                check_lane_schedules,
                check_host_power):

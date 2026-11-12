@@ -88,73 +88,26 @@ log "daily 1d harvest (IBKR-primary: ibkr_web→ibkr→ig→yfinance): $N symbol
 # strategy's daily bars are IBKR-GOOD; yfinance only fills names IBKR can't serve
 # (flagged BRONZE, never silent). Needs the API reachable for ibkr_web (checked
 # above); if EC2 is unreachable it degrades gracefully to yfinance.
-# NOT exec: exec replaces this shell, so anything after it never runs. The
-# push below has to happen in the same job as the harvest that produced the
-# bars, or the two stores drift again the first night someone forgets.
+# NOT exec: exec replaces this shell, so anything after it (sector stress)
+# never runs.
 "$UV" run tradepro-bar-cache-harvest --resolution 1d --asset us_etf \
     --symbols "$SYMS" --from "$FROM" --to "$TO" --allow-partial --verbose \
     "${API_ARGS[@]+"${API_ARGS[@]}"}" >>"$LOG" 2>&1
 HARVEST_RC=$?
 if [[ $HARVEST_RC -ne 0 ]]; then
-    log "FATAL: harvest exited $HARVEST_RC — NOT pushing a partial store"
+    log "FATAL: harvest exited $HARVEST_RC"
     exit $HARVEST_RC
 fi
 
-# ── PUSH TO THE STORE THE CHARTS READ ────────────────────────────────────
-#
-# Until 9 Sep 2026 this job stopped at the line above, and its bars went only
-# to the local parquet + S3 — "which is what the strategies read", as the
-# comment above still says. The CHARTS read postgres ibkr_price_bars, filled
-# by a separate API-side harvester that runs ~19:59Z, one minute BEFORE the
-# US close, and therefore almost never captured the session just ended.
-#
-# On 8 Sep DOCN closed 126.69 against 112.47 — a 12.6% day — and the desk chart
-# still drew 4 Sep under a STALE DATA banner nobody could explain. The bar
-# existed. It was in the other store.
-#
-# One writer, once, after the close.
-if [[ ${#API_ARGS[@]} -eq 0 ]]; then
-    log "WARNING: EC2 unreachable — bars are LOCAL ONLY and the charts will be "\
-        "behind until the next successful run pushes them"
-    exit 0
-fi
-
-log "pushing 1d bars -> ibkr_price_bars (the store the charts read)"
-"$UV" run tradepro-bar-cache-push --resolution 1d --asset us_etf \
-    --symbols "$SYMS" --days 10 --api-base "$API_URL" >>"$LOG" 2>&1
-PUSH_RC=$?
-if [[ $PUSH_RC -ne 0 ]]; then
-    # LOUD. A harvest that succeeds while the push fails is the exact shape of
-    # the bug this replaces: green logs, and a chart quietly a session behind.
-    log "FATAL: bar push exited $PUSH_RC — the CHARTS ARE STALE even though the "\
-        "harvest succeeded. See $LOG"
-    exit $PUSH_RC
-fi
-# VERIFY, DO NOT ASSERT (26 Sep 2026).
-#
-# This line used to read "push complete — both stores now hold the same
-# session". That was a CLAIM. Nothing compared them, and on 26 Sep the check
-# that finally did found 719 of 1006 symbols two sessions behind, plus 37 the
-# chart store had never heard of — including AES, which momentum had bought two
-# days earlier. The push had "succeeded" every time it did not crash.
-#
-# A successful POST proves the rows we SENT were accepted. It says nothing
-# about the symbols we did not send, a batch that half-landed, or a store that
-# was rebuilt underneath us. So the claim is now earned: reconcile the chart
-# store against the golden parquet, repair what drifted, and FAIL if anything
-# is still behind afterwards.
-log "verifying the chart store against the golden parquet"
-"$UV" run tradepro-bar-reconcile --resolution 1d --asset us_etf \
-    --api-base "$API_URL" --repair >>"$LOG" 2>&1
-RECON_RC=$?
-if [[ $RECON_RC -ne 0 ]]; then
-    # Non-zero means drift SURVIVED the repair — a real fault, not a blip.
-    log "FATAL: chart store still diverges from the golden store after repair "\
-        "(reconcile exited $RECON_RC). The charts are NOT showing what the "\
-        "strategies read. See $LOG"
-    exit $RECON_RC
-fi
-log "push complete and VERIFIED — the chart store matches the golden parquet"
+# ── ONE STORE ────────────────────────────────────────────────────────────
+# The harvest above wrote the golden store (local parquet + S3). Until
+# 12 Nov 2026 this job then pushed the same bars into the Postgres bar table
+# for the charts and reconciled the two. The charts now read the golden store
+# through /marketdata/candles, so there is nothing to push and nothing to
+# reconcile (docs/DATA_ARCHITECTURE.md step 4). The push also sat behind an
+# "exit 0 if EC2 is unreachable" guard that silently skipped everything below
+# it, including sector stress.
+log "harvest complete — golden store updated (no second store to push)"
 
 # ── Sector stress (SELLOFF_PLAYBOOK_GATES_V1 §S2, 10 Nov 2026) ──────────────
 # With tonight's bars settled, publish which sector ETFs (and SPY/QQQ) sit ≥ 8%
