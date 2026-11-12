@@ -166,16 +166,6 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     "earnings_harvest": ("tradepro_strategies.cli.earnings_harvest", []),
     "live_portfolio": ("tradepro_strategies.cli.live_portfolio",
                        ["--strategy", "ichimoku_equity", "--push"]),
-    "fill_replay": ("tradepro_strategies.cli.fill_replay",
-                    ["--strategy", "ichimoku_equity_ibkr", "--push"]),
-    "today_setups_large50": ("tradepro_strategies.cli.today_setups",
-                             ["--universe", "large_50", "--push"]),
-    "today_setups_highbeta": ("tradepro_strategies.cli.today_setups",
-                              ["--universe", "high_beta", "--push"]),
-    "signal_audit_equity": ("tradepro_strategies.cli.signal_audit",
-                            ["--strategy", "ichimoku_equity", "--push"]),
-    "signal_audit_equity_ibkr": ("tradepro_strategies.cli.signal_audit",
-                                 ["--strategy", "ichimoku_equity_ibkr", "--push"]),
     # --rights PC --strangle-dte 7,21 verbatim from the Mac agent. This is the
     # capture the roll loop and straddle conversion are waiting on, so its
     # reliability is worth more than most of this list.

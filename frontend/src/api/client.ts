@@ -539,41 +539,6 @@ export const api = {
         notes: string;
       }>;
     }>("/api/pnl/by-strategy", { days }),
-  // Fill-replay artifact (tradepro-fill-replay): per-universe entry-extension +
-  // one-shot-vs-staggered, computed from ACTUAL OMS fills on the Mac and pushed.
-  fillReplay: (strategy: string, label?: string) =>
-    get<{
-      strategy: string;
-      label: string;
-      asOfUtc: string;
-      uploadedBy?: string | null;
-      artifact: {
-        kind: string;
-        strategy: string;
-        as_of_utc: string;
-        stagger_days: number;
-        universes: Record<string, {
-          n: number;
-          entry_dates: string[];
-          one_shot_return_pct: number;
-          staggered_return_pct: number;
-          win_rate_pct: number;
-          ext_return_corr: number;
-          ext_losers_avg: number | null;
-          ext_winners_avg: number | null;
-        }>;
-        rows: Array<{
-          symbol: string;
-          universe: string;
-          entry_date: string;
-          ext_pct: number;
-          atr_over_kijun: number;
-          return_pct: number;
-          staggered_return_pct: number;
-        }>;
-        missing: string[];
-      };
-    }>(`/api/fill-replay/${encodeURIComponent(strategy)}/latest`, label ? { label } : undefined),
   // Today's Setups scanner (tradepro-today-setups): universe ranked by entry quality.
   /** Swing candidates — the mean-reversion bracket-order list.
    *  Reuses the today_setups_results store (universe="swing"); the artifact
@@ -727,43 +692,6 @@ export const api = {
       };
     }>(`/api/today-setups/${encodeURIComponent(universe)}/latest`),
 
-  // Signal vs Position audit (tradepro-signal-audit): exits-not-firing + honest NLV P&L.
-  signalAudit: (strategy: string) =>
-    get<{
-      strategy: string;
-      asOfUtc: string;
-      artifact: {
-        kind: string;
-        strategy: string;
-        broker: string;
-        currency: string;
-        as_of_utc: string;
-        pnl: {
-          start_capital: number | null;
-          nlv: number | null;
-          cash: number | null;
-          invested_cost: number | null;
-          unrealised_on_held: number | null;
-          total_pnl: number | null;
-          realized_and_costs: number | null;
-          total_pnl_pct: number | null;
-        };
-        counts: { held: number; hold: number; exit_overdue: number; blind: number; missed_buys?: number };
-        missed_buys?: Array<{ symbol: string; universe: string }>;
-        exit_overdue: Array<{
-          symbol: string | null;
-          qty: number;
-          entry: number | null;
-          price: number | null;
-          pnl_pct: number | null;
-          classification: string;
-          exit_fired: string | null;
-          days_overdue: number | null;
-        }>;
-        blind: Array<string | null>;
-        note: string;
-      };
-    }>(`/api/signal-audit/${encodeURIComponent(strategy)}/latest`),
 
   // Central run-log — every process/machine's runs + failures, one place.
   runLog: (limit = 60, status?: string) =>
