@@ -2212,6 +2212,18 @@ Deleted: `api.ibkrBars` and the MCP tool `get_ibkr_bars`. The golden-store gate'
 SHRANK by one file (the chart). Still Postgres: `ibkrBarCoverage` on the Harvest view and the
 harvester status panel in Settings — both go with the writers in step 4.
 
+### 2026-11-12 (17:10) — the start-of-run declines were IBKR WARM-UP (PR #388)
+
+First run with decline messages (#387): `ibkr_web_ok 112, yfinance_ok 4`, and the remaining
+lines read `AAPL 5m: ibkr_web declined (network): history fetch failed (attempt 3/3):
+{"error":"Chart data unavailable"}` — the FIRST symbols of each run. IBKR's history farm answers
+that for the first requests of a burst and serves the same conid seconds later; the API's three
+quick retries (1 s, 2 s) sit inside that window. Then IG declined (403 allowance / no epic) and
+Yahoo wrote the rows. Fix: the provider recognises "Chart data unavailable" as warm-up, waits
+5 s then 10 s (`TRADEPRO_IBKR_WARMUP_BACKOFF`) and re-asks before declaring anything; an
+exhausted warm-up is its own class (`ibkr_web_warmup`), not network. Proven on the unpatched
+provider. Expect the next run ≈116/116 from IBKR.
+
 ### 2026-11-12 (16:50) — STEP 4 MAPPED (Postgres bar writers off) — not started; whole or nothing
 
 Every edge of the Postgres bar table, so the next PR deletes it in one piece:
