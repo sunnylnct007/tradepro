@@ -50,6 +50,22 @@ def _scoped_mirror_keys() -> tuple[Optional[str], Optional[str]]:
         return (None, None)
 
 
+def _instance_profile_client(region: str):
+    """An S3 client signed ONLY by the EC2 instance role, ignoring env keys."""
+    import boto3
+    import botocore.session
+    from botocore.credentials import (
+        InstanceMetadataFetcher, InstanceMetadataProvider)
+    creds = InstanceMetadataProvider(
+        iam_role_fetcher=InstanceMetadataFetcher(timeout=2, num_attempts=2),
+    ).load()
+    if creds is None:
+        raise RuntimeError("instance-profile requested but no instance role is reachable")
+    bsess = botocore.session.get_session()
+    bsess._credentials = creds  # noqa: SLF001 — refreshable role credentials
+    return boto3.Session(botocore_session=bsess, region_name=region).client("s3")
+
+
 class S3Mirror:
     """Maps a local cache path ↔ an S3 key (same relative layout) and does
     best-effort upload/download. Every method is fail-safe: errors log + return
@@ -76,6 +92,16 @@ class S3Mirror:
             # is deliberately delete-less, so this cannot wipe the backup.
             region = (os.environ.get("AWS_REGION")
                       or os.environ.get("TRADEPRO_AWS_REGION") or "eu-west-2")
+            # 0. EXPLICIT instance role (12 Nov 2026). The EC2 containers carry
+            #    static SES keys in their env, and boto3's standard chain takes
+            #    env keys FIRST — so S3 was asked with the email user's keys
+            #    and denied. The API solved the same thing with
+            #    BarCache__CredentialSource=instance-profile; this is that
+            #    switch for the Python side (the MCP container).
+            if (os.environ.get("TRADEPRO_BAR_CACHE_S3_CREDENTIALS") or "").strip().lower() \
+                    == "instance-profile":
+                self._client = _instance_profile_client(region)
+                return self._client
             try:
                 client = boto3.client("s3", region_name=region)
                 # Force credential resolution NOW so a missing chain falls
