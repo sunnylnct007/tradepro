@@ -35,7 +35,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -143,57 +142,75 @@ def _rewrite_provider(frame: pd.DataFrame, name: str):
     return p
 
 
-def run(symbols: list[str], *, dry_run: bool, pause_s: float) -> int:
-    from ..bar_cache import asset_classes  # noqa: F401 — registers plugins
+def _one(sym: str, reader, dry_run: bool) -> dict:
+    """Rewrite one symbol. Returns its stats (or {'failed': msg})."""
     from ..bar_cache.providers import register_provider
     from ..bar_cache.store import BarStore
+
+    stored = reader.read(sym, ASSET, "1d", fetched_by="reconvention").df
+    if stored is None or stored.empty:
+        return {"skipped": True}
+    stored = stored[~stored.index.duplicated(keep="last")].sort_index()
+    yahoo = _yahoo_raw(sym)
+    new, st = convert(stored, yahoo)
+    st["no_yahoo"] = yahoo is None
+    st["before"], _ = switch_jumps(stored)
+    st["after"], _ = switch_jumps(new)
+    if not dry_run:
+        prov = register_provider(_rewrite_provider(new, f"reconvention_{sym}"))
+        store = BarStore(reader.base_dir, provider_chain=[prov.name])
+        first = new.index.min()
+        store.get(sym, ASSET, "1d",
+                  datetime(first.year, first.month, 1, tzinfo=timezone.utc),
+                  datetime.now(timezone.utc) + timedelta(days=1),
+                  force_refresh=True, allow_partial=True, fetched_by="reconvention")
+    return st
+
+
+def run(symbols: list[str], *, dry_run: bool, workers: int = 1) -> int:
+    """Each symbol is independent and the rewrite is idempotent (re-running a
+    half-written symbol gives the same result), so symbols run in parallel.
+    The cost is S3 uploads (~230 partitions a symbol), not CPU."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from ..bar_cache import asset_classes  # noqa: F401 — registers plugins
     from ..ibkr_bars import bar_store
 
     reader = bar_store()
-    totals = {"symbols": 0, "rewritten": 0, "no_yahoo": 0, "failed": 0,
-              "rows": 0, "no_yahoo_date": 0, "gap_filled": 0}
+    totals = {"symbols": len(symbols), "rewritten": 0, "no_yahoo": 0, "failed": 0,
+              "rows": 0, "no_yahoo_date": 0, "gap_filled": 0, "still_jumpy": 0}
     worst: list[tuple[str, float]] = []
-    for i, sym in enumerate(symbols, 1):
-        totals["symbols"] += 1
-        try:
-            stored = reader.read(sym, ASSET, "1d", fetched_by="reconvention").df
-            if stored is None or stored.empty:
+    failed: list[str] = []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        futs = {ex.submit(_one, s, reader, dry_run): s for s in symbols}
+        for i, f in enumerate(as_completed(futs), 1):
+            sym = futs[f]
+            try:
+                st = f.result()
+            except Exception as exc:  # noqa: BLE001 — one symbol never stops the run
+                totals["failed"] += 1
+                failed.append(sym)
+                log.warning("%s FAILED: %s", sym, str(exc)[:200])
                 continue
-            stored = stored[~stored.index.duplicated(keep="last")].sort_index()
-            yahoo = _yahoo_raw(sym)
-            if yahoo is None:
-                totals["no_yahoo"] += 1
-            new, st = convert(stored, yahoo)
-            before, _ = switch_jumps(stored)
-            after, _ = switch_jumps(new)
+            if st.get("skipped"):
+                continue
+            totals["rewritten"] += 0 if dry_run else 1
+            totals["no_yahoo"] += int(st["no_yahoo"])
             totals["rows"] += st["rows"]
             totals["no_yahoo_date"] += st["no_yahoo_date"]
             totals["gap_filled"] += st["gap_filled"]
+            totals["still_jumpy"] += int(st["after"] > 0.05)
             if st["ibkr_vs_yahoo_raw_p95"] is not None:
                 worst.append((sym, st["ibkr_vs_yahoo_raw_p95"]))
             log.info("%s rows=%d ibkr_kept=%d replaced=%d gap_filled=%d no_yahoo_date=%d "
                      ">10%%-at-switch %.3f -> %.3f", sym, st["rows"], st["ibkr_kept"],
-                     st["replaced"], st["gap_filled"], st["no_yahoo_date"], before, after)
-            if dry_run:
-                continue
-            prov = register_provider(_rewrite_provider(new, f"reconvention_{sym}"))
-            store = BarStore(reader.base_dir, provider_chain=[prov.name])
-            first = new.index.min()
-            store.get(sym, ASSET, "1d",
-                      datetime(first.year, first.month, 1, tzinfo=timezone.utc),
-                      datetime.now(timezone.utc) + timedelta(days=1),
-                      force_refresh=True, allow_partial=True,
-                      fetched_by="reconvention")
-            totals["rewritten"] += 1
-        except Exception as exc:  # noqa: BLE001 — one symbol never stops the run
-            totals["failed"] += 1
-            log.warning("%s FAILED: %s", sym, str(exc)[:200])
-        if pause_s:
-            time.sleep(pause_s)
-        if i % 50 == 0:
-            log.info("progress %d/%d %s", i, len(symbols), totals)
+                     st["replaced"], st["gap_filled"], st["no_yahoo_date"],
+                     st["before"], st["after"])
+            if i % 50 == 0:
+                log.info("progress %d/%d %s", i, len(symbols), totals)
     worst.sort(key=lambda x: -x[1])
     print("RECONVENTION", "DRY-RUN" if dry_run else "WRITE", totals)
+    print("failed:", failed[:40])
     print("IBKR rows furthest from yahoo raw (p95):",
           [(s, round(v, 4)) for s, v in worst[:8]])
     return 1 if totals["failed"] else 0
@@ -206,7 +223,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--symbols", help="comma-separated")
     g.add_argument("--all", action="store_true", help="every symbol this machine's store holds")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--pause", type=float, default=0.3, help="seconds between symbols (yahoo)")
+    ap.add_argument("--workers", type=int, default=8, help="symbols in parallel (S3-bound)")
+    ap.add_argument("--from", dest="start_from", help="skip symbols sorting before this one (resume)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if a.all:
@@ -214,7 +232,9 @@ def main(argv: list[str] | None = None) -> int:
         syms = local_symbols()
     else:
         syms = [s.strip().upper() for s in a.symbols.split(",") if s.strip()]
-    return run(syms, dry_run=a.dry_run, pause_s=a.pause)
+    if a.start_from:
+        syms = [x for x in syms if x >= a.start_from.upper()]
+    return run(syms, dry_run=a.dry_run, workers=a.workers)
 
 
 if __name__ == "__main__":
