@@ -2204,6 +2204,14 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-12 (15:30) — step 3: the intraday chart reads the golden store (PR #386)
+
+Last screen on the Postgres bar table. `CandleIchimokuChart` now asks `/marketdata/candles`
+with its interval (1m/5m/15m/1h/1d) — one read path for every resolution a human looks at.
+Deleted: `api.ibkrBars` and the MCP tool `get_ibkr_bars`. The golden-store gate's allow-list
+SHRANK by one file (the chart). Still Postgres: `ibkrBarCoverage` on the Harvest view and the
+harvester status panel in Settings — both go with the writers in step 4.
+
 ### 2026-11-12 (15:40) — IBKR history PACING was being read as a network fault (PR #385)
 
 Visible only because the series now carries `sources`: SPY 5m today = 74 yfinance / 7 ibkr_web.

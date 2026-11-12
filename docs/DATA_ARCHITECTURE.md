@@ -77,7 +77,7 @@ code is deleted when its last caller goes.
 
 1. **This PR.** The ruling, the inventory, the structural test, dead docs removed.
 2. **API reads the golden store.** DONE 12 Nov 2026 (#381, #383; ccit-infra #2 grants the EC2 role read on `bar_cache/*`). `bar_cache` provider (`Parquet.Net` + S3 via the instance role, local directory for tests) is the default `IMarketDataProvider`; `/marketdata/candles` serves 1m/5m/1d from it with `sources`, `newestBar` and `location` on the series. The Postgres tail merge is skipped for the store and deleted in step 4.
-3. **Frontend single call.** Intraday chart moves to `candles`; `ibkrBars` and its MCP tools go.
+3. **Frontend single call.** DONE 12 Nov 2026 (#386). The intraday chart asks `/marketdata/candles` with its interval; the `ibkrBars` client call and the `get_ibkr_bars` MCP tool are deleted. The Harvest view's coverage table still reads the Postgres summary until step 4.
 4. **Postgres writers off.** `IBKRBarHarvester`, `IBKRDailyBackfillService`, `data-trust/bars` push and reconcile removed; `ibkr_price_bars` dropped after one week of parity between the two.
 5. **Python readers through the store.** `daily_bars.load_daily` becomes a thin wrapper over `BarStore.get`, then each direct parquet reader is moved and the wrapper deleted.
 6. **Legacy caches deleted.** `cache.py` and `paper/sources/cache.py` and their directories. Blocked on one decision: raw OHLC + `adj_factor` (the store convention) versus adjusted close (the legacy convention) for the handful of callers that compute long-horizon returns. Owner decision; everything before this step does not depend on it.

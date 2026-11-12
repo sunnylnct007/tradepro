@@ -91,9 +91,9 @@ const PAD_DAYS = 310;
 type Props = {
   symbol: string;
   timeframe: string; // one of WINDOW_DAYS keys
-  /** Bar resolution. "1d" (default) fetches Yahoo daily candles; an intraday
-   *  value ("1m"/"5m"/"15m"/"1h") fetches the golden bar store via /marketdata/candles
-   *  (ibkr_price_bars) instead, so the harvested intraday data is chartable. */
+  /** Bar resolution: "1d" (default) or an intraday value ("1m"/"5m"/"15m"/"1h").
+   *  Every resolution is served by /marketdata/candles from the golden bar
+   *  store (docs/DATA_ARCHITECTURE.md). */
   resolution?: string;
   height?: number;
   ccy?: string | null;
