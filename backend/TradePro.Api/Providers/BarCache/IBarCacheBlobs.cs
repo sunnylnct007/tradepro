@@ -43,13 +43,21 @@ public sealed class S3BarCacheBlobs : IBarCacheBlobs, IDisposable
     private readonly string _bucket;
     private readonly string _prefix;
 
-    public S3BarCacheBlobs(string bucket, string prefix, string? region)
+    public S3BarCacheBlobs(string bucket, string prefix, string? region, string? credentialSource = "instance-profile")
     {
         _bucket = bucket;
         _prefix = prefix.Trim('/');
-        _s3 = string.IsNullOrWhiteSpace(region)
-            ? new AmazonS3Client()
-            : new AmazonS3Client(RegionEndpoint.GetBySystemName(region));
+        var endpoint = string.IsNullOrWhiteSpace(region) ? null : RegionEndpoint.GetBySystemName(region);
+        var useRole = !string.Equals(credentialSource, "default-chain", StringComparison.OrdinalIgnoreCase);
+        _s3 = (useRole, endpoint) switch
+        {
+            // The instance role is the one identity allowed to read the store;
+            // never let static SES keys in the environment shadow it.
+            (true, null) => new AmazonS3Client(new Amazon.Runtime.InstanceProfileAWSCredentials()),
+            (true, _) => new AmazonS3Client(new Amazon.Runtime.InstanceProfileAWSCredentials(), endpoint),
+            (false, null) => new AmazonS3Client(),
+            (false, _) => new AmazonS3Client(endpoint),
+        };
     }
 
     public string Location => $"s3://{_bucket}/{_prefix}";

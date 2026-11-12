@@ -9,5 +9,8 @@ const sameOrigin =
 export const config = {
   apiBaseUrl: fromEnv !== "" ? fromEnv : sameOrigin,
   defaultCurrency: import.meta.env.VITE_DEFAULT_CURRENCY ?? "GBP",
-  defaultProvider: import.meta.env.VITE_DEFAULT_PROVIDER ?? "yahoo",
+  // Candles provider the desk asks for. Empty = let the API choose its
+  // default (the golden bar store, docs/DATA_ARCHITECTURE.md). Set
+  // VITE_DEFAULT_PROVIDER=yahoo only to force the live fallback for a dev box.
+  defaultProvider: (import.meta.env.VITE_DEFAULT_PROVIDER || undefined) as string | undefined,
 };

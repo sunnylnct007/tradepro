@@ -102,6 +102,17 @@ services:
       Trading212Demo__ApiKey: "${TRADEPRO_T212_DEMO_API_KEY:-}"
       Trading212Demo__ApiSecret: "${TRADEPRO_T212_DEMO_API_SECRET:-}"
       Finnhub__ApiKey: "${TRADEPRO_FINNHUB_API_KEY:-}"
+      # Golden bar store (docs/DATA_ARCHITECTURE.md): the parquet tree the Mac
+      # harvester mirrors to S3. The API READS it through the EC2 instance role
+      # (ccit-infra: ec2-bar-cache-read) and serves /marketdata/candles from it.
+      # The bucket name is not a secret (it is in the Terraform); override via
+      # .env if the account ever changes.
+      BarCache__Bucket: "${TRADEPRO_BAR_CACHE_BUCKET:-tradepro-bar-cache-108703420282}"
+      BarCache__Region: "${AWS_DEFAULT_REGION:-eu-west-2}"
+      BarCache__CredentialSource: "${TRADEPRO_BAR_CACHE_CREDENTIALS:-instance-profile}"
+      # One read path for bars: the store is the default candles provider.
+      # Set to "yahoo" in .env to fall back explicitly (it stays labelled).
+      Providers__Default: "${TRADEPRO_CANDLES_PROVIDER:-bar_cache}"
       # AWS credentials for the Python screener (boto3 SES calls).
       # Set these in the .env file on the EC2 host using an IAM user
       # that has ses:SendEmail permission in eu-west-2.

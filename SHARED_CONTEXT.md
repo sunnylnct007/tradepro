@@ -2204,6 +2204,23 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-12 (14:50) — candles now come from the golden store (step 2 complete)
+
+Overnight: GitHub left pull_request CI runs QUEUED with no job for 18h (scheduled + manual runs
+ran fine). Fix was `gh pr close N && gh pr reopen N`. #381 (bar_cache provider) and #382
+(sidecar + Stooq/Binance deleted) MERGED and verified on the live URL: providers = yahoo +
+bar_cache; `/api/symbol-analysis/*` 404. ccit-infra #2 MERGED by me at the owner's word
+(apply: `Plan: 1 to add` → `aws_iam_role_policy.bar_cache_read`); its PR plan cannot run
+(OIDC trust lacks pull_request subjects — pre-existing, follow-up).
+
+This PR flips the switch: compose sets `BarCache__Bucket/Region`, `Providers__Default=bar_cache`,
+and `BarCache__CredentialSource=instance-profile` — explicit because the API container carries
+static SES keys that the SDK default chain would pick first. The desk no longer pins
+`provider=yahoo`; the daily Postgres tail merge is skipped for the store (two stores in one
+series is the fault we are retiring). Verify after deploy: `/api/marketdata/candles?symbol=SPY
+&interval=5m` → provider bar_cache, `location s3://…`, `newestBar` = the harvest log's last bar.
+Still Postgres: the intraday chart (`ibkrBars`) — step 3, next.
+
 ### 2026-11-11 (20:30) — dead code: sidecar + Stooq/Binance DELETED (PR #382); data-ops lane MAPPED for the next PR
 
 Owner: *"IG is not doing any harm, so we can keep that as is"* — IG stays; struck from the
