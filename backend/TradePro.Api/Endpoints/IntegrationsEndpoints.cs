@@ -809,7 +809,7 @@ public static class IntegrationsEndpoints
         // never exposed it.
         app.MapGet("/integrations/ibkr/price-history", async (
             string symbol, string? period, string? bar, string? startTime,
-            TradePro.Api.Providers.IBKR.IBKRClient ibkr, CancellationToken ct) =>
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr, HttpContext http, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(symbol))
                 return Results.BadRequest(new { error = "symbol is required" });
@@ -818,12 +818,17 @@ public static class IntegrationsEndpoints
             var r = await ibkr.GetPriceHistoryAsync(symbol, p, b, ct, startTime);
             if (r.Error is not null || r.Bars.Count == 0)
             {
+                // 429 is IBKR's pacing limit, not a broken upstream: say so, so
+                // the provider backs off instead of falling through to Yahoo.
+                var status = r.HttpStatus == 429 ? 429 : 502;
+                if (status == 429) http.Response.Headers["Retry-After"] = "15";
                 return Results.Json(new
                 {
                     symbol = symbol.ToUpperInvariant(), period = p, bar = b,
                     conid = r.ConId, error = r.Error ?? "no bars returned",
+                    rateLimited = status == 429,
                     bars = Array.Empty<object>(),
-                }, statusCode: 502);
+                }, statusCode: status);
             }
             return Results.Ok(new
             {

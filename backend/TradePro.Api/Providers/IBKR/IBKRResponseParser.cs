@@ -231,6 +231,25 @@ public static class IBKRResponseParser
     ///   * "Chart data unavailable" — cold chart cache, fast fail;
     ///   * "Service Unavailable" / HTTP 5xx / 429 — HMDS throttle burst.
     /// Permanent errors (no contract, bad period/bar) must NOT be retried.</summary>
+    /// <summary>
+    /// IBKR's history PACING limit. Its exact wording is
+    /// "Too many history chart requests, please try again later." — note
+    /// "history chart requests", not "too many requests": the Python
+    /// provider's marker list missed it for that reason, so on 12 Nov 2026
+    /// 104 of 116 symbols were classified as a NETWORK fault and handed to
+    /// Yahoo while the IBKR session was healthy and quotes were live.
+    /// A pacing reply must not be retried in a tight loop (that is what
+    /// tripped it) and must reach the caller as 429, not 502.
+    /// </summary>
+    public static bool IsRateLimitedHistoryError(int statusCode, string? body)
+    {
+        if (statusCode == 429) return true;
+        var b = body ?? string.Empty;
+        return b.Contains("too many history", StringComparison.OrdinalIgnoreCase)
+            || b.Contains("too many requests", StringComparison.OrdinalIgnoreCase)
+            || b.Contains("try again later", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsTransientHistoryError(int statusCode, string? body)
     {
         if (statusCode == 429 || statusCode >= 500) return true;

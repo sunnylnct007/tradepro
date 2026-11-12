@@ -804,6 +804,18 @@ public sealed class IBKRClient
                 histText = await histResp.Content.ReadAsStringAsync(ct);
                 histStatus = (int)histResp.StatusCode;
                 if (histResp.IsSuccessStatusCode) break;
+                if (IBKRResponseParser.IsRateLimitedHistoryError(histStatus, histText))
+                {
+                    // Pacing. Retrying inside the same second is the behaviour
+                    // that earns the next refusal; hand it back as 429 so the
+                    // harvester's own backoff (15s, 45s, 120s, 300s) takes over.
+                    _log.LogWarning(
+                        "IBKR history RATE-LIMITED for {Symbol} (conid {Conid}, HTTP {Status}): {Body}",
+                        sym, conid, histStatus, Truncate(histText, 160));
+                    return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,
+                        $"IBKR history rate-limited (pacing) for {sym} (conid {conid}): {histText}",
+                        429);
+                }
                 var transient = IBKRResponseParser.IsTransientHistoryError(histStatus, histText);
                 if (!transient || attempt >= maxAttempts || sw.Elapsed > retryBudget)
                     return new IBKRHistoryResult(Array.Empty<IBKRBar>(), conid,

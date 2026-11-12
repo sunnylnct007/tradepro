@@ -28,6 +28,25 @@ public class IBKRHistoryTransientTest
         => Assert.True(IBKRResponseParser.IsTransientHistoryError(status, body));
 
     [Theory]
+    [InlineData(429, "{\"error\":\"Too Many Requests\"}")]
+    [InlineData(400, "{\"error\":\"Too many history chart requests, please try again later.\"}")]
+    [InlineData(500, "{\"error\":\"Too many history chart requests, please try again later.\"}")]
+    public void Pacing_replies_are_rate_limited_not_retried(int status, string? body)
+    {
+        // The 12 Nov 2026 wording: IBKR says "history chart requests", which the
+        // old marker list ("too many requests") did not match.
+        Assert.True(IBKRResponseParser.IsRateLimitedHistoryError(status, body));
+    }
+
+    [Theory]
+    [InlineData(400, "{\"error\":\"Chart data unavailable\"}")]
+    [InlineData(503, "{\"error\":\"Service Unavailable\"}")]
+    [InlineData(502, "")]
+    [InlineData(404, null)]
+    public void Non_pacing_errors_are_not_rate_limited(int status, string? body)
+        => Assert.False(IBKRResponseParser.IsRateLimitedHistoryError(status, body));
+
+    [Theory]
     // Permanent errors: bad request shapes, unknown conid, auth handled
     // elsewhere (SendWithAuthAsync owns the 401 re-auth path).
     [InlineData(400, "{\"error\":\"Bad Request: invalid period\"}")]

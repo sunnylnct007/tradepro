@@ -2204,6 +2204,25 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-12 (15:40) — IBKR history PACING was being read as a network fault (PR #385)
+
+Visible only because the series now carries `sources`: SPY 5m today = 74 yfinance / 7 ibkr_web.
+The 14:00Z lane run: `ibkr_web served 12/116`, `104 × ibkr_web_network` — while the session was
+connected and quotes live. Probe: `/ibkr/price-history` → 502 `{"error":"Too many history chart
+requests, please try again later."}` after the API retried IBKR three times inside 25 s. The
+provider's `_RATE_LIMIT_MARKERS` held "too many requests"; IBKR says "too many HISTORY CHART
+requests" — no match, so the 15/45/120/300 s backoff never ran (0 log lines all day) and the
+generic branch raised a NETWORK error → Yahoo rows written for the session. The docstring
+called `is_rate_limited` "unit-tested"; no test existed.
+
+Fix: API detects pacing (`IsRateLimitedHistoryError`), does NOT retry it, returns **429 +
+Retry-After** instead of 502; provider markers now match IBKR's wording; exhausted backoff
+raises `ProviderRateLimitError` (summary says `ibkr_web_rate_limit`, not network). Tests on
+both sides incl. a behavioural one (two pacing replies → waits → ibkr_web bars); proven to
+fail on the unpatched provider. Why pacing trips at all: since #378 the 5m lane asks IBKR for
+116 symbols every 30 min, which it never did before. Lane pacing (1 s/symbol) may still need
+widening — watch the next runs' `Sources:` line.
+
 ### 2026-11-12 (15:05) — a denied store read is an EMPTY LABELLED series, not a 500 (PR #384)
 
 The switch's first live answer was a 500 with the raw S3 exception, which kills the chart. Now
