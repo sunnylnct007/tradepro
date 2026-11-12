@@ -232,7 +232,13 @@ services:
       # across a container restart or a client reconnect.
       TRADEPRO_MCP_STATELESS: "1"
       # The bar-cache tools read the S3 bar store (source of truth for
-      # market data), so this container needs the same creds as the API.
+      # market data) through BarStore's read-through. The env keys below
+      # are the SES user's and are DENIED on S3, so the store is told to
+      # sign with the instance role instead — the same switch the API uses
+      # (BarCache__CredentialSource). Without both lines every outlook tool
+      # answered "no bars" on this host.
+      TRADEPRO_BAR_CACHE_S3_BUCKET: "${TRADEPRO_BAR_CACHE_BUCKET:-tradepro-bar-cache-108703420282}"
+      TRADEPRO_BAR_CACHE_S3_CREDENTIALS: "instance-profile"
       AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-eu-west-2}"
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
