@@ -3213,110 +3213,8 @@ def bar_cache_get_bars(
         )
 
 
-def ibkr_bar_status(limit: int = 30) -> dict:
-    """IBKR-specific bar-cache status: recent fetch events filtered to
-    provider_used='ibkr', connection hint, per-resolution depth summary,
-    and aggregate success count.
-
-    Use this when the user asks 'is IBKR harvesting bars?', 'when did
-    we last pull data from IBKR?', or 'how many IBKR fetches succeeded
-    today?'. Returns event_count=0 when no IBKR fetches have been run
-    yet — that's the uninitialized state, not an error.
-
-    Cite as `tradepro://bar-cache/ibkr/status`."""
-    try:
-        body = _get(
-            "/api/admin/data-trust/ibkr/status",
-            params={"limit": max(1, min(int(limit), 500))},
-        )
-        return {
-            "_source": "tradepro://bar-cache/ibkr/status",
-            "fetched_at": _now_iso(),
-            "ok": True,
-            **body,
-        }
-    except ApiUnreachable as e:
-        return _unreachable_envelope("ibkr_bar_status", e, limit=limit)
-    except Exception as e:  # noqa: BLE001
-        return _err("ibkr_bar_status", str(e), limit=limit)
 
 
-def ibkr_fetch_bars(
-    canonical: str,
-    asset_class: str,
-    resolution: str,
-    from_date: str,
-    to_date: str | None = None,
-    allow_partial: bool = True,
-) -> dict:
-    """Trigger an IBKR historical bar fetch for one (symbol, resolution,
-    date-range) tuple.
-
-    The Mac data-worker picks up the queued backfill op and calls
-    IBKRProvider.fetch() — TWS or IB Gateway must be running at the
-    configured host:port (default 127.0.0.1:7497). The fetch is
-    ADDITIVE — existing cached partitions are not overwritten.
-
-    Returns a request_id you can track via bar_cache_events once the
-    worker completes the job. The fetch typically takes a few seconds
-    per chunk (IBKR 30-day chunks at 1m resolution + 0.6s inter-chunk
-    pacing). A 1-year 1m backfill ≈ 13 chunks ≈ 10–20s.
-
-    Parameters
-    ----------
-    canonical      Bare ticker symbol ("AAPL", "SPY").
-    asset_class    "us_equity", "us_etf", etc.
-    resolution     "1m", "5m", "15m", "30m", "1h", "1d", "1wk".
-    from_date      YYYY-MM-DD  start of the range to harvest.
-    to_date        YYYY-MM-DD  end of the range (default: today).
-    allow_partial  Accept gaps in coverage (default True for harvests).
-
-    IBKR depth ceilings (documented TWS API limits):
-      1m  → ≈1 year    5m → ≈3 years    1h → ≈3.5 years    1d → decades
-
-    Cite the resulting job as `tradepro://bar-cache/ibkr/fetch/<request_id>`."""
-    try:
-        today = _now_iso()[:10]
-        payload: dict[str, Any] = {
-            "canonical":   canonical,
-            "asset_class": asset_class,
-            "resolution":  resolution,
-            "from":        from_date,
-            "to":          to_date or today,
-            "allow_partial": allow_partial,
-        }
-        body = _post("/api/admin/data-trust/ibkr/fetch-bars", payload)
-        request_id = body.get("request_id") or ""
-        return {
-            "_source": (
-                f"tradepro://bar-cache/ibkr/fetch/{request_id}"
-            ),
-            "fetched_at": _now_iso(),
-            "ok": True,
-            "request_id": request_id,
-            "state":     body.get("state"),
-            "kind":      body.get("kind"),
-            "params":    body.get("params"),
-            "error":     body.get("error"),
-            "hint": (
-                "TWS / IB Gateway must be running at host:port "
-                "(env: TRADEPRO_IBKR_HOST / TRADEPRO_IBKR_PORT). "
-                f"Track progress with bar_cache_events(canonical={canonical!r}, "
-                f"result='fetched_complete')."
-            ),
-        }
-    except ApiUnreachable as e:
-        return _unreachable_envelope(
-            "ibkr_fetch_bars", e,
-            canonical=canonical, asset_class=asset_class,
-            resolution=resolution,
-        )
-    except Exception as e:  # noqa: BLE001
-        return _err(
-            "ibkr_fetch_bars", str(e),
-            canonical=canonical, asset_class=asset_class,
-            resolution=resolution,
-        )
 
 
 # ─── IBKR live passthrough ───────────────────────────────────────────────
@@ -3370,11 +3268,6 @@ def get_ibkr_price_history(symbol: str, period: str = "1y", bar: str = "1d") -> 
                              {"symbol": symbol, "period": period, "bar": bar})
 
 
-def get_ibkr_harvest_coverage() -> dict:
-    """Harvest coverage board for ibkr_price_bars: per-resolution totals
-    (symbols, bars, IBKR-vs-Yahoo split, earliest bar) + per-symbol first→last
-    window. Use for 'how much 1m data do we have and how far back?'."""
-    return _ibkr_passthrough("get_ibkr_harvest_coverage", "/api/integrations/ibkr/bar-coverage")
 
 
 def get_reconciliation_status() -> dict:

@@ -885,7 +885,7 @@ public static class IntegrationsEndpoints
                 // exactly the kind of accident that makes a bug look like a
                 // working feature.
                 var raw = await ibkr.GetSnapshotRawAsync(conid.Value, f, ct);
-                if (IsColdSnapshot(raw))
+                if (TradePro.Api.Providers.IBKR.IbkrLiveFeed.IsColdSnapshot(raw))
                 {
                     await Task.Delay(TimeSpan.FromMilliseconds(1200), ct);
                     raw = await ibkr.GetSnapshotRawAsync(conid.Value, f, ct);
@@ -931,12 +931,15 @@ public static class IntegrationsEndpoints
                 var lastRead = IbkrQuoteFields.Read(el, "31");
                 var availability = el.TryGetProperty("6509", out var av) ? av.GetString() : null;
 
+                // ONE classification of the feed, shared with every caller that must
+                // say whether a mark can be trusted (IbkrLiveFeed.Classify).
+                var feedState = TradePro.Api.Providers.IBKR.IbkrLiveFeed.Classify(el);
                 string? state, reason;
-                if (live)
+                if (feedState == TradePro.Api.Providers.IBKR.LiveFeedState.Live)
                 {
                     state = "live"; reason = null;
                 }
-                else if (lastRead.How == IbkrQuoteFields.Marker.PreviousClose)
+                else if (feedState == TradePro.Api.Providers.IBKR.LiveFeedState.Closed)
                 {
                     state = "closed";
                     reason = $"NO LIVE PRICE — the market is closed. IBKR is answering "
@@ -945,7 +948,7 @@ public static class IntegrationsEndpoints
                            + "live print outside the session. This is NOT market-data session "
                            + "contention and there is no portal to close.";
                 }
-                else if (lastRead.How == IbkrQuoteFields.Marker.Halted)
+                else if (feedState == TradePro.Api.Providers.IBKR.LiveFeedState.Halted)
                 {
                     state = "halted";
                     reason = $"NO LIVE PRICE — IBKR reports this instrument HALTED "
@@ -1234,27 +1237,16 @@ public static class IntegrationsEndpoints
         })
         .WithName("GetIBKRLiveOrders");
 
-        // GET /api/integrations/ibkr/harvester-status — visibility into the
-        // continuous bar harvester: enabled, cadence, ticks, bars written,
-        // ibkr-vs-yahoo source split, backfill progress, last error. Reads the
-        // singleton status holder (no DB / no IBKR call). Fail-loud observability:
-        // a dead/stale harvester is visible here instead of silently not running.
-        app.MapGet("/integrations/ibkr/harvester-status",
-            (TradePro.Api.Providers.IBKR.IBKRHarvesterStatus status,
-             TradePro.Api.Providers.IBKR.IBKRPauseState pause) =>
-                Results.Ok(new
-                {
-                    status.Enabled, status.IntervalSeconds, status.Resolution,
-                    status.ConfiguredSymbolCount, status.BackfilledSymbols,
-                    status.LastTickAtUtc, status.NextTickEtaUtc,
-                    status.LastTickIbkr, status.LastTickYahoo, status.LastTickFailed,
-                    status.LastTickBarsWritten, status.LastError,
-                    paused = pause.Paused, pausedAtUtc = pause.PausedAtUtc, pauseReason = pause.Reason,
-                }));
+        // GET /api/integrations/ibkr/pause — whether TradePro has stood down from the IBKR session (portal login).
+        // Was served by the harvester status endpoint until the API bar harvester was
+        // retired (12 Nov 2026); the pause is the only field anyone still read.
+        app.MapGet("/integrations/ibkr/pause",
+            (TradePro.Api.Providers.IBKR.IBKRPauseState pause) =>
+                Results.Ok(new { paused = pause.Paused, pausedAtUtc = pause.PausedAtUtc, reason = pause.Reason }));
 
         // POST /api/integrations/ibkr/pause — reclaim the single IBKR Web-API
         // session so the user can log into the IBKR portal. Sets the runtime pause
-        // (harvester/backfill/account-state stop hitting IBKR) AND actively logs the
+        // (every IBKR call refuses while paused) AND actively logs the
         // brokerage session out so the portal accepts a fresh login.
         app.MapPost("/integrations/ibkr/pause", async (
             TradePro.Api.Providers.IBKR.IBKRPauseState pause,
@@ -1272,139 +1264,8 @@ public static class IntegrationsEndpoints
             (TradePro.Api.Providers.IBKR.IBKRPauseState pause) =>
             {
                 pause.Resume();
-                return Results.Ok(new { paused = false, note = "IBKR harvesting resumed — the next tick re-establishes the session." });
+                return Results.Ok(new { paused = false, note = "IBKR usage resumed — the next IBKR call re-establishes the session." });
             });
-
-        // GET /api/integrations/ibkr/daily-backfill-status — progress of the deep
-        // DAILY history filler (ibkr_price_bars resolution=1d): enabled, how many
-        // symbols are deep-done, what's in progress, bars written, last error.
-        app.MapGet("/integrations/ibkr/daily-backfill-status",
-            (TradePro.Api.Providers.IBKR.IBKRDailyBackfillStatus status) => Results.Ok(status));
-
-        // GET /api/integrations/ibkr/bars?symbol=AAPL&resolution=1m&limit=200 —
-        // latest harvested bars from ibkr_price_bars, chronological. Powers charts
-        // + lets us VERIFY the harvest is landing real bars (and their source).
-        app.MapGet("/integrations/ibkr/bars", async (
-            string symbol, string? resolution, int? limit,
-            Npgsql.NpgsqlDataSource db, CancellationToken ct) =>
-        {
-            var res = string.IsNullOrWhiteSpace(resolution) ? "1m" : resolution;
-            var n = Math.Clamp(limit ?? 200, 1, 5000);
-            await using var conn = await db.OpenConnectionAsync(ct);
-
-            // 5m/15m/30m/1h are DERIVED from the stored 1m rows on the fly —
-            // deliberately never stored (one source of truth; a 5m bar IS five
-            // 1m bars). 22 Aug 2026: the chart's 5-min pill showed "No candle
-            // data" for every symbol because the harvester stores only 1m + 1d
-            // and this endpoint answered a literal resolution match.
-            var bucketSeconds = res switch
-            {
-                "5m" => 300, "15m" => 900, "30m" => 1800, "1h" => 3600,
-                _ => 0,
-            };
-            List<dynamic> rows;
-            if (bucketSeconds > 0)
-            {
-                rows = (await conn.QueryAsync(@"
-                    SELECT to_timestamp(floor(extract(epoch FROM ts) / @bucket) * @bucket)
-                               AT TIME ZONE 'UTC'                          AS ts,
-                           (array_agg(open  ORDER BY ts ASC))[1]           AS open,
-                           max(high)                                       AS high,
-                           min(low)                                        AS low,
-                           (array_agg(close ORDER BY ts DESC))[1]          AS close,
-                           sum(volume)                                     AS volume,
-                           -- honest provenance for a derived bar: the mix of
-                           -- its constituents, not a fabricated single source
-                           CASE WHEN count(DISTINCT source) = 1
-                                THEN min(source) ELSE 'mixed' END          AS source
-                    FROM ibkr_price_bars
-                    WHERE symbol = @symbol AND resolution = '1m'
-                    GROUP BY 1
-                    ORDER BY 1 DESC
-                    LIMIT @n;",
-                    new { symbol, bucket = bucketSeconds, n })).AsList();
-            }
-            else
-            {
-                rows = (await conn.QueryAsync(@"
-                    SELECT ts, open, high, low, close, volume, source
-                    FROM ibkr_price_bars
-                    WHERE symbol = @symbol AND resolution = @res
-                    ORDER BY ts DESC
-                    LIMIT @n;",
-                    new { symbol, res, n })).AsList();
-            }
-            rows.Reverse(); // chronological for charts
-            var latest = rows.Count > 0 ? (object)rows[^1] : null;
-            return Results.Ok(new { symbol, resolution = res, count = rows.Count, latest, bars = rows });
-        });
-
-        // GET /api/integrations/ibkr/bar-coverage — the HARVEST STATUS BOARD:
-        // for the ONE central store (ibkr_price_bars), what's been harvested and
-        // what's still pending. Per (symbol, resolution): earliest→latest bar,
-        // bar count, IBKR-vs-Yahoo source split, last capture. Plus a `pending`
-        // list = configured harvester symbols that have NO daily (1d) history yet,
-        // so a half-done deep backfill is visible, never silently "looks complete".
-        app.MapGet("/integrations/ibkr/bar-coverage", async (
-            Npgsql.NpgsqlDataSource db,
-            Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKRHarvesterOptions> harvesterOpts,
-            CancellationToken ct) =>
-        {
-            await using var conn = await db.OpenConnectionAsync(ct);
-            var rows = (await conn.QueryAsync(@"
-                SELECT symbol, resolution,
-                       min(ts)  AS first_ts,
-                       max(ts)  AS last_ts,
-                       count(*) AS bars,
-                       count(*) FILTER (WHERE source = 'ibkr')  AS ibkr_bars,
-                       count(*) FILTER (WHERE source = 'yahoo') AS yahoo_bars,
-                       max(captured_at_utc) AS last_captured_utc
-                FROM ibkr_price_bars
-                GROUP BY symbol, resolution
-                ORDER BY symbol, resolution;")).AsList();
-
-            // Per-resolution rollup (how many symbols covered at 1d / 1m / …).
-            var byRes = rows
-                .GroupBy(r => (string)r.resolution)
-                .Select(g => new
-                {
-                    resolution = g.Key,
-                    symbols = g.Count(),
-                    totalBars = g.Sum(r => (long)r.bars),
-                    ibkrBars = g.Sum(r => (long)r.ibkr_bars),
-                    yahooBars = g.Sum(r => (long)r.yahoo_bars),
-                })
-                .OrderBy(x => x.resolution)
-                .ToArray();
-
-            // Pending = harvester-configured symbols with NO daily history yet.
-            // Daily is the deep-backfill target; 1m is the always-on intraday feed.
-            var configured = (harvesterOpts.Value.Symbols ?? new List<string>())
-                .Select(s => s.Trim().ToUpperInvariant()).Where(s => s.Length > 0).ToHashSet();
-            var haveDaily = rows.Where(r => (string)r.resolution == "1d")
-                .Select(r => ((string)r.symbol).ToUpperInvariant()).ToHashSet();
-            var pendingDaily = configured.Where(s => !haveDaily.Contains(s)).OrderBy(s => s).ToArray();
-
-            return Results.Ok(new
-            {
-                generatedAtUtc = DateTime.UtcNow,
-                byResolution = byRes,
-                coverage = rows.Select(r => new
-                {
-                    symbol = (string)r.symbol,
-                    resolution = (string)r.resolution,
-                    firstTs = (DateTime?)r.first_ts,
-                    lastTs = (DateTime?)r.last_ts,
-                    bars = (long)r.bars,
-                    ibkrBars = (long)r.ibkr_bars,
-                    yahooBars = (long)r.yahoo_bars,
-                    lastCapturedUtc = (DateTime?)r.last_captured_utc,
-                }),
-                configuredSymbols = configured.Count,
-                pendingDaily,          // configured symbols with no 1d history yet
-                pendingDailyCount = pendingDaily.Length,
-            });
-        });
 
         app.MapGet("/integrations/ibkr/status", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
@@ -2217,39 +2078,6 @@ public static class IntegrationsEndpoints
             };
         }
         return null;
-    }
-
-    /// <summary>
-    /// A snapshot IBKR has not warmed up yet: it carries only the contract
-    /// identifiers and no market-data fields at all. IBKR's snapshot endpoint
-    /// subscribes on the first call and serves data on the next, so this is a
-    /// "ask again", NOT an outage — telling the two apart is the difference
-    /// between a working live-price button and one that accuses the user of
-    /// leaving the IBKR portal open every time they click it.
-    /// </summary>
-    private static bool IsColdSnapshot(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return true;
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(raw);
-            var el = doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
-                ? doc.RootElement.EnumerateArray().FirstOrDefault()
-                : doc.RootElement;
-            if (el.ValueKind != System.Text.Json.JsonValueKind.Object) return true;
-            // Anything beyond the contract identifiers means IBKR answered.
-            foreach (var prop in el.EnumerateObject())
-            {
-                var n = prop.Name;
-                if (n is "conid" or "conidEx" or "server_id" or "_updated" or "6119") continue;
-                return false;
-            }
-            return true;
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return false;   // unparseable is a different problem; let it through
-        }
     }
 
 }

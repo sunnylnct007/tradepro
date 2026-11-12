@@ -72,25 +72,13 @@ def _assert_frozen(found: set[str], allowed: set[str], what: str) -> None:
 # 1. Postgres `ibkr_price_bars` — RETIRE. Frozen at the 11 Nov inventory.
 # ---------------------------------------------------------------------------
 IBKR_PRICE_BARS_ALLOWED = {
-    # frozen 11 Nov 2026 — every one of these is RETIRE (migration steps 2–4)
+    # 12 Nov 2026, step 4: every writer and reader is gone. What remains is
+    # history — the migrations that created and fixed the table, and the runner
+    # comment about its size. The table is dropped after a parity week; this
+    # list then shrinks to the migrations alone.
     "backend/TradePro.Api/Data/MigrationRunner.cs",
-    "backend/TradePro.Api/Endpoints/DataTrustEndpoints.cs",
-    "backend/TradePro.Api/Endpoints/IntegrationsEndpoints.cs",
-    "backend/TradePro.Api/Endpoints/MarketDataEndpoints.cs",
-    "backend/TradePro.Api/Program.cs",
-    "backend/TradePro.Api/Providers/IBKR/IBKRBarHarvester.cs",
-    "backend/TradePro.Api/Providers/IBKR/IBKRDailyBackfillService.cs",
     "backend/TradePro.Api/db/migrations/057_ibkr_price_bars.sql",
     "backend/TradePro.Api/db/migrations/065_ibkr_volume_lot_fix.sql",
-    "frontend/src/api/client.ts",
-    "frontend/src/components/desk/HarvestView.tsx",
-    "strategies/scripts/bar-cache-harvest-daily.sh",
-    "strategies/scripts/check_store_vs_api_history.py",
-    "strategies/tests/test_bar_cache_push.py",
-    "strategies/tradepro_strategies/cli/bar_cache_push.py",
-    "strategies/tradepro_strategies/cli/bar_store_reconcile.py",
-    "strategies/tradepro_strategies/mcp/server.py",
-    "strategies/tradepro_strategies/mcp/tools.py",
 }
 
 

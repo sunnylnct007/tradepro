@@ -17,9 +17,7 @@ import { RunLogCard } from "./RunLogCard";
 
 type Row = Awaited<ReturnType<typeof api.barCacheHealth>>["health"][number];
 type Quality = Awaited<ReturnType<typeof api.barCacheQuality>>;
-type Coverage = Awaited<ReturnType<typeof api.ibkrBarCoverage>>;
 type QRow = Quality["symbols"][number];
-type Harvester = Awaited<ReturnType<typeof api.ibkrHarvesterStatus>>;
 type Readiness = Awaited<ReturnType<typeof api.dataReadiness>>;
 type Fundamentals = Awaited<ReturnType<typeof api.fundamentals>>;
 
@@ -166,18 +164,6 @@ const TH_R: React.CSSProperties = { ...TH, textAlign: "right" };
 const TD: React.CSSProperties = { padding: "7px 10px", fontSize: 12, borderBottom: "1px solid #141b2b" };
 const TD_R: React.CSSProperties = { ...TD, textAlign: "right", fontFamily: "var(--font-mono)" };
 
-/** Compact relative time — "12s ago", "3m ago", "2h ago". Null-safe. */
-function ago(iso: string | null): string {
-  if (!iso) return "never";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
-  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
@@ -234,9 +220,6 @@ export function HarvestView() {
   // every symbol we hold data for, and could not say whether any of them makes
   // money. Own catch: a fundamentals hiccup must never blank the health table.
   const [fund, setFund] = useState<Fundamentals | null>(null);
-  const [harvester, setHarvester] = useState<Harvester | null>(null);
-  const [harvesterErr, setHarvesterErr] = useState<string | null>(null);
-  const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [selected, setSelected] = useState<string | null>(null);  // symbol → show its curve
   const [chartRes, setChartRes] = useState("1d");                  // 1m / 5m / 1d
   const [chartTf, setChartTf] = useState("3M");                    // range window
@@ -291,16 +274,6 @@ export function HarvestView() {
       api.fundamentals()
         .then((r) => { if (live) setFund(r); })
         .catch(() => { if (live) setFund(null); });
-      // NEW C# IBKRBarHarvester (IBKR-primary → ibkr_price_bars). Own catch so a
-      // harvester hiccup never blanks the legacy bar-cache table.
-      api.ibkrHarvesterStatus()
-        .then((r) => { if (live) { setHarvester(r); setHarvesterErr(null); } })
-        .catch((e) => { if (live) { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); } });
-      // How far the central ibkr_price_bars store has been harvested (1m/1d depth
-      // per symbol). Own catch so a coverage hiccup never blanks the page.
-      api.ibkrBarCoverage()
-        .then((r) => { if (live) setCoverage(r); })
-        .catch(() => { if (live) setCoverage(null); });
     };
     void load();
     const t = setInterval(load, 60_000);
@@ -387,21 +360,6 @@ export function HarvestView() {
       <div style={{ marginBottom: 12 }}>
         <RunLogCard />
       </div>
-
-      {/* NEW: C# IBKR bar harvester — the IBKR-primary intraday feed. This is the
-          answer to "is IBKR actually harvesting?" — separate from the legacy
-          yfinance bar-cache table below. */}
-      <HarvesterPanel
-        h={harvester}
-        err={harvesterErr}
-        onChanged={() =>
-          api.ibkrHarvesterStatus()
-            .then((r) => { setHarvester(r); setHarvesterErr(null); })
-            .catch((e) => { setHarvester(null); setHarvesterErr(e instanceof Error ? e.message : String(e)); })}
-      />
-
-      {/* HOW FAR harvested — the central ibkr_price_bars depth (1m/1d, per symbol). */}
-      <CoveragePanel c={coverage} />
 
       {/* Bar-cache health. NOTE the heading no longer claims "Daily": the
           bar_cache_health table is keyed ON CONFLICT (canonical, asset_class)
@@ -639,7 +597,7 @@ export function HarvestView() {
                 title="Close">✕</button>
             </span>
           </div>
-          <FlexChartControls coverage={coverage} symbol={selected}
+          <FlexChartControls symbol={selected}
             res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
           <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes} height={360} />
         </div>
@@ -678,7 +636,7 @@ export function HarvestView() {
                   title="Close">✕</button>
               </span>
             </div>
-            <FlexChartControls coverage={coverage} symbol={selected}
+            <FlexChartControls symbol={selected}
               res={chartRes} setRes={setChartRes} tf={chartTf} setTf={setChartTf} />
             <CandleIchimokuChart symbol={selected} timeframe={chartTf} resolution={chartRes}
               height={isNarrow || maxi
@@ -708,12 +666,11 @@ const RES_OPTS = [
 /** Resolution + range pills for the flexible chart, plus a "what data exists"
  * strip for the selected symbol (from the harvest coverage) so the user can see
  * exactly what's available before/while charting it. */
-function FlexChartControls({ coverage, symbol, res, setRes, tf, setTf }: {
-  coverage: Coverage | null; symbol: string;
+function FlexChartControls({ res, setRes, tf, setTf }: {
+  symbol: string;
   res: string; setRes: (r: string) => void; tf: string; setTf: (t: string) => void;
 }) {
   const tfs = TF_FOR_RES[res] ?? TF_FOR_RES["1d"];
-  const rows = (coverage?.coverage ?? []).filter((c) => c.symbol === symbol);
   const pill = (active: boolean): React.CSSProperties => ({
     fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 6, cursor: "pointer",
     border: `1px solid ${active ? "var(--accent, #3b82f6)" : "var(--border)"}`,
@@ -736,257 +693,10 @@ function FlexChartControls({ coverage, symbol, res, setRes, tf, setTf }: {
         ))}
       </div>
       <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
-        {/* THE NOTICE MUST MATCH THE STORE THE CHART ACTUALLY READS.
-            `rows` describes ibkr_price_bars — the DEEP INTRADAY store. The
-            daily chart does not read it (the component fetches daily candles
-            from the bar cache; only 1m/5m come from ibkr_price_bars). So on
-            Daily this printed "no harvested data for this symbol yet"
-            directly above a full chart — MRVL, 16 Aug 2026, showing
-            LATEST 2026-08-14 O 221.40 H 223.52 L 217.10 C 222.02. The label
-            contradicted the picture underneath it. Scope it to the intraday
-            resolutions, and on Daily say which store the notice is about
-            rather than implying the symbol has nothing. */}
-        {res !== "1d" && <span style={{ color: "var(--warn)" }}>deep IBKR store · </span>}
-        {rows.length === 0
-          ? (res === "1d"
-              ? "daily candles come from the bar cache — the deep intraday store holds nothing for this symbol"
-              : "no harvested data for this symbol yet")
-          : rows.map((r) => {
-              const ib = r.bars > 0 ? Math.round((100 * r.ibkrBars) / r.bars) : 0;
-              return `${r.resolution}: ${(r.firstTs ?? "?").slice(0, 10)}→${(r.lastTs ?? "?").slice(0, 10)} · ${r.bars.toLocaleString()} bars · ${ib}% IBKR`;
-            }).join("   |   ")}
+        {/* Every resolution reads ONE store (docs/DATA_ARCHITECTURE.md); the chart
+            itself shows the series' provenance and newest bar. */}
+        golden bar store · /marketdata/candles
       </div>
-    </div>
-  );
-}
-
-/** "How far has data been harvested" — the central ibkr_price_bars store depth.
- * Per-resolution totals (IBKR vs Yahoo split + earliest bar) and, on expand, the
- * per-symbol first→last window + bar counts. Answers "do we have enough 1m data,
- * and how far back does it go?" directly on screen. */
-function CoveragePanel({ c }: { c: Coverage | null }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  if (!c || c.byResolution.length === 0) return null;
-  const fmtBars = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n));
-  const earliest = (res: string) => {
-    const ts = c.coverage.filter((x) => x.resolution === res && x.firstTs).map((x) => x.firstTs!);
-    return ts.length ? [...ts].sort()[0].slice(0, 10) : "—";
-  };
-  const allRows = [...c.coverage].sort(
-    (a, b) => a.symbol.localeCompare(b.symbol) || a.resolution.localeCompare(b.resolution));
-  const rows = q.trim()
-    ? allRows.filter((r) => r.symbol.toLowerCase().includes(q.trim().toLowerCase()))
-    : allRows;
-  // Clear per-symbol indication: which symbols have 1m (intraday-chartable) vs
-  // only 1d, so a gap is obvious at a glance.
-  const has1m = new Set(c.coverage.filter((x) => x.resolution === "1m" && x.bars > 0).map((x) => x.symbol));
-  const symCount = new Set(c.coverage.map((x) => x.symbol)).size;
-  return (
-    <div style={{ marginBottom: 16, border: "1px solid #1b2233", borderRadius: 8, padding: "10px 12px", background: "#0d1320" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 13, fontWeight: 700 }}>Central store — how far harvested</span>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          ibkr_price_bars · IBKR-primary, Yahoo fallback · as of {ago(c.generatedAtUtc)}
-        </span>
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "10px 0 6px" }}>
-        {c.byResolution.map((r) => (
-          <div key={r.resolution} style={{ border: "1px solid #1b2233", borderRadius: 6, padding: "6px 12px", minWidth: 190 }}>
-            <div style={{ fontSize: 12, fontWeight: 700 }}>{r.resolution} · {r.symbols} symbols</div>
-            <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-              {fmtBars(r.totalBars)} bars · {fmtBars(r.ibkrBars)} IBKR + {fmtBars(r.yahooBars)} Yahoo
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>back to {earliest(r.resolution)}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          style={{ fontSize: 11, background: "none", border: "1px solid #1b2233", borderRadius: 5, color: "var(--text-dim)", padding: "3px 8px", cursor: "pointer" }}>
-          {open ? "Hide" : "Show"} per-symbol depth ({symCount} symbols)
-        </button>
-        {/* Clear indication: how many symbols actually have intraday 1m data. */}
-        <span style={{ fontSize: 10.5, color: has1m.size === symCount ? "var(--up)" : "var(--warn)" }}>
-          {has1m.size}/{symCount} have 1-min data
-        </span>
-        {open && (
-          <input
-            value={q} onChange={(e) => setQ(e.target.value)} placeholder="search symbol…"
-            style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, border: "1px solid #1b2233",
-              background: "var(--surface-1)", color: "var(--text)", width: 160 }} />
-        )}
-      </div>
-      {open && (
-        <div style={{ maxHeight: 360, overflow: "auto", marginTop: 8 }}>
-          {rows.length === 0 && (
-            <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "8px 2px" }}>
-              No harvested rows match “{q}”. {!has1m.has(q.trim().toUpperCase()) && q.trim() ? "(this symbol has no 1-min harvest yet)" : ""}
-            </div>
-          )}
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead><tr>
-              <th style={TH}>Symbol</th><th style={TH}>Res</th><th style={TH}>First → Last</th>
-              <th style={TH_R}>Bars</th><th style={TH_R}>IBKR</th><th style={TH_R}>Yahoo</th><th style={TH}>Last capture</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={`${r.symbol}:${r.resolution}:${i}`}>
-                  <td style={{ ...TD, fontWeight: 700 }}>{r.symbol}</td>
-                  <td style={TD}>{r.resolution}</td>
-                  <td style={{ ...TD, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                    {(r.firstTs?.slice(0, 10) ?? "—")} → {(r.lastTs?.slice(0, 10) ?? "—")}
-                  </td>
-                  <td style={TD_R}>{r.bars}</td>
-                  <td style={TD_R}>{r.ibkrBars}</td>
-                  <td style={{ ...TD_R, color: r.yahooBars > 0 ? "var(--warn)" : "var(--text-muted)" }}>{r.yahooBars}</td>
-                  <td style={{ ...TD, color: "var(--text-muted)" }}>{ago(r.lastCapturedUtc)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** IBKR bar-harvester observability panel. Answers, at a glance: is it enabled,
- * is IBKR actually the source (vs Yahoo fallback), how far is the backfill, and
- * did the last sweep error? This is the NEW C# harvester → ibkr_price_bars. */
-function HarvesterPanel({ h, err, onChanged }: { h: Harvester | null; err: string | null; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const paused = !!h?.paused;
-  // Pause = hand the single IBKR Web-API session back so the user can log into
-  // the IBKR portal (only one session per account). Resume = take it back.
-  const toggle = async () => {
-    setBusy(true);
-    try {
-      if (paused) await api.ibkrResume();
-      else await api.ibkrPause("portal login");
-      onChanged();
-    } catch { /* the status refresh will show the real state */ }
-    finally { setBusy(false); }
-  };
-  const enabled = !!h?.enabled;
-  const ibkr = h?.lastTickIbkr ?? 0;
-  const yahoo = h?.lastTickYahoo ?? 0;
-  const failed = h?.lastTickFailed ?? 0;
-  const total = ibkr + yahoo + failed;
-  // Source verdict: green when IBKR is carrying the feed, amber when it's all
-  // Yahoo fallback (cold session), grey when nothing ticked yet.
-  const srcTone = ibkr > 0 ? "var(--up)" : total > 0 ? "var(--warn)" : "var(--text-muted)";
-  const srcLabel = ibkr > 0
-    ? (yahoo > 0 ? `IBKR ${ibkr} · Yahoo ${yahoo}` : `IBKR ${ibkr}`)
-    : total > 0 ? `Yahoo-only ${yahoo} (IBKR cold)` : "no tick yet";
-  const cfg = h?.configuredSymbolCount ?? 0;
-  const bf = h?.backfilledSymbols ?? 0;
-
-  return (
-    <div style={{
-      background: "var(--surface-1)", border: `1px solid ${enabled ? "var(--border)" : "var(--warn)"}`,
-      borderRadius: 8, padding: "12px 16px", marginBottom: 14,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 14, fontWeight: 700 }}>IBKR Bar Harvester</span>
-        <span style={{
-          fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
-          padding: "2px 8px", borderRadius: 999,
-          background: enabled ? "rgba(34,197,94,0.15)" : "rgba(250,204,21,0.15)",
-          color: enabled ? "var(--up)" : "var(--warn)",
-        }}>{enabled ? "● live" : "○ disabled"}</span>
-        {paused && (
-          <span style={{
-            fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
-            padding: "2px 8px", borderRadius: 999, background: "rgba(250,204,21,0.18)", color: "var(--warn)",
-          }}>⏸ paused · portal free</span>
-        )}
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          IBKR-primary intraday → ibkr_price_bars · Yahoo fallback (loud) · {h?.resolution || "1m"}
-        </span>
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          {h && (
-            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              last tick {ago(h.lastTickAtUtc)}{!paused && h.nextTickEtaUtc ? ` · next ~${ago(h.nextTickEtaUtc).replace(" ago", "")}` : ""}
-            </span>
-          )}
-          <button
-            onClick={toggle} disabled={busy}
-            title={paused ? "Resume IBKR harvesting (take the session back)" : "Pause IBKR + log the session out so you can use the IBKR portal"}
-            style={{
-              fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 6, cursor: busy ? "wait" : "pointer",
-              border: `1px solid ${paused ? "var(--up)" : "var(--warn)"}`,
-              background: paused ? "rgba(34,197,94,0.12)" : "rgba(250,204,21,0.12)",
-              color: paused ? "var(--up)" : "var(--warn)", opacity: busy ? 0.6 : 1,
-            }}>
-            {busy ? "…" : paused ? "▶ Resume IBKR" : "⏸ Pause for portal"}
-          </button>
-        </span>
-      </div>
-
-      {paused && (
-        <div style={{ fontSize: 11, color: "var(--warn)", marginBottom: 8, lineHeight: 1.4 }}>
-          IBKR session released — <b>log into the IBKR Client Portal now</b>. Harvesting + account-state are paused
-          until you press Resume{h?.pausedAtUtc ? ` (paused ${ago(h.pausedAtUtc)})` : ""}.
-        </div>
-      )}
-
-      {err && (
-        <div style={{ fontSize: 12, color: "var(--down)" }}>
-          harvester-status unavailable: {err}
-        </div>
-      )}
-      {!err && !h && (
-        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Loading harvester status…</div>
-      )}
-      {!err && h && (
-        <>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <MiniStat label="Last-tick source" value={srcLabel} color={srcTone} />
-            <MiniStat label="Backfilled" value={`${bf}/${cfg}`}
-              color={cfg > 0 && bf >= cfg ? "var(--up)" : bf > 0 ? "var(--warn)" : "var(--text-muted)"} />
-            <MiniStat label="Bars written (last)" value={h.lastTickBarsWritten ?? 0}
-              color={(h.lastTickBarsWritten ?? 0) > 0 ? "var(--text)" : "var(--text-muted)"} />
-            <MiniStat label="Failed (last)" value={failed}
-              color={failed > 0 ? "var(--down)" : "var(--text-dim)"} />
-            <MiniStat label="Interval" value={`${h.intervalSeconds ?? 0}s`} color="var(--text-dim)" />
-          </div>
-          {cfg > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ height: 6, borderRadius: 999, background: "var(--surface-2)", overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", width: `${Math.min(100, (bf / cfg) * 100)}%`,
-                  background: bf >= cfg ? "var(--up)" : "var(--warn)", transition: "width .3s",
-                }} />
-              </div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
-                backfill catching up — {bf} of {cfg} symbols have history in ibkr_price_bars
-              </div>
-            </div>
-          )}
-          {h.lastError && (() => {
-            // "idle — outside US market hours" and "paused — session released"
-            // are STATES, not errors — painting them red made a healthy
-            // weekend look broken (owner, 22 Aug). Neutral ink + honest label.
-            const isState = /^(idle|paused)\b/i.test(h.lastError);
-            return (
-              <div style={{ fontSize: 11, color: isState ? "var(--text-muted)" : "var(--down)", marginTop: 8, fontFamily: "var(--font-mono)" }}>
-                {isState ? "status" : "last error"}: {h.lastError}
-              </div>
-            );
-          })()}
-        </>
-      )}
-    </div>
-  );
-}
-
-function MiniStat({ label, value, color }: { label: string; value: number | string; color: string }) {
-  return (
-    <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 12px", minWidth: 96 }}>
-      <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>{label}</div>
-      <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "var(--font-mono)", color }}>{value}</div>
     </div>
   );
 }

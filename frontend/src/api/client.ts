@@ -163,13 +163,6 @@ export const api = {
   strategies: () => get<StrategyCatalogResponse>("/api/simulations/strategies"),
   candles: (params: { symbol: string; provider?: string; interval?: string; from?: string; to?: string }) =>
     get<CandleSeries>("/api/marketdata/candles", params),
-  /** LIVE intraday price via IBKR (any symbol, on-demand) — the Yahoo candles
-   * endpoint serves stale/prior-close data in this environment, so the freshness
-   * gate uses this. Returns the latest 1-min bar's close, or null on miss. */
-  /** Live status of the C# IBKRBarHarvester (the NEW IBKR-primary intraday
-   * harvester → ibkr_price_bars) — separate from the legacy yfinance bar_cache.
-   * Surfaces enabled/ticks/IBKR-vs-Yahoo split/backfill so IBKR harvesting is
-   * visible on the Data Health screen. */
   /** Live market-data probe. IBKR grants ONE market-data session per account,
    *  so opening the IBKR portal or TWS silently takes it from the desk: auth
    *  stays valid, contracts still resolve, prices go dark. This lets the UI
@@ -222,48 +215,9 @@ export const api = {
     };
   },
 
-  ibkrHarvesterStatus: () =>
-    get<{
-      enabled: boolean;
-      intervalSeconds: number;
-      resolution: string;
-      configuredSymbolCount: number;
-      backfilledSymbols: number;
-      lastTickAtUtc: string | null;
-      nextTickEtaUtc: string | null;
-      lastTickIbkr: number;
-      lastTickYahoo: number;
-      lastTickFailed: number;
-      lastTickBarsWritten: number;
-      lastError: string | null;
-      paused: boolean;
-      pausedAtUtc: string | null;
-      pauseReason: string | null;
-    }>("/api/integrations/ibkr/harvester-status"),
-  /** How far the central ibkr_price_bars store has been harvested: per-resolution
-   * totals (IBKR vs Yahoo split) + per-symbol first→last timestamp and bar count.
-   * Answers "how much 1m/1d data do we actually have, and how far back?" */
-  ibkrBarCoverage: () =>
-    get<{
-      generatedAtUtc: string;
-      byResolution: Array<{
-        resolution: string;
-        symbols: number;
-        totalBars: number;
-        ibkrBars: number;
-        yahooBars: number;
-      }>;
-      coverage: Array<{
-        symbol: string;
-        resolution: string;
-        firstTs: string | null;
-        lastTs: string | null;
-        bars: number;
-        ibkrBars: number;
-        yahooBars: number;
-        lastCapturedUtc: string | null;
-      }>;
-    }>("/api/integrations/ibkr/bar-coverage"),
+  /** Whether TradePro has stood down from the IBKR session (portal login). */
+  ibkrPauseState: () =>
+    get<{ paused: boolean; pausedAtUtc: string | null; reason: string | null }>("/api/integrations/ibkr/pause"),
   /** Pause ALL TradePro IBKR usage + log the session out, so the user can log
    * into the IBKR Client Portal (only one Web-API session per account). */
   ibkrPause: (reason?: string) =>
@@ -453,72 +407,6 @@ export const api = {
       error: string | null;
     }, Record<string, unknown>>("/api/ops/run-intraday", payload),
 
-  // Phase C-Validate: enqueue a data_validate op for a
-  // (canonical, asset_class) tuple. The Mac-side tradepro-data-worker
-  // claims it, walks manifests, posts a gap report back via
-  // /api/ops/complete-data/{id}. Status polled via opsSessions(kind="data_validate").
-  runDataValidate: (payload: {
-    canonical: string;
-    asset_class: string;
-    resolution?: string;
-  }) =>
-    post<{
-      request_id: string;
-      kind: string;
-      state: string;
-      params: Record<string, unknown>;
-      requested_at_utc: string;
-      result_summary: unknown;
-      error: string | null;
-    }, typeof payload>("/api/ops/run-data-validate", payload),
-
-  // Phase C-Backfill: enqueue a data_backfill op for a
-  // (canonical, asset_class, resolution, from, to) tuple. The Mac-
-  // side tradepro-data-worker claims it, calls BarStore.get through
-  // the configured provider chain, posts a coverage report back via
-  // /api/ops/complete-data/{id}.
-  runDataBackfill: (payload: {
-    canonical: string;
-    asset_class: string;
-    resolution: string;
-    from: string;            // YYYY-MM-DD or "today"
-    to?: string;             // YYYY-MM-DD or "today"; defaults to today
-    allow_partial?: boolean; // defaults to true; opt out to fail-loud on gaps
-  }) =>
-    post<{
-      request_id: string;
-      kind: string;
-      state: string;
-      params: Record<string, unknown>;
-      requested_at_utc: string;
-      result_summary: unknown;
-      error: string | null;
-    }, typeof payload>("/api/ops/run-data-backfill", payload),
-
-  // Phase C-Reload: enqueue a destructive data_reload op. Force-
-  // refreshes the requested partitions through the configured
-  // provider chain, OVERWRITING existing parquet files. The `reason`
-  // field is mandatory (audit trail); backend rejects payloads
-  // without it. The worker's ReloadHandler also requires it as
-  // defence in depth.
-  runDataReload: (payload: {
-    canonical: string;
-    asset_class: string;
-    resolution: string;
-    from: string;
-    to?: string;
-    reason: string;          // mandatory; min 10 chars enforced server-side
-    allow_partial?: boolean;
-  }) =>
-    post<{
-      request_id: string;
-      kind: string;
-      state: string;
-      params: Record<string, unknown>;
-      requested_at_utc: string;
-      result_summary: unknown;
-      error: string | null;
-    }, typeof payload>("/api/ops/run-data-reload", payload),
   cancelOpsSession: (requestId: string) =>
     post<unknown, {}>(
       `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),
@@ -1651,27 +1539,6 @@ export const api = {
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
     return resp.json();
   },
-  // Phase A: backfill endpoint returns 501 with a structured roadmap
-  // pointer. The UI calls this only to surface the not-yet-implemented
-  // message in a tooltip — never as part of a normal operator flow.
-  triggerDataBackfill: async (body: {
-    assetClass: string;
-    symbol: string;
-    resolution: string;
-    fromDate: string;
-    toDate: string;
-  }): Promise<{ error: string; detail: string } | { jobId: string }> => {
-    const url = new URL("/api/admin/data-trust/backfill", config.apiBaseUrl);
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...(await authHeaders()) },
-      body: JSON.stringify(body),
-    });
-    // 501 carries a structured body explaining the roadmap status —
-    // don't throw, return it so the UI can render the message.
-    return resp.json();
-  },
-
   // Phase B-2: bar-cache observability. The Python BarStore POSTs
   // a telemetry event per fetch to /events; per-symbol health is
   // an incrementally-updated snapshot on /health. The cockpit panel
@@ -2126,59 +1993,6 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/ig-snapshots/recent", qp);
   },
-  // IBKR bar-cache harvester status + trigger.
-  // GET  /ibkr/status — recent bar_cache_events where provider=ibkr,
-  //   connection hint, depth summary. Feeds the IBKR panel in Settings.
-  // POST /ibkr/fetch-bars — enqueue an immediate IBKR backfill op for a
-  //   specific (canonical, asset_class, resolution, from, to) tuple.
-  ibkrBarStatus: (params?: { limit?: number }) => {
-    const qp: Record<string, string | undefined> = {};
-    if (params?.limit !== undefined) qp.limit = String(params.limit);
-    return get<{
-      connection_status: string;
-      connection_hint: string;
-      last_fetch_at_utc: string | null;
-      success_count_last_n: number;
-      event_count: number;
-      valid_resolutions: string[];
-      depth_summary: Record<string, string>;
-      events: Array<{
-        id: number;
-        occurred_at_utc: string;
-        canonical: string;
-        asset_class: string;
-        resolution: string;
-        range_start_utc: string;
-        range_end_utc: string;
-        result: string;
-        provider_used: string | null;
-        rows_returned: number | null;
-        rows_expected: number | null;
-        latency_ms: number;
-        error_class: string | null;
-        error_message: string | null;
-      }>;
-    }>("/api/admin/data-trust/ibkr/status", qp);
-  },
-
-  ibkrFetchBars: (payload: {
-    canonical: string;
-    asset_class: string;
-    resolution: string;
-    from: string;    // YYYY-MM-DD
-    to?: string;     // YYYY-MM-DD; defaults to today server-side
-    allow_partial?: boolean;
-  }) =>
-    post<{
-      request_id: string;
-      kind: string;
-      state: string;
-      params: Record<string, unknown>;
-      requested_at_utc: string;
-      result_summary: unknown;
-      error: string | null;
-    }, typeof payload>("/api/admin/data-trust/ibkr/fetch-bars", payload),
-
   // Catalyst registry (Phase C-1). North-star item from project memory
   // — pure-technical signals miss event-driven trades. C-1 is the
   // persistence + visibility surface; the news extractor sink + signal

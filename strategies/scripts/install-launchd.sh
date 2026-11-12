@@ -15,7 +15,6 @@
 #   bash install-launchd.sh                 # base: nothing persistent
 #   bash install-launchd.sh --intraday      # + intraday engine
 #   bash install-launchd.sh --algo          # + systematic slow-loop + digest
-#   bash install-launchd.sh --data-worker   # + trustworthy-data ops queue
 #   bash install-launchd.sh --catalysts-sweep
 #   TRADEPRO_AWS_PROFILE=<profile> bash install-launchd.sh --live-risk
 #                                           # + nightly live-account read + [LIVE] mail;
@@ -29,7 +28,6 @@ set -euo pipefail
 WITH_INTRADAY=0
 WITH_EPS_SNAPSHOT=0
 WITH_ALGO=0
-WITH_DATA_WORKER=0
 WITH_CATALYSTS_SWEEP=0
 WITH_LIVE_RISK=0
 for arg in "$@"; do
@@ -40,10 +38,6 @@ for arg in "$@"; do
     # Off by default — opt-in so a fresh worker install doesn't start
     # auto-trading without explicit operator intent.
     --algo|--with-algo|--systematic) WITH_ALGO=1 ;;
-    # --data-worker installs the trustworthy-data ops queue worker
-    # (Phase C). Off by default; ops operators opt in to enable
-    # UI-triggered validate / backfill / reload jobs.
-    --data-worker|--with-data-worker) WITH_DATA_WORKER=1 ;;
     # --catalysts-sweep installs the daily catalyst-extractor cron
     # (06:00 UTC). Off by default — opt-in because populating the
     # registry across the trader's universe touches yfinance hard.
@@ -69,7 +63,6 @@ chmod +x \
     "$PROJECT_DIR/scripts/paper-session.sh" \
     "$PROJECT_DIR/scripts/intraday-engine.sh" \
     "$PROJECT_DIR/scripts/eps-snapshot.sh" \
-    "$PROJECT_DIR/scripts/data-worker.sh" \
     "$PROJECT_DIR/scripts/live-risk.sh" \
     2>/dev/null || true
 
@@ -126,5 +119,7 @@ if (( WITH_EPS_SNAPSHOT )); then install_one "com.tradepro.eps-snapshot"; else u
 if (( WITH_CATALYSTS_SWEEP )); then install_one "com.tradepro.catalysts-daily-sweep"; else uninstall_one "com.tradepro.catalysts-daily-sweep"; fi
 if (( WITH_ALGO )); then install_one "com.tradepro.live-portfolio"; install_one "com.tradepro.algo-digest"
 else uninstall_one "com.tradepro.live-portfolio"; uninstall_one "com.tradepro.algo-digest"; fi
-if (( WITH_DATA_WORKER )); then install_one "com.tradepro.data-worker"; else uninstall_one "com.tradepro.data-worker"; fi
+# Retired 12 Nov 2026 with the data-ops queue (docs/DATA_ARCHITECTURE.md step 4):
+# always remove a leftover plist so no machine keeps polling a deleted endpoint.
+uninstall_one "com.tradepro.data-worker"
 if (( WITH_LIVE_RISK )); then install_one "com.tradepro.live-risk"; else uninstall_one "com.tradepro.live-risk"; fi

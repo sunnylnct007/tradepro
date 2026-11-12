@@ -178,25 +178,17 @@ builder.Services
 builder.Services.AddSingleton<TradePro.Api.Providers.IG.IGHarvesterStatus>();
 builder.Services.AddHostedService<TradePro.Api.Providers.IG.IGSnapshotHarvester>();
 
-// Standalone intraday BAR harvester (IBKR primary, Yahoo fallback -> ibkr_price_bars).
-// OFF by default; flip `IBKR:Harvester:Enabled=true` once the universe + cadence
-// are reviewed. The timer polling holds the IBKR session warm (fixes "Chart data
-// unavailable"); decoupled from trading (charts/analysis feed only).
-builder.Services
-    .AddOptions<TradePro.Api.Providers.IBKR.IBKRHarvesterOptions>()
-    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRHarvesterOptions.SectionName));
-builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRHarvesterStatus>();
 // Runtime pause for ALL IBKR usage — lets the user reclaim the single Web-API
-// session to log into the IBKR portal (harvester/backfill/account-state respect it).
+// session to log into the IBKR portal.
+//
+// The API-side bar harvester (1m, 169 symbols every 300 s -> the Postgres bar table)
+// and its 15-year daily backfill were RETIRED on 12 Nov 2026
+// (docs/DATA_ARCHITECTURE.md step 4): bars have one writer, the Python
+// harvest into the golden store. The harvester was also the largest consumer
+// of IBKR's history pacing budget — that afternoon /history answered 429
+// "too many history chart requests" while it ran. The session stays warm
+// without it: IBKRFillReconcileService reads IBKR every 90 s, which tickles.
 builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRPauseState>();
-builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRBarHarvester>();
-// Deep DAILY history filler for the central ibkr_price_bars store (resolution=1d)
-// — separate cadence from the 1m harvester; runs until caught up, then tops up.
-builder.Services
-    .AddOptions<TradePro.Api.Providers.IBKR.IBKRDailyBackfillOptions>()
-    .Bind(builder.Configuration.GetSection(TradePro.Api.Providers.IBKR.IBKRDailyBackfillOptions.SectionName));
-builder.Services.AddSingleton<TradePro.Api.Providers.IBKR.IBKRDailyBackfillStatus>();
-builder.Services.AddHostedService<TradePro.Api.Providers.IBKR.IBKRDailyBackfillService>();
 
 // IBKR (Interactive Brokers) — OAuth2 Web API. Off by default; turns on
 // once the standalone tradepro/ibkr secret is populated with mode !=

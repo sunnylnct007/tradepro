@@ -2212,6 +2212,31 @@ Deleted: `api.ibkrBars` and the MCP tool `get_ibkr_bars`. The golden-store gate'
 SHRANK by one file (the chart). Still Postgres: `ibkrBarCoverage` on the Harvest view and the
 harvester status panel in Settings — both go with the writers in step 4.
 
+### 2026-11-12 (18:45) — STEP 4: the Postgres bar store has no writer and no reader (PR #389)
+
+One PR, whole: the API bar harvester + daily backfill, the parquet→Postgres push and reconcile,
+four Postgres bar endpoints, the candles daily-tail merge, the data-ops worker lane (disabled
+since 23 Sep) with its five ops endpoints, three DataTrust endpoints, the Settings panels and
+per-row Validate/Backfill/Reload buttons that queued jobs nobody ran, and three MCP tools.
+~4,000 lines out. The golden-store gate's table allow-list went 12 files → 3 (migration history).
+
+Found on the way, not on the map, and REPLACED rather than removed:
+- The strangle P&L "marks unreliable" alarm read the harvester's last cycle. It now takes one
+  live SPY snapshot via `IbkrLiveFeed` — the same classifier the quote endpoint uses (moved out
+  of the endpoint, one definition). The old signal measured HISTORY; at 18:10Z today history was
+  429-rate-limited, so it would have fired falsely.
+- The options desk's pause flag came from harvester-status → `GET /integrations/ibkr/pause`.
+- desk-check "Idle machinery" (watched the harvester) → "Golden store": newest SPY daily bar via
+  /marketdata/candles vs the last settled session from the store's own NYSE calendar.
+- The daily harvest script's push sat behind "exit 0 if EC2 unreachable", which silently skipped
+  sector stress too. Gone with the push.
+Session keep-warm: the harvester's 300 s timer was also a tickle; `IBKRFillReconcileService`
+reads IBKR every 90 s and tickles past 75 s, so the session stays warm without it.
+Why it matters for data quality: at 18:10Z IBKR /history answered 429 pacing while the
+API harvester was pulling 169 symbols every 5 min — it competed with the golden harvest for
+IBKR's history budget. After deploy, watch the 5m lane's `Sources:` line and the probe log.
+Remaining: drop `ibkr_price_bars` by migration after a parity week.
+
 ### 2026-11-12 (17:10) — the start-of-run declines were IBKR WARM-UP (PR #388)
 
 First run with decline messages (#387): `ibkr_web_ok 112, yfinance_ok 4`, and the remaining

@@ -1,5 +1,3 @@
-using Dapper;
-using Npgsql;
 using TradePro.Api.Models;
 using TradePro.Api.Providers;
 
@@ -21,7 +19,6 @@ public static class MarketDataEndpoints
             DateTime? from,
             DateTime? to,
             IMarketDataRegistry registry,
-            NpgsqlDataSource db,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(symbol))
@@ -31,22 +28,11 @@ public static class MarketDataEndpoints
             var p = registry.Resolve(provider);
             var fromDate = from ?? DateTime.UtcNow.AddYears(-1);
             var toDate = to ?? DateTime.UtcNow;
+            // One read path (docs/DATA_ARCHITECTURE.md): the series is exactly what
+            // the resolved provider returned. The Postgres "fresher daily tail"
+            // merge that used to be spliced onto Yahoo here was retired with the
+            // Postgres bar table (step 4, 12 Nov 2026).
             var series = await p.GetCandlesAsync(symbol, iv, fromDate, toDate, ct);
-
-            // The default daily provider (Yahoo) lags the newest session — on a
-            // Saturday, Friday's bar is often still absent, so the chart sits a
-            // session behind ("why no 24th?"). The central ibkr_price_bars store
-            // harvests a resolution='1d' series that carries the latest session
-            // (source=ibkr). Fill ONLY the missing tail (bars strictly newer than
-            // the provider's last) so the chart is never behind, without touching
-            // the long history the provider owns. Daily interval only.
-            // NOT for the golden store: it already carries the newest session, and
-            // merging Postgres rows into it would put two stores in one series —
-            // the exact fault docs/DATA_ARCHITECTURE.md retires. The merge itself
-            // goes when the Postgres bar table does (migration step 4).
-            if (IsDaily(iv) && p.Name != TradePro.Api.Providers.BarCache.BarCacheStoreProvider.ProviderName)
-                series = await MergeFresherDailyTailAsync(series, symbol, toDate, db, ct);
-
             return Results.Ok(series);
         });
 
@@ -149,63 +135,5 @@ public static class MarketDataEndpoints
         });
 
         return app;
-    }
-
-    private static bool IsDaily(string interval)
-    {
-        var i = (interval ?? "").Trim().ToLowerInvariant();
-        return i is "" or "1d" or "1day" or "day" or "daily" or "d";
-    }
-
-    /// <summary>
-    /// Append daily bars from the central ibkr_price_bars store (resolution='1d')
-    /// that are NEWER than the provider series' last bar — filling the tail the
-    /// lagging daily provider hasn't caught up to yet. The store is harvested
-    /// continuously (IBKR primary), so it carries the freshest completed session.
-    /// Fail-open: any error (missing table, cast, empty) returns the series
-    /// unchanged — this only ever ADDS the missing newest session, never rewrites
-    /// history, so it can't corrupt an existing chart or backtest.
-    /// </summary>
-    private static async Task<CandleSeries> MergeFresherDailyTailAsync(
-        CandleSeries series, string symbol, DateTime toDate,
-        NpgsqlDataSource db, CancellationToken ct)
-    {
-        try
-        {
-            if (series.Candles.Count == 0) return series;
-            var lastTs = series.Candles[^1].Timestamp;
-
-            await using var conn = await db.OpenConnectionAsync(ct);
-            var rows = (await conn.QueryAsync(@"
-                SELECT ts, open, high, low, close, volume
-                FROM ibkr_price_bars
-                WHERE symbol = @symbol AND resolution = '1d'
-                  AND ts > @lastTs AND ts <= @toDate
-                ORDER BY ts ASC;",
-                new { symbol, lastTs, toDate })).AsList();
-            if (rows.Count == 0) return series;
-
-            var merged = new List<Candle>(series.Candles);
-            foreach (var r in rows)
-            {
-                merged.Add(new Candle(
-                    Timestamp: (DateTime)r.ts,
-                    Open: (decimal)r.open,
-                    High: (decimal)r.high,
-                    Low: (decimal)r.low,
-                    Close: (decimal)r.close,
-                    AdjustedClose: null,          // store carries raw prices, no split-adj stream
-                    Volume: (long)r.volume));
-            }
-            return series with
-            {
-                Candles = merged,
-                Provider = $"{series.Provider}+ibkr_store_tail({rows.Count})",
-            };
-        }
-        catch
-        {
-            return series;   // never let the tail-fill break the base series
-        }
     }
 }

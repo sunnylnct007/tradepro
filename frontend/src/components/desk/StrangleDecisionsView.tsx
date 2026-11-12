@@ -74,9 +74,12 @@ type Pnl = {
   open: { markedAtUtc: string; unrealised: number | null; legs: number;
           detail: PnlLeg[]; unmarkable: { contract: string }[] };
   warnings: string[];
+  // One live SPY snapshot, classified by the same rule the quote endpoint
+  // uses (live / closed / halted / dark / unreachable). Null healthy = no live
+  // print expected (market shut), which is not a fault.
   marketData?: {
-    lastTickAtUtc: string | null; fromIbkr: number; fromFallback: number;
-    failed: number; healthy: boolean | null; note: string | null;
+    probe: string; checkedAtUtc: string; state: string; last: number | null;
+    healthy: boolean | null; note: string | null;
   };
 };
 
@@ -232,10 +235,10 @@ export function StrangleDecisionsView() {
               )}
               <div>open half marked <b style={{ color: "var(--text)" }}>
                 {hhmmss(pnl.open.markedAtUtc)}</b></div>
-              {pnl.marketData?.lastTickAtUtc && (
-                <div title="symbols served by IBKR vs the fallback on the last harvester cycle">
-                  feed {pnl.marketData.fromIbkr}/
-                  {pnl.marketData.fromIbkr + pnl.marketData.fromFallback} from IBKR
+              {pnl.marketData && (
+                <div title="one live IBKR snapshot taken when this screen loaded">
+                  feed {pnl.marketData.state} · {pnl.marketData.probe}{" "}
+                  {hhmmss(pnl.marketData.checkedAtUtc)}
                 </div>
               )}
               <div>this screen refreshed {ago(fetchedAt)}</div>

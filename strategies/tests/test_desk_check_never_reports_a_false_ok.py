@@ -152,7 +152,7 @@ def test_a_check_that_crashes_becomes_UNKNOWN_rather_than_vanishing(monkeypatch)
     # Added 4 Oct 2026 with the checks themselves. A test that stubs "all the
     # checks" silently stops doing that the moment a check is added — this one
     # went red immediately, which is the behaviour we want from it.
-    monkeypatch.setattr(dc, "check_idle_machinery", lambda *a, **k: [])
+    monkeypatch.setattr(dc, "check_golden_store", lambda *a, **k: [])
     monkeypatch.setattr(dc, "check_code_version", lambda *a, **k: [])
     # Added 21 Oct 2026 with check_lane_schedules, for the reason stated just
     # above: this test went red the moment that check existed, which is exactly
