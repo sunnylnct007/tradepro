@@ -2204,17 +2204,33 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
-### 2026-11-11 (20:15) — step 2 of the ruling: API `bar_cache` provider (PR #381)
+### 2026-11-11 (20:30) — dead code: sidecar + Stooq/Binance DELETED (PR #382); data-ops lane MAPPED for the next PR
 
-`/marketdata/candles` can now be served from the golden store: `BarCacheStoreProvider`
-(Parquet.Net + AWSSDK.S3, or a local directory, or UNCONFIGURED = empty labelled series) is
-registered as provider `bar_cache` beside `yahoo`. Reads the harvester's monthly partitions,
-half-open window, 15m/30m/1h derived from 5m with worst-of provenance; the series now carries
-`sources`, `newestBar`, `location`. Nine tests incl. one that reads a real pandas-written
-partition from this Mac (UTC + session-hour invariants). Default provider stays `yahoo` until
-the EC2 role can read `bar_cache/*` (ccit-infra patch written, owner to apply); then flip
-`Providers__Default=bar_cache` + `BarCache__Bucket` in docker-compose.aws.yaml and verify
-the chart against the harvest log's newest bar. Step 3 (frontend single call) follows.
+Owner: *"IG is not doing any harm, so we can keep that as is"* — IG stays; struck from the
+retire list. Deleted in #382 (no consumer anywhere): `cli/analysis_server.py` + console entry,
+`SymbolAnalysisEndpoints.cs` + Map call, frontend `symbolVerdict` + analysis config, Stooq and
+Binance providers. OWNER ACTION on the Mac (my runner refuses launchctl): `launchctl bootout
+gui/$(id -u)/com.tradepro.analysis-server && rm ~/Library/LaunchAgents/com.tradepro.analysis-server.plist`.
+
+**NEXT PR (not started — a half-removal is the exact fault shape we are killing, so whole or
+nothing):** the `tradepro-data-worker` / `data_ops` lane, disabled since 23 Sep. Every edge:
+- Python: `cli/data_worker.py`, package `tradepro_strategies/data_ops/`, `features/data_worker.feature`
+  + `features/steps/data_worker_steps.py`, `scripts/data-worker.sh`, pyproject `tradepro-data-worker`.
+- API `OpsEndpoints.cs`: the "Data ops" region from the comment at ~line 201 through
+  `/complete-data/{requestId}` (~line 415): `run-data-validate`, `run-data-backfill`,
+  `run-data-reload`, `poll-data`, `complete-data`, the three `Data*Kind` consts, and the
+  Phase C-Backfill validation helpers that follow if nothing else uses them.
+- API `DataTrustEndpoints.cs`: `POST /ibkr/fetch-bars` (~1203–1262) and its comment; KEEP `/ibkr/status`.
+- Frontend `client.ts`: `runDataValidate`, `runDataBackfill`, `runDataReload` (~470–520), `ibkrFetchBars` (~2150–2205).
+- Frontend `settings/DataHealthSection.tsx`: the fetch form inside "IBKR Bar Harvester" (state 634–645,
+  `onFetch` 658–696, form rows ~785–815) and the whole "Data backfill / reload" subsection
+  (state ~1068, callers 1083/1130/1257, title ~1924).
+- MCP: `tools.py` `ibkr_fetch_bars` (3244–~3320); `server.py` allow-list line 46, comment 652–656, tool 809–~850.
+Verify: backend build, `npm run build`, python import, gate test; then grep the five route names repo-wide = 0.
+
+CI note: ci-tests runs for #381 and #382 queued from 20:19Z with no jobs assigned for 10+ min
+(Actions status page green; a "Deploy API to Azure App Service" run from a workflow not in main
+has been queued since 08:03Z). Merges wait on CI; no admin override.
 
 ### 2026-11-11 (20:30) — RULING: one golden bar store, one writer, one read path (PR #380)
 

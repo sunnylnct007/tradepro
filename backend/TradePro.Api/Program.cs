@@ -60,19 +60,6 @@ builder.Services.AddHttpClient<YahooFinanceProvider>(c =>
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
     c.Timeout = TimeSpan.FromSeconds(15);
 });
-// Stooq + Binance temporarily unregistered — Stooq now requires an API key
-// and Binance only supports crypto which we don't surface yet. The classes
-// are kept in the codebase so we can wire them back in with a click.
-builder.Services.AddHttpClient<StooqProvider>(c =>
-{
-    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
-    c.Timeout = TimeSpan.FromSeconds(15);
-});
-builder.Services.AddHttpClient<BinanceProvider>(c =>
-{
-    c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
-    c.Timeout = TimeSpan.FromSeconds(15);
-});
 builder.Services.AddHttpClient<YahooSearchProvider>(c =>
 {
     c.DefaultRequestHeaders.UserAgent.ParseAdd("tradepro/0.1");
@@ -426,7 +413,6 @@ api.MapWorkerHealthEndpoints();
 api.MapStrategyHealthEndpoints();
 api.MapSettingsEndpoints();
 api.MapDocumentEndpoints();
-api.MapSymbolAnalysisEndpoints();
 api.MapIntegrationsEndpoints();
 api.MapIBKRFlexEndpoints();
 api.MapInstrumentEndpoints();
