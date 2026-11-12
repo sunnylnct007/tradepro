@@ -129,6 +129,30 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_swing_candidates())
 
     @mcp.tool()
+    @instrumented("backtest_momentum_rotation")
+    def backtest_momentum_rotation(overrides: dict | None = None) -> str:
+        """Backtest the monthly momentum rotation (the core engine, owner spec
+        12 Nov 2026) on TradePro's golden store, 2008 to now. Pass NO overrides
+        for the pre-registered design. Overrides are Params fields, e.g.
+        {"top_n": 12, "trailing_stop": null, "lookbacks": [126],
+        "market_filter": "none", "rebalance_day": 0}. Returns account metrics
+        (the engine at <=50% of NLV), SPY, SPY at the same 50% budget, an
+        equal-weight hold of the universe, activity and the last rebalances.
+        The universe is survivor-biased (today's S&P 500 leaders) — say so when
+        quoting any number. Computes only; never trades."""
+        return _json(t.backtest_momentum_rotation(overrides))
+
+    @mcp.tool()
+    @instrumented("compare_momentum_rotation_variants")
+    def compare_momentum_rotation_variants(variants: list[dict]) -> str:
+        """Run up to 40 momentum-rotation variants on the same data (one load)
+        and return EVERY row with the count — report them all, never only the
+        best. Each variant is an overrides dict as in backtest_momentum_rotation;
+        {} is the decided design. A setting that only works at one exact value
+        fails the spec's robustness gate."""
+        return _json(t.compare_momentum_rotation_variants(variants))
+
+    @mcp.tool()
     @instrumented("get_symbol_outlook")
     def get_symbol_outlook(symbols: list[str]) -> str:
         """What the SWING rule HAS DONE on these names — a distribution, never a

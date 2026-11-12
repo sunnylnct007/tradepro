@@ -3,7 +3,7 @@
   "criteria": "956 names TRACKED, 80 HARVESTED (9 Nov 2026). Every name stays in this file; `harvest` decides which the nightly 1d job refreshes. The universe was widened to 956 on 21 Sep and two days later the harvest went from 18 minutes to 7 hours, reaching 12-61h by November at ~48s a symbol \u2014 so it finished AFTER the next open every day and every screen rendered stale bars while labelling itself 'PARTIAL 1 session behind'. A FLAG rather than a deletion, at the owner's instruction, so the choice is his and is reversible from the UI without re-seeding years of bars. Seeded with: exchange and sector ETFs, the live book, and stocks chosen ROUND-ROBIN across the 11 GICS sectors (S&P 500 membership, most liquid first within each sector, live-book names counted toward their sector) \u2014 owner, 9 Nov: 'the harvesting of 80 symbols need to be diversified across sectors'. A seed by raw liquidity alone was 10 Technology of 17 classified, which reproduces the concentration that hurt the live account.",
   "counts": {
     "total": 960,
-    "harvested": 84,
+    "harvested": 161,
     "etfs": 31,
     "live_book": 19,
     "sector_picks": 34
@@ -382,8 +382,8 @@
       "tags": [
         "large_50"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -614,8 +614,8 @@
       "tags": [
         "large_50"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -1968,8 +1968,8 @@
       "atr_pct": 2.02,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Materials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -2184,8 +2184,8 @@
       "atr_pct": 2.57,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -2536,8 +2536,8 @@
         "high_beta",
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -2642,8 +2642,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Information Technology",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -3205,8 +3205,8 @@
       "atr_pct": 3.06,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Materials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -3421,8 +3421,8 @@
       "atr_pct": 2.85,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -3691,8 +3691,8 @@
       "atr_pct": 6.51,
       "volatility_tier": "high",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -3772,8 +3772,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Information Technology",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -4234,8 +4234,8 @@
       "atr_pct": 2.33,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -4604,8 +4604,8 @@
       "atr_pct": 1.63,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -4712,8 +4712,8 @@
       "atr_pct": 1.86,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Utilities",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -4796,8 +4796,8 @@
         "high_beta",
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -5623,8 +5623,8 @@
       "atr_pct": 2.84,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Materials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -6024,8 +6024,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Information Technology",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -6529,8 +6529,8 @@
       "atr_pct": 2.09,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -7843,8 +7843,8 @@
       "atr_pct": 3.28,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -8346,8 +8346,8 @@
       "atr_pct": 1.93,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -8536,8 +8536,8 @@
         "high_beta",
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Information Technology",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -11590,8 +11590,8 @@
         "high_beta",
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -12678,8 +12678,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -13324,8 +13324,8 @@
       "atr_pct": 2.21,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -13684,8 +13684,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -14653,8 +14653,8 @@
       "atr_pct": 2.63,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -15009,8 +15009,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -15190,8 +15190,8 @@
       "atr_pct": 1.45,
       "volatility_tier": "low",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -15781,8 +15781,8 @@
       "atr_pct": 2.69,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -15833,8 +15833,8 @@
       "atr_pct": 1.18,
       "volatility_tier": "low",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -16564,8 +16564,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -16643,8 +16643,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -16822,8 +16822,8 @@
       "atr_pct": 1.4,
       "volatility_tier": "low",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -17225,8 +17225,8 @@
       "atr_pct": 1.47,
       "volatility_tier": "low",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -17681,8 +17681,8 @@
       "atr_pct": 3.36,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18001,8 +18001,8 @@
       "atr_pct": 2.0,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18057,8 +18057,8 @@
       "atr_pct": 2.6,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18190,8 +18190,8 @@
       "atr_pct": 1.67,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18271,8 +18271,8 @@
       "atr_pct": 1.49,
       "volatility_tier": "low",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18628,8 +18628,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18656,8 +18656,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18812,8 +18812,8 @@
       "atr_pct": 1.55,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Materials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -18839,8 +18839,8 @@
       "atr_pct": 2.34,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19072,8 +19072,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Energy",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19154,8 +19154,8 @@
       "atr_pct": 4.22,
       "volatility_tier": "high",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Utilities",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19289,8 +19289,8 @@
       "atr_pct": 2.7,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19345,8 +19345,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19542,8 +19542,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19646,8 +19646,8 @@
       "atr_pct": 3.18,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19675,8 +19675,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19731,8 +19731,8 @@
       "atr_pct": 1.97,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -19785,8 +19785,8 @@
       "atr_pct": 2.04,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Industrials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20032,8 +20032,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Energy",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20142,8 +20142,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20274,8 +20274,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20332,8 +20332,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20361,8 +20361,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20495,8 +20495,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20524,8 +20524,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Health Care",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20553,8 +20553,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Financials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20580,8 +20580,8 @@
       "atr_pct": 2.64,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Real Estate",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20639,8 +20639,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20775,8 +20775,8 @@
         "high_beta",
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Materials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -20966,8 +20966,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21047,8 +21047,8 @@
       "atr_pct": 1.52,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Utilities",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21128,8 +21128,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Communication Services",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21157,8 +21157,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Materials",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21186,8 +21186,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21245,8 +21245,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Discretionary",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21330,8 +21330,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Energy",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21438,8 +21438,8 @@
       "atr_pct": 2.72,
       "volatility_tier": "mid",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Energy",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21521,8 +21521,8 @@
       "tags": [
         "high_beta"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Utilities",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21635,8 +21635,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Energy",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21830,8 +21830,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Energy",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -21886,8 +21886,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -22360,8 +22360,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Consumer Staples",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -22644,8 +22644,8 @@
       "tags": [
         "wheel"
       ],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Utilities",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },
@@ -23265,8 +23265,8 @@
       "atr_pct": 4.07,
       "volatility_tier": "high",
       "tags": [],
-      "harvest": false,
-      "harvest_reason": "off \u2014 flip on from the Universe screen to include it",
+      "harvest": true,
+      "harvest_reason": "momentum core universe (owner, 12 Nov 2026)",
       "sector": "Utilities",
       "sector_source": "sp500 GICS (api/universes/sp500)"
     },

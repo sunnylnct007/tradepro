@@ -10,8 +10,8 @@ A momentum ranking reads those jumps as returns.
 
 WHAT. Every stored 1d row ends up RAW, with adj_factor = yahoo adj close /
 yahoo close on that date, so `close * adj_factor` is the total-return price:
-  * an IBKR row keeps its prices (they match yahoo's raw close exactly) and
-    gains the factor;
+  * an IBKR row keeps its prices (they match yahoo's raw close exactly),
+    gains the factor, and takes yahoo's VOLUME (IBKR's was 0.5x-7.9x off);
   * any other row takes yahoo's raw OHLC for that date.
 Timestamps of stored rows are kept exactly and no row is removed. A row
 yahoo has no date for is converted with the nearest factor and COUNTED.
@@ -83,7 +83,11 @@ def convert(stored: pd.DataFrame, yahoo: pd.DataFrame | None) -> tuple[pd.DataFr
     rep = (~is_ibkr) & have
     for c in _PRICE:
         out.loc[rep, c] = y[c].values[rep]
-    out.loc[rep, "volume"] = y["volume"].values[rep]
+    # VOLUME from yahoo on EVERY row it has a date for, IBKR rows included.
+    # IBKR's history volume is not consolidated share volume: against yahoo it
+    # ran 0.5x (NVDA) to 7.9x (MU) on the same days of Nov 2026, with no fixed
+    # unit, so a liquidity rank on it put MU above NVDA. Prices stay IBKR's.
+    out.loc[have, "volume"] = y["volume"].values[have]
     out.loc[rep, "source"] = "yfinance"
     # a non-IBKR row yahoo has no date for: it was dividend-adjusted; undo it
     # with the nearest factor so it sits on the raw scale
