@@ -63,7 +63,7 @@ The engine alone, without the account wrapper (allocation 100%, alerts off):
 | trailing stop 25% | 8.66 | -14.8 | 0.98 |
 | sector cap off | 8.45 | -13.0 | 0.98 |
 
-Not yet run: four weekly tranches; walk-forward; the point-in-time universe.
+Not yet run: four weekly tranches; the point-in-time universe.
 
 ## Gates
 
@@ -72,8 +72,22 @@ Not yet run: four weekly tranches; walk-forward; the point-in-time universe.
 | G1 | Beats SPY after costs | Account 8.4% beats SPY at the same budget (7.9%) but not SPY fully invested (11.2%). The engine alone (15.8%) beats SPY. Passes on a like-for-like budget. |
 | G2 | Beats equal-weight hold of the same universe | **FAILS.** Account 8.4% vs 9.2% at the same budget; engine alone 15.8% vs 18.1%. Only the no-vol-target engine (21.8%) beats it. |
 | G3 | Drawdown x 50% inside 25% | Passes: engine alone -24.6% x 50% = 12.3%. |
-| G4 | Walk-forward keeps half the in-sample return | Not run yet. |
+| G4 | Walk-forward keeps half the in-sample return | Passes: the pick (6-month lookback) made 7.3% in 2008-2017 and 9.5% in 2018-now. |
 | G5 | Most variants beat SPY | Passes: 15 of 22 at the same budget. |
+
+## Walk-forward (method fixed in the gates file before the run)
+
+| | 2008-2017 (in-sample) | 2018-now (out-of-sample) |
+|---|---|---|
+| Selected by in-sample Sharpe: 6-month lookback | 7.3% CAGR, -11.0% DD, Sharpe 0.95 | 9.5%, -11.2%, 1.01 |
+| Decided design, unselected (control) | 6.4%, -11.4%, 0.84 | 10.5%, -13.0%, 1.10 |
+
+Rolling yearly re-selection, 2018-2026, chained: **11.0% a year.** It chose the
+6-month lookback every year to 2024, then "vol target off" in 2025 and 2026.
+
+Both runs did better out of sample than in. Two caveats: 2018-2026 was a strong
+period for exactly these survivors, and each rolling year starts in cash until
+its first mid-month rebalance.
 
 ## What the numbers say
 

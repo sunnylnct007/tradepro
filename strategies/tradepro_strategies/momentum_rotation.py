@@ -422,6 +422,47 @@ ROBUSTNESS: list[dict] = (
 NOT_YET_RUN = ["4 weekly tranches (rebalance split across four weeks)"]
 
 
+def walk_forward(split_year: int = 2018, first_year: int = 2008) -> dict:
+    """The pre-registered walk-forward (MOMENTUM_ROTATION_GATES_V1.md)."""
+    import datetime as _dt
+    panels = cached_panels(None)
+    candidates = [{}] + ROBUSTNESS
+    last_year = panels.dates[-1].year
+
+    def _run(ov: dict, start: str, end: str) -> dict:
+        p = with_overrides(**{**ov, "start": start, "end": end})
+        return backtest(p, panels)["metrics"]["account"]
+
+    def _best(end_year: int) -> tuple[dict, list]:
+        scored = [(c, _run(c, f"{first_year}-01-01", f"{end_year}-12-31")) for c in candidates]
+        return max(scored, key=lambda x: x[1]["sharpe"])[0], scored
+
+    pick, scored = _best(split_year - 1)
+    ins = next(m for c, m in scored if c == pick)
+    oos = _run(pick, f"{split_year}-01-01", f"{last_year}-12-31")
+    base_in = next(m for c, m in scored if c == {})
+    base_oos = _run({}, f"{split_year}-01-01", f"{last_year}-12-31")
+
+    yearly, chain = [], 1.0
+    for y in range(split_year, last_year + 1):
+        choice, _ = _best(y - 1)
+        r = _run(choice, f"{y}-01-01", f"{y}-12-31")
+        ret = (r["yearly_pct"].get(y, 0.0)) / 100
+        chain *= 1 + ret
+        yearly.append({"year": y, "chose": choice, "return_pct": round(ret * 100, 2)})
+    n_years = (panels.dates[-1] - _dt.datetime(split_year, 1, 1)).days / 365.25
+    return {
+        "single_split": {"chose": pick, "in_sample": {k: ins[k] for k in ("cagr_pct", "max_drawdown_pct", "sharpe")},
+                         "out_of_sample": {k: oos[k] for k in ("cagr_pct", "max_drawdown_pct", "sharpe")},
+                         "g4_pass": oos["cagr_pct"] >= 0.5 * ins["cagr_pct"]},
+        "decided_design_control": {"in_sample": {k: base_in[k] for k in ("cagr_pct", "max_drawdown_pct", "sharpe")},
+                                   "out_of_sample": {k: base_oos[k] for k in ("cagr_pct", "max_drawdown_pct", "sharpe")},
+                                   "keeps_half": base_oos["cagr_pct"] >= 0.5 * base_in["cagr_pct"]},
+        "rolling": {"years": yearly, "chained_cagr_pct": round((chain ** (1 / n_years) - 1) * 100, 2)},
+        "candidates": len(candidates),
+    }
+
+
 def summarise(result: dict) -> dict:
     """The result without the daily series, for logs, MCP and reports."""
     out = {k: v for k, v in result.items() if k not in ("nav", "rebalances")}
