@@ -877,12 +877,6 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_ibkr_account_summary())
 
     @mcp.tool()
-    @instrumented("get_ibkr_bars")
-    def get_ibkr_bars(symbol: str, resolution: str = "1m", limit: int = 200) -> str:
-        """HARVESTED candles from ibkr_price_bars (deep IBKR 1m/5m/1d + per-bar
-        source). Fast, no live IBKR call. For charting/analysis of any harvested
-        symbol at any resolution."""
-        return _json(t.get_ibkr_bars(symbol, resolution, limit))
 
     @mcp.tool()
     @instrumented("get_ibkr_price_history")

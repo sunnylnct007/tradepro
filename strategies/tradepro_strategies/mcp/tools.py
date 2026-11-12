@@ -3362,14 +3362,6 @@ def get_ibkr_account_summary() -> dict:
     return _ibkr_passthrough("get_ibkr_account_summary", "/api/integrations/ibkr/account-summary")
 
 
-def get_ibkr_bars(symbol: str, resolution: str = "1m", limit: int = 200) -> dict:
-    """HARVESTED candles from the central ibkr_price_bars store (deep IBKR 1m/5m/1d
-    with the IBKR-vs-Yahoo source per bar). Fast, no live IBKR call. Use for
-    charting/analysis of any harvested symbol at any resolution."""
-    return _ibkr_passthrough("get_ibkr_bars", "/api/integrations/ibkr/bars",
-                             {"symbol": symbol, "resolution": resolution, "limit": max(1, min(int(limit), 5000))})
-
-
 def get_ibkr_price_history(symbol: str, period: str = "1y", bar: str = "1d") -> dict:
     """ON-DEMAND IBKR price history via the Web API (live fetch, any US symbol) —
     use when a symbol isn't in the harvested store, or for a longer/ad-hoc range
