@@ -715,6 +715,13 @@ class BarStore:
             except BarFetchError as exc:
                 last_exc = exc
                 chain_log.append(f"{provider_name}_{exc.error_class}")
+                # SAY WHY, in the lane log and in a per-run sample the harvest
+                # summary prints. Until 12 Nov 2026 a declined provider left only
+                # its class behind ("ibkr_web_network"); the one question that
+                # mattered that day — what did IBKR actually answer at 16:00? —
+                # could not be answered from the desk, and the API log is not
+                # readable from here.
+                self._record_decline(canonical, resolution, provider_name, exc)
                 continue
 
             # Validate before write so a bad frame doesn't pollute disk.
@@ -723,6 +730,7 @@ class BarStore:
             except BarFetchError as exc:
                 last_exc = exc
                 chain_log.append(f"{provider_name}_parse")
+                self._record_decline(canonical, resolution, provider_name, exc, cls="parse")
                 # QUARANTINE, don't just vanish (22 Aug 2026): a rejected
                 # frame used to leave no trace beyond a chain-log token, so a
                 # provider serving garbage was an invisible problem. Preserve
@@ -1395,6 +1403,21 @@ class BarStore:
                 continue
             fingerprints.append(fingerprint_from_manifest(manifest))
         return compute_data_state_hash(fingerprints)
+
+    # One sample message per decline reason, for the run summary. Keyed by the
+    # same token the chain log carries (e.g. "ibkr_web_network"), so the
+    # "N × ibkr_web_network" line can be followed by what the provider said.
+    last_decline_messages: dict[str, str] = {}
+
+    def _record_decline(self, canonical: str, resolution: str, provider_name: str,
+                        exc: "BarFetchError", cls: str | None = None) -> None:
+        token = f"{provider_name}_{cls or exc.error_class}"
+        msg = " ".join(str(getattr(exc, "message", exc) or "").split())
+        if len(msg) > 220:
+            msg = msg[:220] + "…"
+        _log.warning("%s %s: %s declined (%s): %s",
+                     canonical, resolution, provider_name, cls or exc.error_class, msg or "(no message)")
+        BarStore.last_decline_messages.setdefault(token, f"{canonical}: {msg or '(no message)'}")
 
     def _emit_event(
         self, *,

@@ -2212,6 +2212,21 @@ Deleted: `api.ibkrBars` and the MCP tool `get_ibkr_bars`. The golden-store gate'
 SHRANK by one file (the chart). Still Postgres: `ibkrBarCoverage` on the Harvest view and the
 harvester status panel in Settings — both go with the writers in step 4.
 
+### 2026-11-12 (16:40) — pacing fix measured; a declined provider now says WHY (PR #387)
+
+16:00Z lane run (first clean one after #385): `Sources: ibkr_web_ok 92, yfinance_ok 24`, 10
+backoff waits, 1 exhausted rate limit, 17-min run (was 12/116 IBKR at 14:00Z). The 24 Yahoo
+rows: 23 `ibkr_web_network` = the FIRST 23 symbols alphabetically (AAPL…MCK) — the failure
+clusters at the START of a run and clears; AAPL re-run alone minutes later got ibkr_web. The
+15:16Z run was worse (75 network) because it began the minute the API container was replaced.
+UNEXPLAINED beyond that: the chain log, the event telemetry and the summary all carried only
+the token `ibkr_web_network`, never the provider's text; my runner refuses the API log (SSM and
+the `aws-api-logs` workflow alike). Owner can run `aws-api-logs` in the Actions tab.
+
+Fix: `BarStore` logs `"<sym> <res>: <provider> declined (<class>): <message>"` at WARNING and
+keeps one sample per reason; the harvest summary prints `e.g. …` under each `N × reason` line.
+Test proven on the unpatched store. Next 5m run after the Mac sync shows the text.
+
 ### 2026-11-12 (15:40) — IBKR history PACING was being read as a network fault (PR #385)
 
 Visible only because the series now carries `sources`: SPY 5m today = 74 yfinance / 7 ibkr_web.

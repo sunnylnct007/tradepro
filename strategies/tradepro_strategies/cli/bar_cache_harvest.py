@@ -667,8 +667,12 @@ def main() -> int:
                   f"({_share:.0f}%) of the symbols that needed fetching; "
                   f"the rest came from FALLBACK providers.")
             if _demotion_counts:
+                from tradepro_strategies.bar_cache.store import BarStore as _BS
                 for _reason, _n in _demotion_counts.most_common(4):
                     print(f"      {_n:>4} × {_reason}")
+                    _sample = _BS.last_decline_messages.get(str(_reason))
+                    if _sample:
+                        print(f"             e.g. {_sample}")
             else:
                 print("      no reason recorded by the chain walk — investigate "
                       "the provider directly; it may be failing before it reports.")
