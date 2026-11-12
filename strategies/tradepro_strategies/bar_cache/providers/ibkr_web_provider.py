@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from ..errors import ProviderNetworkError, ProviderParseError, ProviderRateLimitError
+from ..errors import BarFetchError, ProviderNetworkError, ProviderParseError, ProviderRateLimitError
 from .base import Provider, register_provider
 
 _log = logging.getLogger("tradepro.bar_cache.ibkr_web")
@@ -421,6 +421,45 @@ class IBKRWebProvider(Provider):
                         provider=self.name, canonical=canonical,
                         message=f"ibkr_web: RATE LIMITED after {len(waits)} backoff "
                                 f"attempts ({sum(waits)}s total): {reason}")
+            elif is_chart_warming(reason):
+                # IBKR's history farm answers "Chart data unavailable" for the
+                # FIRST requests of a burst and serves the same conid seconds
+                # later. Measured 12 Nov 2026 (first run with decline messages):
+                # the first symbols of every 5m run — AAPL, ABBV, … — failed this
+                # way after the API's three quick retries, then went to Yahoo.
+                # It is a warm-up, not an outage: wait a few seconds and ask again
+                # before declaring a network fault.
+                import time as _time
+                waits = _warmup_schedule()
+                for attempt, wait_s in enumerate(waits, start=1):
+                    _log.warning(
+                        "%s: ibkr_web warming up (%s) — waiting %ds then retrying (%d/%d)",
+                        canonical, reason, wait_s, attempt, len(waits))
+                    _time.sleep(wait_s)
+                    try:
+                        if self._get is not None:
+                            status, payload = self._get(url, headers, _TIMEOUT_S)
+                        else:
+                            import requests
+                            r = requests.get(url, headers=headers, timeout=_TIMEOUT_S)
+                            status, payload = r.status_code, (r.json() if r.content else {})
+                    except Exception as exc:  # noqa: BLE001
+                        raise ProviderNetworkError(
+                            provider=self.name, canonical=canonical,
+                            message=f"ibkr_web request failed during warm-up retry: {exc}"
+                        ) from exc
+                    payload = payload or {}
+                    if status == 200:
+                        break
+                    reason = payload.get("error") or f"HTTP {status}"
+                    if not is_chart_warming(reason):
+                        break
+                if status != 200:
+                    raise BarFetchError(
+                        error_class="warmup", provider=self.name, canonical=canonical,
+                        message=f"ibkr_web: still '{reason}' after {len(waits)} warm-up "
+                                f"retries ({sum(waits)}s)",
+                        retry_strategy="switch_provider")
             else:
                 # The endpoint FAILS LOUD (502 + reason); propagate the reason.
                 raise ProviderNetworkError(
@@ -508,6 +547,29 @@ _RATE_LIMIT_MARKERS = (
     # ran, and 104/116 symbols went to Yahoo as a "network" fault.
     "too many history", "try again later",
 )
+
+
+_WARMUP_MARKERS = ("chart data unavailable",)
+
+
+def is_chart_warming(reason: object) -> bool:
+    """IBKR's "Chart data unavailable" — the history farm has not warmed the
+    conid yet. Transient within seconds; NOT a rate limit, NOT an outage."""
+    text = str(reason or "").lower()
+    return any(m in text for m in _WARMUP_MARKERS)
+
+
+def _warmup_schedule() -> list[int]:
+    """Waits (seconds) before re-asking a warming conid. Short: the farm
+    serves within seconds. Override with TRADEPRO_IBKR_WARMUP_BACKOFF."""
+    import os
+    raw = os.environ.get("TRADEPRO_IBKR_WARMUP_BACKOFF", "").strip()
+    if raw:
+        try:
+            return [int(x) for x in raw.split(",") if x.strip()]
+        except ValueError:
+            pass
+    return [5, 10]
 
 
 def is_rate_limited(status: int | None, reason: object) -> bool:
