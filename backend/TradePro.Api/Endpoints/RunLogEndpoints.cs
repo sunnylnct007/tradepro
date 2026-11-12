@@ -42,8 +42,9 @@ public static class RunLogEndpoints
         //
         // If live-portfolio is ever restored, add it back here AND give it a
         // runner — the entry without the lane is what caused this.
-        ("signal-audit", 30.0),
-        ("today-setups", 30.0),
+        // signal-audit and today-setups REMOVED 12 Nov 2026 with their jobs
+        // (Ichimoku retired). Same rule as live-portfolio above: a cut lane
+        // must not leave an alarm behind.
         // TODO: add the paper-* session daemons once they write run_log heartbeats.
     };
 

@@ -9,7 +9,6 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 
 type Pnl = Awaited<ReturnType<typeof api.pnlByStrategy>>["rows"][number];
-type Audit = Awaited<ReturnType<typeof api.signalAudit>>["artifact"];
 
 function money(n: number | null | undefined, ccy = "GBP"): string {
   if (n == null) return "—";
@@ -32,13 +31,13 @@ function Chip({ label, value, tone, sub }: { label: string; value: string; tone?
 
 export function DeskKpiStrip() {
   const [rows, setRows] = useState<Pnl[]>([]);
-  const [audit, setAudit] = useState<Audit | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [p, a] = await Promise.allSettled([api.pnlByStrategy(), api.signalAudit("ichimoku_equity")]);
-      if (p.status === "fulfilled") setRows(p.value.rows);
-      if (a.status === "fulfilled") setAudit(a.value.artifact);
+      // The "NLV vs start" and "Exits overdue" chips read the Ichimoku signal
+      // audit. Both were removed with that job on 12 Nov 2026: Ichimoku is
+      // stopped, and a frozen artifact would show a dead book as current.
+      setRows((await api.pnlByStrategy()).rows);
     } catch { /* strip is best-effort; panels below carry the authoritative view */ }
   }, []);
   useEffect(() => { void load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
@@ -61,19 +60,10 @@ export function DeskKpiStrip() {
     .filter((r) => (r as any).activity === "active")
     .sort((a, b) => Math.abs((b.openPnl ?? 0)) - Math.abs((a.openPnl ?? 0)))
     .slice(0, 2);
-  const nlvVsStart = audit?.pnl?.total_pnl ?? null;
-  const exitsOverdue = audit?.counts?.exit_overdue ?? null;
-  const blind = audit?.counts?.blind ?? null;
 
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "stretch",
       padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 8, background: "rgba(255,255,255,0.015)" }}>
-      <Chip label="NLV vs start" value={money(nlvVsStart, audit?.currency ?? "GBP")}
-        sub={audit?.pnl?.total_pnl_pct != null ? `${audit.pnl.total_pnl_pct}%` : undefined}
-        tone={nlvVsStart != null && nlvVsStart < 0 ? "bad" : nlvVsStart != null ? "good" : undefined} />
-      <Chip label="Exits overdue" value={exitsOverdue != null ? String(exitsOverdue) : "—"}
-        tone={exitsOverdue ? "bad" : exitsOverdue === 0 ? "good" : undefined}
-        sub={blind ? `${blind} blind` : undefined} />
       {live.map((r) => (
         <Chip key={r.strategyId}
           // The id, shortened — "swing" and "momentum" read faster than the

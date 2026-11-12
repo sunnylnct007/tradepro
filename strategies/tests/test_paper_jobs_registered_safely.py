@@ -105,10 +105,12 @@ def test_the_existing_strangle_jobs_are_untouched():
 
 # ── the evening block, moved off the laptop 20 Sep 2026 ──────────────
 
-EVENING = ("earnings_harvest", "live_portfolio", "fill_replay",
-           "today_setups_large50", "today_setups_highbeta",
-           "signal_audit_equity", "signal_audit_equity_ibkr",
-           "option_chain_capture")
+EVENING = ("earnings_harvest", "live_portfolio", "option_chain_capture")
+
+#: Retired 12 Nov 2026 with their EventBridge rules: they served the stopped
+#: Ichimoku strategy over names the harvest no longer covers.
+RETIRED_ICHIMOKU = ("fill_replay", "today_setups_large50", "today_setups_highbeta",
+                    "signal_audit_equity", "signal_audit_equity_ibkr")
 
 
 def test_every_evening_job_is_registered():
@@ -126,27 +128,17 @@ def test_each_evening_job_points_at_a_real_module():
         importlib.import_module(module)
 
 
-def test_the_looping_scripts_became_one_job_per_iteration():
-    """today-setups and signal-audit each looped over two values on the Mac.
-
-    Registered as separate jobs, not a loop inside one: a loop that dies on
-    item 1 silently takes item 2 with it, and one EventBridge rule cannot show
-    that half of it failed.
-    """
+def test_the_retired_ichimoku_jobs_stay_retired():
     from lambda_handler import JOBS
-    assert "large_50" in JOBS["today_setups_large50"][1]
-    assert "high_beta" in JOBS["today_setups_highbeta"][1]
-    assert "ichimoku_equity" in JOBS["signal_audit_equity"][1]
-    assert "ichimoku_equity_ibkr" in JOBS["signal_audit_equity_ibkr"][1]
+    for job in RETIRED_ICHIMOKU:
+        assert job not in JOBS, f"{job} came back without its schedule or its strategy"
 
 
 def test_the_evening_jobs_keep_the_flags_the_mac_used():
     """These replace a working Mac agent. Different flags would be a silent
     behaviour change dressed as a migration."""
     from lambda_handler import JOBS
-    for job in ("live_portfolio", "fill_replay",
-                "today_setups_large50", "today_setups_highbeta",
-                "signal_audit_equity", "signal_audit_equity_ibkr"):
+    for job in ("live_portfolio",):
         assert "--push" in JOBS[job][1], f"{job} lost --push; it would compute and discard"
     assert JOBS["option_chain_capture"][1] == ["--rights", "PC", "--strangle-dte", "7,21"]
 

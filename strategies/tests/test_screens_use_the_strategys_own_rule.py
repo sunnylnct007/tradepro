@@ -27,8 +27,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pandas as pd
-import pytest
 
 SRC = Path(__file__).resolve().parents[1] / "tradepro_strategies"
 
@@ -39,55 +37,6 @@ CANONICAL = "paper/strategies/_equity_trader_signal.py"
 # of the equity 5/32/50. One rule per strategy, one object — not one Ichimoku
 # in the repository. It defines its own lines legitimately.
 ALLOWED_OWN_DEFINITION = {CANONICAL, "paper/strategies/_fx_trader_signal.py"}
-
-
-def _frame(sym: str) -> pd.DataFrame | None:
-    import sys
-    sys.path.insert(0, str(SRC.parent))
-    from tradepro_strategies.cli.build_universe import _load
-    try:
-        return _load(sym)
-    except Exception:  # noqa: BLE001 — a missing symbol is not this test's business
-        return None
-
-
-@pytest.mark.parametrize("sym", ["ABBV", "PFE", "ANET", "FIVE", "AAPL"])
-def test_the_setups_screen_agrees_with_the_sleeve_it_names(sym):
-    """Behavioural parity: same entry verdict as the strategy, per symbol.
-
-    Stronger than checking the import, because it survives a refactor: if
-    anyone re-derives the lines by hand again, the numbers will drift and
-    this fails on the drift rather than on the style.
-    """
-    df = _frame(sym)
-    if df is None or len(df) < 120:
-        pytest.skip(f"{sym}: not enough store history")
-
-    from tradepro_strategies.paper.strategies._equity_trader_signal import (
-        compute_indicators)
-
-    ren = df.rename(columns={"high": "High", "low": "Low", "close": "Close"})
-    ich = compute_indicators(ren)
-    tenkan = float(ich["tenkan"].iloc[-1])
-    kijun = float(ich["kijun"].iloc[-1])
-    strategy_says_buyable = tenkan > kijun
-
-    from tradepro_strategies.cli import today_setups as TS
-    row = TS._setup_for(df)
-    assert row is not None, f"{sym}: the screen produced no row to compare"
-
-    assert row.get("strategy_entry_ok") == strategy_says_buyable, (
-        f"{sym}: the Setups screen says strategy_entry_ok="
-        f"{row.get('strategy_entry_ok')} while ichimoku_equity's own tenkan "
-        f"{tenkan:.2f} vs kijun {kijun:.2f} says {strategy_says_buyable}. "
-        "The screen has drifted from the rule it names — this is the ABBV bug."
-    )
-    if not strategy_says_buyable:
-        assert row.get("classification") != "consider", (
-            f"{sym}: starred as a setup while the named strategy would not buy "
-            "it. A star on a row the strategy would SELL is the screen arguing "
-            "with itself."
-        )
 
 
 def test_nobody_re_derives_the_ichimoku_lines_by_hand():
@@ -195,7 +144,7 @@ def test_no_rows_why_text_names_a_strategy_that_did_not_pick_it():
     import re
     ICHIMOKU_WORDS = re.compile(r"ichimoku|above cloud|kijun|tenkan", re.I)
     # Modules that legitimately talk about the cloud because they RUN it.
-    ICHIMOKU_OWNERS = ("cli/today_setups.py", "paper/strategies/ichimoku",
+    ICHIMOKU_OWNERS = ("paper/strategies/ichimoku",
                        "paper/strategies/_equity_trader_signal.py",
                        "paper/strategies/_fx_trader_signal.py")
 

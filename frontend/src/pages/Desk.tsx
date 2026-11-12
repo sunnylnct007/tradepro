@@ -33,7 +33,6 @@ import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
 import { PaperLedgerCard } from "../components/desk/PaperLedgerCard";
 import { BrokerBookCard } from "../components/desk/BrokerBookCard";
-import { SignalAuditCard } from "../components/desk/SignalAuditCard";
 import { ActionBoard } from "../components/desk/ActionBoard";
 import { LiveView } from "../components/desk/LiveView";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
@@ -187,7 +186,6 @@ export function Desk() {
           <div style={{ columnCount: wide ? 3 : 1, columnGap: 12 }}>
             {[
               <PaperLedgerCard key="pnl" />,
-              <SignalAuditCard key="sig" />,
               <BrokerBookCard key="brk" />,
               // Compact indicator only — the full run-log stream lives on the
               // Data tab (owner, 22 Aug 2026: "dashboard should be an
