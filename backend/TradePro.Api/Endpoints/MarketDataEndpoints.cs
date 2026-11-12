@@ -40,7 +40,11 @@ public static class MarketDataEndpoints
             // (source=ibkr). Fill ONLY the missing tail (bars strictly newer than
             // the provider's last) so the chart is never behind, without touching
             // the long history the provider owns. Daily interval only.
-            if (IsDaily(iv))
+            // NOT for the golden store: it already carries the newest session, and
+            // merging Postgres rows into it would put two stores in one series —
+            // the exact fault docs/DATA_ARCHITECTURE.md retires. The merge itself
+            // goes when the Postgres bar table does (migration step 4).
+            if (IsDaily(iv) && p.Name != TradePro.Api.Providers.BarCache.BarCacheStoreProvider.ProviderName)
                 series = await MergeFresherDailyTailAsync(series, symbol, toDate, db, ct);
 
             return Results.Ok(series);

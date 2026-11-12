@@ -27,6 +27,16 @@ public sealed class BarCacheOptions
     /// <summary>AWS region of the bucket. Empty = SDK default (AWS_DEFAULT_REGION).</summary>
     public string? Region { get; set; }
 
+    /// <summary>
+    /// Where the S3 client gets its credentials. <c>instance-profile</c> (default)
+    /// uses the EC2 role — the ONLY identity granted bar_cache/* read (ccit-infra
+    /// PR #2). <c>default-chain</c> lets the SDK pick env vars / profile / role,
+    /// for a developer box. Explicit because the API container also carries
+    /// static AWS_ACCESS_KEY_ID/SECRET for SES, and the SDK's default chain
+    /// would pick those FIRST and read S3 as the mail user, which is denied.
+    /// </summary>
+    public string CredentialSource { get; set; } = "instance-profile";
+
     /// <summary>Local root of the store (the Mac's <c>~/.tradepro/bar_cache</c>, or a test dir). Empty = not using disk.</summary>
     public string? LocalDir { get; set; }
 

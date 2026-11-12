@@ -82,7 +82,7 @@ builder.Services.AddSingleton<TradePro.Api.Providers.BarCache.IBarCacheBlobs>(sp
     var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.BarCache.BarCacheOptions>>();
     TradePro.Api.Providers.BarCache.IBarCacheBlobs inner =
         !string.IsNullOrWhiteSpace(o.Value.Bucket)
-            ? new TradePro.Api.Providers.BarCache.S3BarCacheBlobs(o.Value.Bucket!, o.Value.Prefix, o.Value.Region)
+            ? new TradePro.Api.Providers.BarCache.S3BarCacheBlobs(o.Value.Bucket!, o.Value.Prefix, o.Value.Region, o.Value.CredentialSource)
         : !string.IsNullOrWhiteSpace(o.Value.LocalDir)
             ? new TradePro.Api.Providers.BarCache.LocalDirectoryBarCacheBlobs(o.Value.LocalDir!)
         : new TradePro.Api.Providers.BarCache.UnconfiguredBarCacheBlobs();

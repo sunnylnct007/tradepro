@@ -76,7 +76,7 @@ Each step is its own PR with its own verification. Nothing is wrapped; retired
 code is deleted when its last caller goes.
 
 1. **This PR.** The ruling, the inventory, the structural test, dead docs removed.
-2. **API reads the golden store.** `bar_cache` provider (`Parquet.Net` + S3, local directory for tests) registered as the default `IMarketDataProvider`; `/marketdata/candles` serves 1m/5m/1d from it with `source` and `newestBar` on the series; the Postgres tail merge is deleted. Needs the EC2 role to read `bar_cache/*` (ccit-infra, read-only).
+2. **API reads the golden store.** DONE 12 Nov 2026 (#381, #383; ccit-infra #2 grants the EC2 role read on `bar_cache/*`). `bar_cache` provider (`Parquet.Net` + S3 via the instance role, local directory for tests) is the default `IMarketDataProvider`; `/marketdata/candles` serves 1m/5m/1d from it with `sources`, `newestBar` and `location` on the series. The Postgres tail merge is skipped for the store and deleted in step 4.
 3. **Frontend single call.** Intraday chart moves to `candles`; `ibkrBars` and its MCP tools go.
 4. **Postgres writers off.** `IBKRBarHarvester`, `IBKRDailyBackfillService`, `data-trust/bars` push and reconcile removed; `ibkr_price_bars` dropped after one week of parity between the two.
 5. **Python readers through the store.** `daily_bars.load_daily` becomes a thin wrapper over `BarStore.get`, then each direct parquet reader is moved and the wrapper deleted.
