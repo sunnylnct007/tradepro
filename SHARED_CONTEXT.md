@@ -2212,6 +2212,42 @@ Deleted: `api.ibkrBars` and the MCP tool `get_ibkr_bars`. The golden-store gate'
 SHRANK by one file (the chart). Still Postgres: `ibkrBarCoverage` on the Harvest view and the
 harvester status panel in Settings — both go with the writers in step 4.
 
+### 2026-11-12 (16:50) — STEP 4 MAPPED (Postgres bar writers off) — not started; whole or nothing
+
+Every edge of the Postgres bar table, so the next PR deletes it in one piece:
+- API hosted services: `IBKRBarHarvester` + `IBKRHarvesterStatus` (Program.cs ~188–192),
+  `IBKRDailyBackfillService` + options + status (~196–199); their option classes/sections.
+- API endpoints: `POST /api/admin/data-trust/bars` (DataTrustEndpoints ~149, the parquet→Postgres
+  push) and `GET /ibkr/status` (~1153, harvester events panel); `GET /integrations/ibkr/harvester-status`
+  (IntegrationsEndpoints ~1242), `/integrations/ibkr/bars` (~1287), `/integrations/ibkr/bar-coverage`
+  (~1348); `MarketDataEndpoints.MergeFresherDailyTailAsync` (the Yahoo daily tail; delete with it).
+- Frontend: Settings "IBKR Bar Harvester" subsection (`DataHealthSection.tsx` ~466, 650 + the
+  fetch form from the data-ops map); Desk `HarvestView.tsx` coverage table (~20, 301) and the
+  harvester-status line (~937); `client.ts` `ibkrBarCoverage`, `ibkrBarStatus`, harvester-status fn.
+- Python: `cli/bar_cache_push.py`, `cli/bar_store_reconcile.py` (+ pyproject entries),
+  `scripts/bar-cache-harvest-daily.sh` lines ~123 and ~147 (push + reconcile steps), MCP
+  `get_ibkr_harvest_coverage` (tools.py ~3377 + server.py), `desk_check.py` ~221 (replace the
+  harvester-status check with a golden-store freshness check: newest bar per symbol vs clock —
+  that IS step 7's number), `tests/test_bar_cache_push.py`.
+- DB: migrations 057/065 stay as history; a new migration DROPS `ibkr_price_bars` only after a
+  parity week (daily bars store vs table). The gate allow-list shrinks by every file above.
+- Also folds in the data-ops lane removal (20:30 entry, 11 Nov) — the Settings panel overlaps.
+
+### 2026-11-12 (16:40) — pacing fix measured; a declined provider now says WHY (PR #387)
+
+16:00Z lane run (first clean one after #385): `Sources: ibkr_web_ok 92, yfinance_ok 24`, 10
+backoff waits, 1 exhausted rate limit, 17-min run (was 12/116 IBKR at 14:00Z). The 24 Yahoo
+rows: 23 `ibkr_web_network` = the FIRST 23 symbols alphabetically (AAPL…MCK) — the failure
+clusters at the START of a run and clears; AAPL re-run alone minutes later got ibkr_web. The
+15:16Z run was worse (75 network) because it began the minute the API container was replaced.
+UNEXPLAINED beyond that: the chain log, the event telemetry and the summary all carried only
+the token `ibkr_web_network`, never the provider's text; my runner refuses the API log (SSM and
+the `aws-api-logs` workflow alike). Owner can run `aws-api-logs` in the Actions tab.
+
+Fix: `BarStore` logs `"<sym> <res>: <provider> declined (<class>): <message>"` at WARNING and
+keeps one sample per reason; the harvest summary prints `e.g. …` under each `N × reason` line.
+Test proven on the unpatched store. Next 5m run after the Mac sync shows the text.
+
 ### 2026-11-12 (15:40) — IBKR history PACING was being read as a network fault (PR #385)
 
 Visible only because the series now carries `sources`: SPY 5m today = 74 yfinance / 7 ibkr_web.
