@@ -36,7 +36,7 @@ class Params:
     market_filter: str = "spy200"        # spy200 | spy10m | breadth | none
     stock_trend_filter: bool = True      # close above own 200-day
     sector_cap: int | None = 4           # names per sector; None = off
-    vol_target: float | None = 0.20      # None = off
+    vol_target: float | None = 0.25      # None = off; 25% by owner 12 Nov (was 20%, changed AFTER results)
     vol_lookback: int = 63
     base_allocation: float = 0.50
     rebalance_day: int = 15              # day of month; 0 = month-end
@@ -415,7 +415,7 @@ ROBUSTNESS: list[dict] = (
     + [{"top_n": n} for n in (8, 12, 15)]
     + [{"rebalance_day": 0}, {"rebalance_offset": -5}, {"rebalance_offset": 5}]
     + [{"market_filter": m} for m in ("spy10m", "breadth", "none")]
-    + [{"vol_target": v} for v in (None, 0.15, 0.25)]
+    + [{"vol_target": v} for v in (None, 0.15, 0.20)]
     + [{"trailing_stop": v} for v in (None, 0.15, 0.25)]
     + [{"sector_cap": None}]
 )

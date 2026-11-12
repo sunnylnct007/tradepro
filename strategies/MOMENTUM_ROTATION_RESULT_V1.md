@@ -3,6 +3,10 @@
 Gates and rules: MOMENTUM_ROTATION_GATES_V1.md, committed before this run.
 Reproduce: `uv run tradepro-momentum-backtest --robustness`.
 
+**Decided design since 12 Nov (after these results): volatility target 25%,**
+not 20%. Its row is "vol target 25%" below: 9.5% CAGR, -13.0% drawdown, Sharpe
+0.99. The tables keep the original 20% design as the baseline they were run on.
+
 **Read every number below as an upper bound.** The universe is today's 99 most
 liquid S&P 500 names (9 per sector). Every one of them survived and grew into a
 leader by 2026; names that failed between 2008 and 2026 are absent.

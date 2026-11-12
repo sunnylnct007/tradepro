@@ -52,8 +52,9 @@ into this single convention first; see SHARED_CONTEXT).
    own 200-day average on the rebalance day.
 4. **Portfolio.** Top 10 eligible names, equal weight. Fewer than 10 qualify: the
    unused slots stay in cash. At most 4 of 10 in one sector.
-5. **Volatility target 20%.** Engine allocation = 50% x min(1, 20% / the selected
-   portfolio's annualised volatility over the last 63 days, equal weights).
+5. **Volatility target 25%** (20% in the original spec; see the change log).
+   Engine allocation = 50% x min(1, 25% / the selected portfolio's annualised
+   volatility over the last 63 days, equal weights).
 6. **Rebalance** on the close of the 15th, or the last trading day before it;
    orders the next trading day.
 7. **Exits.** At the rebalance (dropped from the top 10, fails a filter, breaks a
@@ -71,7 +72,7 @@ only to bring a weight back within 2 percentage points of target.
 2. **Robustness** (report every variant and how many were run): ranking blend vs
    3, 6, 9, 12 months and 12-minus-1; 8/10/12/15 names; mid-month vs month-end,
    +-5 days, 4 weekly tranches; SPY 200-day vs 10-month vs breadth vs none; vol
-   target off/15/20/25%; trailing stop none/15/20/25%; sector cap on/off.
+   target off/15/20/25% (the decided 25% plus the other three); trailing stop none/15/20/25%; sector cap on/off.
 3. **Walk-forward**: choose on 2008-2017, test unchanged on 2018-now; then roll.
 4. **Universe check**: the core list has no delisted names, so repeat the main
    run on a point-in-time universe before any live money.
@@ -110,3 +111,9 @@ rule adherence of at least 95%, any override logged with its reason.
 ## Change log
 
 - 12 Nov 2026: universe narrowed to ~100 sector-balanced names (owner).
+- 12 Nov 2026, **AFTER the v1 results were seen**: volatility target 20% -> 25%
+  (owner: "ok 25"). Evidence (account): 20% gave 8.4% CAGR / -13.0% DD, 25% gave
+  9.5% / -13.0%, off gave 11.4% / -14.5%; the spec required the target to cut
+  drawdown without giving up most of the return, and 20% did not. Because this
+  was chosen with the results in view, the backtest cannot validate it; the
+  paper run is its first honest test.
