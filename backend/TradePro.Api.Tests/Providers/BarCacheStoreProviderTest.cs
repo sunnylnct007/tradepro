@@ -164,6 +164,29 @@ public sealed class BarCacheStoreProviderTest : IDisposable
         Assert.Contains("UNCONFIGURED", s.Location);
     }
 
+    private sealed class DeniedBlobs : IBarCacheBlobs
+    {
+        public string Location => "s3://bucket/bar_cache";
+        public Task<byte[]?> ReadAsync(string relativePath, CancellationToken ct)
+            => throw new Amazon.S3.AmazonS3Exception("User is not authorized to perform: s3:GetObject on resource");
+    }
+
+    [Fact]
+    public async Task A_denied_store_read_is_an_empty_series_with_the_reason_not_a_500()
+    {
+        var p = new BarCacheStoreProvider(new DeniedBlobs(),
+            Options.Create(new BarCacheOptions()), NullLogger<BarCacheStoreProvider>.Instance);
+
+        var s = await p.GetCandlesAsync("SPY", "5m", Utc, Utc.AddMonths(2), CancellationToken.None);
+
+        Assert.Empty(s.Candles);
+        Assert.Equal("bar_cache", s.Provider);                       // never silently another provider
+        Assert.Equal("s3://bucket/bar_cache", s.Location);
+        Assert.Contains("could not be read", s.Note);
+        Assert.Contains("AmazonS3Exception", s.Note);
+        Assert.Contains("not authorized", s.Note);
+    }
+
     /// <summary>
     /// The harvester's own output, when this machine has it. Proves the pandas
     /// timestamp[ms, UTC] encoding reads back as UTC instants — the one thing a

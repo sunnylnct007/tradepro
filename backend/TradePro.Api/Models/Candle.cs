@@ -31,4 +31,8 @@ public record CandleSeries(
     // chart is not complete without the newest bar's timestamp beside it.
     IReadOnlyDictionary<string, int>? Sources = null,
     DateTime? NewestBar = null,
-    string? Location = null);
+    string? Location = null,
+    // Why the series is shorter than asked, in words. Set when the store could
+    // not be read (denied, unreachable, corrupt) so a screen shows the reason
+    // beside an empty chart instead of a 500 or a silent fallback.
+    string? Note = null);

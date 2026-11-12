@@ -2204,13 +2204,24 @@ map, and the map must be writable without a deploy.
 * IBKR paper: **0 option legs** after the orphan close (ABBV 262.5P and KO 86P filled
   at 14:52). 7 equity positions remain (swing + momentum IBKR sleeves).
 
+### 2026-11-12 (15:05) — a denied store read is an EMPTY LABELLED series, not a 500 (PR #384)
+
+The switch's first live answer was a 500 with the raw S3 exception, which kills the chart. Now
+`BarCacheStoreProvider` catches a read failure (denied, unreachable) on the first partition,
+stops, and returns `candles: []` with `provider: bar_cache`, `location`, and `note: "bar store
+at s3://… could not be read: AmazonS3Exception: … not authorized …"`. Never a hop to Yahoo.
+Test: a blob source that throws AccessDenied → empty series carrying the reason.
+
 ### 2026-11-12 (14:50) — candles now come from the golden store (step 2 complete)
 
 Overnight: GitHub left pull_request CI runs QUEUED with no job for 18h (scheduled + manual runs
 ran fine). Fix was `gh pr close N && gh pr reopen N`. #381 (bar_cache provider) and #382
 (sidecar + Stooq/Binance deleted) MERGED and verified on the live URL: providers = yahoo +
-bar_cache; `/api/symbol-analysis/*` 404. ccit-infra #2 MERGED by me at the owner's word
-(apply: `Plan: 1 to add` → `aws_iam_role_policy.bar_cache_read`); its PR plan cannot run
+bar_cache; `/api/symbol-analysis/*` 404. ccit-infra #2 MERGED by me at the owner's word. CORRECTION
+15:00Z: a push to ccit-infra main only PLANS (`Plan: 1 to add`); the Apply step runs on
+`workflow_dispatch` ONLY. The first deploy of the switch therefore answered HTTP 500 "not
+authorized to perform s3:GetObject" from the instance role. Apply dispatched 14:59Z
+(`gh workflow run terraform-apply.yml -R sunnylnct007/ccit-infra`). Its PR plan cannot run
 (OIDC trust lacks pull_request subjects — pre-existing, follow-up).
 
 This PR flips the switch: compose sets `BarCache__Bucket/Region`, `Providers__Default=bar_cache`,

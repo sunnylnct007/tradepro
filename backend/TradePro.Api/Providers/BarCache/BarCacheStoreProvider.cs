@@ -54,10 +54,28 @@ public sealed class BarCacheStoreProvider : IMarketDataProvider
         // Daily partitions are keyed by the bar's date; intraday by the bar's
         // open instant. Both are "timestamp < to" half-open, like the store.
         var rows = new List<Row>();
+        string? note = null;
         foreach (var month in MonthsCovering(fromUtc, toUtc))
         {
             var rel = $"{_opts.DefaultAssetClass}/{sym}/{stored}/{month:yyyy-MM}.parquet";
-            var bytes = await _blobs.ReadAsync(rel, ct);
+            byte[]? bytes;
+            try
+            {
+                bytes = await _blobs.ReadAsync(rel, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The store could not be READ (denied, unreachable). That is an
+                // operations fault, not a data fault: say so on the series and
+                // stop asking — every further month will fail the same way. Never
+                // a 500 (the chart dies) and never a quiet hop to a live feed.
+                // 12 Nov 2026: the first deploy of the switch answered 500
+                // "not authorized to perform s3:GetObject" because the role policy
+                // had only been PLANNED, not applied.
+                note = $"bar store at {_blobs.Location} could not be read: {ex.GetType().Name}: {Truncate(ex.Message, 240)}";
+                _log.LogError(ex, "bar_cache: cannot read {Path} from {Location}", rel, _blobs.Location);
+                break;
+            }
             if (bytes is null) continue;
             try
             {
@@ -68,6 +86,7 @@ public sealed class BarCacheStoreProvider : IMarketDataProvider
                 // A corrupt partition is a data fault, not a reason to answer
                 // from a different store. Log it, skip it, and let the hole show.
                 _log.LogError(ex, "bar_cache: partition {Path} unreadable — skipped", rel);
+                note = (note is null ? "" : note + "; ") + $"partition {month:yyyy-MM} unreadable: {ex.GetType().Name}";
             }
         }
 
@@ -96,8 +115,11 @@ public sealed class BarCacheStoreProvider : IMarketDataProvider
         return new CandleSeries(sym, interval, Name, candles,
             Sources: sources,
             NewestBar: candles.Count == 0 ? null : candles[^1].Timestamp,
-            Location: _blobs.Location);
+            Location: _blobs.Location,
+            Note: note);
     }
+
+    private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
 
     private CandleSeries Empty(string sym, string interval) =>
         new(sym, interval, Name, Array.Empty<Candle>(), Sources: new Dictionary<string, int>(), NewestBar: null, Location: _blobs.Location);
