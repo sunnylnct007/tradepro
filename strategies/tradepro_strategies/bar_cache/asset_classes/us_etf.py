@@ -12,8 +12,10 @@ Schema (``us_equity_v1``):
   low           float
   close         float
   volume        int64 (yfinance returns int; we don't lose precision)
-  adj_factor    float — 1.0 when source already adjusts (yfinance
-                auto_adjust); otherwise the split/div factor at that bar
+  adj_factor    float — close is RAW (split-adjusted, NOT dividend-adjusted)
+                from every provider; close * adj_factor is the dividend-
+                adjusted price. 1.0 where the factor is unknown (recent
+                IBKR rows until the next re-convention). 12 Nov 2026.
   source        str  — the provider that supplied the row
 
 Partition strategy: one Parquet per month per resolution. A year of

@@ -2237,6 +2237,21 @@ API harvester was pulling 169 symbols every 5 min — it competed with the golde
 IBKR's history budget. After deploy, watch the 5m lane's `Sources:` line and the probe log.
 Remaining: drop `ibkr_price_bars` by migration after a parity week.
 
+### 2026-11-12 (22:20) — ONE PRICE CONVENTION in the daily store + missing years filled
+
+Owner adopted the monthly momentum rotation as the core engine (spec 12 Nov). A momentum
+backtest ranks on returns, so the store was audited first. Two faults:
+- **Two conventions interleaved ~55x per symbol.** IBKR rows are RAW (they match yahoo's raw
+  close exactly); yfinance rows were written auto_adjust=True (dividend-adjusted); adj_factor
+  was 1.0 everywhere. Moves >10% were 4x as common at a source switch (ACN +68% 2012-02-23).
+- **Whole years missing** inside stored spans: SPY Feb 2007-Jan 2010, VZ 2010-2015, ACN 2010-12.
+
+Fix: yfinance provider writes auto_adjust=False with adj_factor = adj close / close.
+`tradepro-bar-cache-reconvention --all` rewrites every 1d series through BarStore: IBKR
+prices kept, other rows take yahoo raw, every row gets the factor, gaps inside the span filled.
+**Convention from now on: `close` is raw (split-adjusted), `close * adj_factor` is total return.**
+5m rows are not rewritten (yahoo intraday only reaches 60 days back).
+
 ### 2026-11-12 (20:50) — STEP 5: every consumer reads bars through the store
 
 `BarStore.read` is the read-only path: it lists a series' months locally AND in S3 and never

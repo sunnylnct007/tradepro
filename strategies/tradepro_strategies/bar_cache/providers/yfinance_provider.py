@@ -223,7 +223,13 @@ class YFinanceProvider(Provider):
                 interval=interval,
                 start=start,
                 end=end,
-                auto_adjust=True,
+                # RAW (split-adjusted only), 12 Nov 2026 — the SAME convention
+                # as IBKR history. auto_adjust=True folded dividends into the
+                # price, and those rows interleaved with IBKR's ~55 times per
+                # symbol: daily moves at a source switch exceeded 10% four
+                # times as often as elsewhere (ACN +68% on 2012-02-23). The
+                # dividend adjustment now travels in adj_factor instead.
+                auto_adjust=False,
                 actions=False,
             )
             return df
@@ -248,9 +254,13 @@ class YFinanceProvider(Provider):
         else:
             df.index = df.index.tz_convert("UTC")
         df.index.name = "timestamp"
-        # Some yfinance frames include 'adj close'; map it to adj_factor
-        # (close / unadjusted_close). When auto_adjust=True the close
-        # IS the adjusted price so adj_factor is implicit 1.0.
+        # close is RAW (split-adjusted only). adj_factor = adj close / close:
+        # multiply a close by it for the dividend-adjusted (total-return)
+        # price. Ratios of factors between two dates stay valid after later
+        # dividends, which rescale every earlier factor by the same amount.
+        if "adj close" in df.columns:
+            adj = df.pop("adj close")
+            df["adj_factor"] = (adj / df["close"]).where(df["close"] > 0)
         if "adj_factor" not in df.columns:
             df["adj_factor"] = 1.0
         df["source"] = "yfinance"
