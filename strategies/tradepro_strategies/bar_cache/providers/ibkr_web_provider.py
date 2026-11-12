@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from ..errors import ProviderNetworkError, ProviderParseError
+from ..errors import ProviderNetworkError, ProviderParseError, ProviderRateLimitError
 from .base import Provider, register_provider
 
 _log = logging.getLogger("tradepro.bar_cache.ibkr_web")
@@ -415,7 +415,9 @@ class IBKRWebProvider(Provider):
                     if not is_rate_limited(status, reason):
                         break
                 if status != 200:
-                    raise ProviderNetworkError(
+                    # Its own class, so the run summary says `ibkr_web_rate_limit`
+                    # and not `ibkr_web_network` — the two have different fixes.
+                    raise ProviderRateLimitError(
                         provider=self.name, canonical=canonical,
                         message=f"ibkr_web: RATE LIMITED after {len(waits)} backoff "
                                 f"attempts ({sum(waits)}s total): {reason}")
@@ -500,6 +502,11 @@ register_provider(IBKRWebProvider())
 _RATE_LIMIT_MARKERS = (
     "rate limit", "ratelimit", "too many requests", "pacing",
     "max rate", "exceeded", "429",
+    # IBKR's actual history-pacing wording (12 Nov 2026): "Too many history
+    # chart requests, please try again later." — "history chart requests",
+    # not "too many requests". The list above missed it, the backoff never
+    # ran, and 104/116 symbols went to Yahoo as a "network" fault.
+    "too many history", "try again later",
 )
 
 
