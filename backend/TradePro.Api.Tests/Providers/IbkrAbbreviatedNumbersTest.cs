@@ -56,13 +56,18 @@ public class IbkrAbbreviatedNumbersTest
     public void Millions_and_billions_are_expanded(string raw, decimal expected)
         => Assert.Equal(expected, Field(raw));
 
+    // EXPECTED VALUES ARE STRINGS. An attribute cannot hold a decimal, so
+    // `57.2` arrived as a DOUBLE and xUnit converted it — sometimes to
+    // 57.2000000000000028421709430, which failed main CI twice on 12 Nov 2026
+    // while the parser returned exactly 57.2. Parsing the string is exact.
     [Theory]
-    [InlineData("548", 548)]
-    [InlineData("\"868\"", 868)]
-    [InlineData("\"2,953\"", 2953)]           // thousands SEPARATOR, not a suffix
-    [InlineData("\"57.2%\"", 57.2)]           // the previous instance must not regress
-    public void Plain_values_are_unchanged(string raw, decimal expected)
-        => Assert.Equal(expected, Field(raw));
+    [InlineData("548", "548")]
+    [InlineData("\"868\"", "868")]
+    [InlineData("\"2,953\"", "2953")]           // thousands SEPARATOR, not a suffix
+    [InlineData("\"57.2%\"", "57.2")]           // the previous instance must not regress
+    public void Plain_values_are_unchanged(string raw, string expected)
+        => Assert.Equal(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture),
+                        Field(raw));
 
     [Fact]
     public void A_bare_suffix_is_not_a_number()
