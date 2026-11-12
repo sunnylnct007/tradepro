@@ -96,6 +96,17 @@ sector weights), paper orders next day with fills, slippage and commissions,
 daily trailing-stop and drawdown checks, monthly scorecard against SPY and QQQ,
 rule adherence of at least 95%, any override logged with its reason.
 
+## Walk-forward method (fixed 12 Nov 2026, BEFORE the walk-forward run)
+
+- Candidates: the decided design plus the 21 robustness variants (22 in all).
+- Selection: the highest Sharpe ratio on the in-sample window.
+- Single split: select on 2008-2017, run the pick unchanged on 2018 to now.
+  G4 passes if out-of-sample CAGR is at least half the in-sample CAGR.
+- Rolling: for each year Y from 2018, select on 2008 to Y-1, trade year Y,
+  chain the yearly returns. Report the chained CAGR and which variant each
+  year chose.
+- Reported for the decided design too, unselected, as the control.
+
 ## Change log
 
 - 12 Nov 2026: universe narrowed to ~100 sector-balanced names (owner).
