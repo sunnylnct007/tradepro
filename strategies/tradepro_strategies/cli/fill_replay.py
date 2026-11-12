@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import glob
 import logging
 import os
 
@@ -52,19 +51,19 @@ def _classify(sym: str, universes: dict[str, set[str]]) -> tuple[str | None, str
     return None, None
 
 
-def _load_daily(cache_dir: str, sym: str):
+def _load_daily(sym: str):
+    """Daily bars through the golden store (local copy, then S3). Globbing the
+    local directory read NOTHING on Lambda, where this job runs."""
     import pandas as pd
 
-    files = sorted(glob.glob(f"{cache_dir}/{sym}/1d/*.parquet"))
-    if not files:
+    from ..daily_bars import RECENT_LOOKBACK_DAYS, load_daily
+
+    df = load_daily(sym, lookback_days=RECENT_LOOKBACK_DAYS,
+                    fetched_by="fill_replay")
+    if df is None:
         return None
-    df = pd.concat([pd.read_parquet(f) for f in files])
+    df = df.copy()
     df.columns = [c.lower() for c in df.columns]
-    if not isinstance(df.index, pd.DatetimeIndex):
-        for c in ("date", "timestamp", "time", "datetime"):
-            if c in df.columns:
-                df = df.set_index(pd.to_datetime(df[c]))
-                break
     df.index = pd.to_datetime(df.index)
     try:
         df.index = df.index.tz_localize(None)
@@ -87,7 +86,6 @@ def replay(
     base: str,
     token: str | None,
     universe_names: list[str],
-    cache_dir: str,
 ) -> dict:
     """Compute the fill-replay artifact for one strategy."""
     import numpy as np
@@ -116,7 +114,7 @@ def replay(
 
     rows, missing = [], []
     for (run, tk), o in firsts.items():
-        df = _load_daily(cache_dir, tk)
+        df = _load_daily(tk)
         if df is None or "close" not in df.columns or len(df) < _MIN_HISTORY:
             missing.append(o["symbol"])
             continue
@@ -184,7 +182,6 @@ def main() -> int:
     p.add_argument("--api-base", default=None, help="API base (else from credentials)")
     p.add_argument("--universes", default="high_beta,large_50",
                    help="comma-separated universe names to classify entries against")
-    p.add_argument("--cache-dir", default=os.path.expanduser("~/.tradepro/bar_cache/us_etf"))
     p.add_argument("--label", default="latest", help="artifact label (for side-by-side runs)")
     p.add_argument("--json", action="store_true", help="print the artifact JSON to stdout")
     p.add_argument("--push", action="store_true",
@@ -201,7 +198,6 @@ def main() -> int:
     artifact = replay(
         args.strategy, base, token,
         [u.strip() for u in args.universes.split(",") if u.strip()],
-        args.cache_dir,
     )
 
     # Console summary (always) — the honest headline.

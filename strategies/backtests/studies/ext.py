@@ -6,8 +6,9 @@ momentum entry by that same number answers "is PLTR a fake-out" with the
 rule's own record instead of an opinion about the chart.
 """
 import os, glob, statistics as st
+from tradepro_strategies.daily_bars import local_symbols
 from tradepro_strategies.cli.momentum_candidates import (
-    _tradeable, poison_check, _load, sma, _entry_signal, STOP_PCT, TRAIL_PCT, MAX_HOLD, BASE_DIR)
+    _tradeable, poison_check, _load, sma, _entry_signal, STOP_PCT, TRAIL_PCT, MAX_HOLD)
 
 buckets = {"0-3%": [], "3-6%": [], "6-9%": [], "9-12%": [], ">12%": []}
 def bucket(x):
@@ -15,7 +16,7 @@ def bucket(x):
         if x < hi: return name
     return ">12%"
 
-syms = [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)]
+syms = [s for s in local_symbols() if _tradeable(s)]
 for sym in syms:
     df = _load(sym)
     if df is None: continue

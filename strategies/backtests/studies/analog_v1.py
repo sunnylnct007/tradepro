@@ -5,14 +5,15 @@ bar from EARLIER quarters, minus a 40-calendar-day buffer so no analog's
 20-session outcome window can overlap the bar being evaluated.
 """
 import os, datetime as dt, numpy as np
+from tradepro_strategies.daily_bars import local_symbols
 from tradepro_strategies.analogs import state_at, outcome, zscore_stats, DIMS
-from tradepro_strategies.cli.momentum_candidates import _load, poison_check, _tradeable, BASE_DIR
+from tradepro_strategies.cli.momentum_candidates import _load, poison_check, _tradeable
 
 UP, DN, HORIZON, K = 0.08, -0.08, 20, 50
 POOL_CAP, EVAL_STRIDE, BUFFER_DAYS = 60000, 7, 40
 
 recs = []   # (date, sym_idx, state(6), outcome)
-syms = [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)]
+syms = [s for s in local_symbols() if _tradeable(s)]
 used = 0
 for si, sym in enumerate(syms):
     df = _load(sym)

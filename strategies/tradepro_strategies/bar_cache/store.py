@@ -152,6 +152,64 @@ class BarStore:
 
     # ── Public API ──────────────────────────────────────────────────
 
+    def stored_partitions(
+        self, canonical: str, asset_class: str, resolution: str,
+    ) -> list[str]:
+        """Partition keys (``YYYY-MM``) the store holds for one series, sorted.
+
+        The union of this machine's copy and the shared S3 copy, so a host with
+        an empty local cache (Lambda) sees the same history as the harvester.
+        Callers never glob the layout themselves — this is the one place that
+        knows it."""
+        directory = self.base_dir / asset_class / canonical / resolution
+        keys: set[str] = set()
+        if directory.is_dir():
+            keys.update(p.stem for p in directory.glob("*.parquet"))
+        if self._s3 is not None:
+            remote = self._s3.list_names(directory)
+            if remote:
+                keys.update(n[:-len(".parquet")] for n in remote
+                            if n.endswith(".parquet"))
+        return sorted(keys)
+
+    def read(
+        self,
+        canonical: str,
+        asset_class: str,
+        resolution: str,
+        *,
+        since: Optional[datetime] = None,
+        fetched_by: str = "reader",
+    ) -> BarFrame:
+        """Everything the store holds for one series from ``since`` (default:
+        its first stored month) to now. READ-ONLY: no provider is ever called,
+        so a screen or a research command can never trigger a fetch or a write.
+
+        This is the read path every consumer uses (docs/DATA_ARCHITECTURE.md).
+        It returns what is stored, partial or not; ``coverage_complete`` says
+        which."""
+        end = datetime.now(timezone.utc) + timedelta(days=1)
+        if since is None:
+            parts = self.stored_partitions(canonical, asset_class, resolution)
+            if not parts:
+                plugin = get_asset_class(asset_class)
+                return self._empty_result(plugin, canonical, asset_class,
+                                          resolution, end, end)
+            year, month = (int(x) for x in parts[0].split("-"))
+            since = datetime(year, month, 1, tzinfo=timezone.utc)
+        return self.get(canonical, asset_class, resolution,
+                        _ensure_utc(since), end,
+                        allow_partial=True, skip_fetch=True,
+                        fetched_by=fetched_by)
+
+    def local_symbols(self, asset_class: str) -> list[str]:
+        """Symbols this machine's copy of the store holds for an asset class.
+        Local only, deliberately: it is the harvester's working set."""
+        root = self.base_dir / asset_class
+        if not root.is_dir():
+            return []
+        return sorted(p.name for p in root.iterdir() if p.is_dir())
+
     def _chain_for(
         self, asset_class: str, resolution: str,
     ) -> tuple[list[str], str]:
@@ -884,7 +942,7 @@ class BarStore:
         # delta write.
         if merge and not df.empty and partition_path.exists():
             try:
-                existing = pq.read_table(partition_path).to_pandas()
+                existing = _read_partition_file(partition_path).to_pandas()
             except Exception:  # noqa: BLE001 — unreadable cache: replace it
                 existing = pd.DataFrame()
             if not existing.empty:
@@ -910,7 +968,7 @@ class BarStore:
         existing_rows = 0
         if partition_path.exists():
             try:
-                _cached = pq.read_table(partition_path).to_pandas()
+                _cached = _read_partition_file(partition_path).to_pandas()
                 if "timestamp" in _cached.columns:
                     _cached = _cached.set_index("timestamp")
                 # Count SESSIONS, not rows. A partition already holding a
@@ -921,7 +979,7 @@ class BarStore:
                 existing_rows = len(_dedupe_sessions(_cached, resolution)[0])
             except Exception:  # noqa: BLE001
                 try:
-                    existing_rows = len(pq.read_table(partition_path))
+                    existing_rows = len(_read_partition_file(partition_path))
                 except Exception:  # noqa: BLE001
                     existing_rows = 0
 
@@ -958,7 +1016,7 @@ class BarStore:
         # $324) and must be replaced regardless of size.
         if existing_rows > 0 and not df.empty and partition_path.exists():
             try:
-                _old = pq.read_table(partition_path).to_pandas()
+                _old = _read_partition_file(partition_path).to_pandas()
                 if "close" in _old.columns and len(_old):
                     _old_max = float(pd.to_numeric(_old["close"], errors="coerce").max())
                     _new_max = float(pd.to_numeric(df["close"], errors="coerce").max())
@@ -1129,7 +1187,7 @@ class BarStore:
             )
             if not self._ensure_local(path):  # read-through: shared S3 store
                 continue
-            table = pq.read_table(path)
+            table = _read_partition_file(path)
             df = table.to_pandas()
             if df.empty:
                 actually_read.append(partition)
@@ -1524,6 +1582,18 @@ class BarStore:
 
 
 # ── Module helpers ─────────────────────────────────────────────────
+
+
+def _read_partition_file(path: Path) -> pa.Table:
+    """One partition file, read as ONE file.
+
+    `pq.read_table(path)` goes through pyarrow's dataset layer, which reads a
+    `key=value` directory name as a hive partition. Futures live under names
+    like `CL=F`, so every read of them grew a phantom `CL` column and failed to
+    merge — the store could not serve, or top up, any `=F` symbol (found
+    12 Nov 2026 by the step-5 parity run: 12 futures, all unreadable).
+    """
+    return pq.ParquetFile(path).read()
 
 
 def _is_daily_or_coarser(resolution: str) -> bool:

@@ -11,9 +11,10 @@ import statistics as st
 import sys
 sys.path.insert(0, ".")
 
+from tradepro_strategies.daily_bars import local_symbols
 from tradepro_strategies.cli.momentum_candidates import (  # noqa: E402
     _tradeable, poison_check, _load, _entry_signal,
-    STOP_PCT as M_STOP, TRAIL_PCT as M_TRAIL, MAX_HOLD as M_HOLD, BASE_DIR)
+    STOP_PCT as M_STOP, TRAIL_PCT as M_TRAIL, MAX_HOLD as M_HOLD)
 from tradepro_strategies.signals.mean_reversion import (  # noqa: E402
     BB_WINDOW as S_WIN, MAX_HOLD as S_HOLD, SIGMA as S_SIGMA,
     STOP_PCT as S_STOP, TREND_WINDOW)
@@ -97,7 +98,7 @@ def grade_mom(name, rows):
 
 
 def main() -> int:
-    syms = [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)]
+    syms = [s for s in local_symbols() if _tradeable(s)]
     mom_all, swing_all = [], []
     for sym in syms:
         df = _load(sym)

@@ -1167,25 +1167,20 @@ def _overlay_live_marks_and_pnl(snapshot: dict, broker: str, log) -> None:
             broker)
 
 
-def _latest_daily_closes(symbols: list[str], cache_dir: str) -> dict[str, float]:
+def _latest_daily_closes(symbols: list[str]) -> dict[str, float]:
     """{bare_symbol: latest daily close} from the local bar cache — used to PRICE
     the signal-reconciliation bars for UNIVERSE names (entry coverage). The close
     feeds the entry sizing (qty = notional // close), so it must be real. Best-effort
     per symbol; a symbol with no cache is simply not reconciled (stays feed-dependent
-    + will surface as a no-bar flag). Kept lightweight (index-free parquet read)."""
-    import glob as _glob
+    + will surface as a no-bar flag). Reads the last few weeks through the golden
+    store, so a host without the local copy still prices from S3."""
+    from ..daily_bars import load_daily
     out: dict[str, float] = {}
-    try:
-        import pandas as _pd
-    except Exception:  # noqa: BLE001
-        return out
     for s in symbols:
         try:
-            files = sorted(_glob.glob(f"{cache_dir}/{s}/1d/*.parquet"))
-            if not files:
+            df = load_daily(s, lookback_days=40, fetched_by="paper_session")
+            if df is None:
                 continue
-            df = _pd.read_parquet(files[-1])
-            df.columns = [c.lower() for c in df.columns]
             if "close" in df.columns and len(df):
                 px = float(df["close"].iloc[-1])
                 if px > 0:
@@ -2361,7 +2356,6 @@ def main(argv: list[str] | None = None) -> int:
     if seeded_positions and len(broker_list) == 1 and broker_list[0].lower() in ("t212", "ibkr"):
         from ..paper.bar_bus import HeldReconciliationBus
         from ..paper.strategy import Bar as _ReconBar
-        _cache_dir = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
         marks = _fetch_broker_held_marks(broker_list[0])
         recon_px: dict[str, float] = {}
         # 1) held names → EXIT coverage, priced from the CACHE latest close FIRST.
@@ -2374,7 +2368,7 @@ def main(argv: list[str] | None = None) -> int:
         #    happened to have a price did exit). project_equity_exit_needs_trigger_bar.
         #    Long-only: skip (bug) shorts. Mark/avg kept only as last-resort fallback.
         _held = [_s for _s, _q in seeded_positions.items() if _q > 0]
-        _held_closes = _latest_daily_closes(_held, _cache_dir)
+        _held_closes = _latest_daily_closes(_held)
         for _s in _held:
             recon_px[_s] = (
                 _held_closes.get(_s) or marks.get(_s)
@@ -2387,7 +2381,7 @@ def main(argv: list[str] | None = None) -> int:
         #    just not auto-traded.
         if getattr(args, "reconcile_entries", False):
             _uni = [s for s in bus_symbols if s not in recon_px]
-            recon_px.update(_latest_daily_closes(_uni, _cache_dir))
+            recon_px.update(_latest_daily_closes(_uni))
         recon_bars = [
             _ReconBar(symbol=_s, timestamp=session_date, open=_px, high=_px, low=_px,
                       close=_px, volume=0, timeframe_seconds=86400, is_live=True)

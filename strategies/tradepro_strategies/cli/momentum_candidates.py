@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import glob
 import json
 import logging
 import os
@@ -52,7 +51,6 @@ STOP_PCT = 0.08
 TRAIL_PCT = 0.08
 MAX_HOLD = 60
 MAX_DAY_MOVE = 0.25
-BASE_DIR = os.path.expanduser("~/.tradepro/bar_cache/us_etf")
 
 
 def _tradeable(sym: str) -> bool:
@@ -165,20 +163,12 @@ def latest_price(sym: str) -> dict | None:
     backtest measured — a name down 3% at 11am may close flat. This exists so
     the ENTRY you are quoted is not silently out of date.
     """
-    import glob as _g
+    from ..daily_bars import latest_intraday_session
     try:
-        fs = sorted(_g.glob(f"{BASE_DIR}/{sym}/5m/*.parquet"))
-        if not fs:
+        rows = latest_intraday_session(sym)
+        if rows is None:
             return None
-        import pandas as _pd
-        df = _pd.concat([_pd.read_parquet(f) for f in fs])
-        df = df[~df.index.duplicated(keep="last")]
-        if df.empty:
-            return None
-        day = str(df.index[-1])[:10]
-        rows = df[[str(x)[:10] == day for x in df.index]]
-        if rows.empty:
-            return None
+        day = str(rows.index[-1])[:10]
         return {"price": round(float(rows["close"].iloc[-1]), 2),
                 "as_of": str(rows.index[-1])[:19],
                 "session": day,

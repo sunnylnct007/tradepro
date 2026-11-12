@@ -1,13 +1,14 @@
 """Momentum v3 — graded against MOMENTUM_GATES_V3.md (committed d147326)."""
 import os, statistics as st, json
+from tradepro_strategies.daily_bars import local_symbols
 from tradepro_strategies.cli.momentum_candidates import (
-    _tradeable, poison_check, _load, sma, _entry_signal, STOP_PCT, TRAIL_PCT, MAX_HOLD, BASE_DIR)
+    _tradeable, poison_check, _load, sma, _entry_signal, STOP_PCT, TRAIL_PCT, MAX_HOLD)
 
 VARIANTS = {"A control": None, "B >=0.7x": 0.7, "C >=1.0x": 1.0, "D >=1.2x": 1.2}
 trades = []   # (vol_ratio, pct, bars, entry_date, sym, sym_idx)
 sessions = set()
 
-syms = [s for s in sorted(os.listdir(BASE_DIR)) if _tradeable(s)]
+syms = [s for s in local_symbols() if _tradeable(s)]
 kept = 0
 for sidx, sym in enumerate(syms):
     df = _load(sym)

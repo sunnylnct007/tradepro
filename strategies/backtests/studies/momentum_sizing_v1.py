@@ -14,8 +14,9 @@ from collections import defaultdict
 
 sys.path.insert(0, ".")
 from backtests.studies.swing_sizing_v1 import replay  # noqa: E402
+from tradepro_strategies.daily_bars import local_symbols  # noqa: E402
 from tradepro_strategies.cli.momentum_candidates import (  # noqa: E402
-    BASE_DIR, _load, _tradeable, poison_check)
+    _load, _tradeable, poison_check)
 from tradepro_strategies.signals import momentum_pullback as M  # noqa: E402
 
 MAX_DAY_MOVE = 0.35
@@ -28,7 +29,7 @@ G1_DD, G2_DAY, G4_EXPO = 25.0, 10.0, 80.0
 def signals_by_date() -> tuple[dict, list]:
     by_date = defaultdict(list)
     worst = []
-    for sym in sorted(os.listdir(BASE_DIR)):
+    for sym in local_symbols():
         if not _tradeable(sym):
             continue
         df = _load(sym)
