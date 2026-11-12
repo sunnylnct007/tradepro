@@ -125,6 +125,11 @@ jobs:
           # the quote terminates the bash string and the next token
           # blows up. Also: the "touch .env" before the sed upsert is
           # defensive in case bootstrap never ran.
+          # MCP: pulled explicitly before its up (12 Nov 2026). The plain
+          # pull runs WITHOUT the mcp profile, so it never touched that image:
+          # the host ran an MCP image two months old while every build pushed
+          # a new one. Best-effort like the up - a failed pull keeps the old
+          # image and never takes the site down.
           jq -n \
             --arg deploy_dir "$DEPLOY_DIR" \
             --arg image_tag "$IMAGE_TAG" \
@@ -147,7 +152,8 @@ jobs:
                 "echo === docker compose up ===",
                 "docker compose -f docker-compose.aws.yaml up -d --remove-orphans --force-recreate > /tmp/tradepro-up.log 2>&1 && tail -20 /tmp/tradepro-up.log",
                 "echo \"=== docker compose up (mcp, best-effort) ===\"",
-                "docker compose -f docker-compose.aws.yaml --profile mcp up -d mcp > /tmp/tradepro-mcp-up.log 2>&1 && tail -8 /tmp/tradepro-mcp-up.log || echo \"WARNING: MCP endpoint did not start — site is UNAFFECTED. Check the EC2 role ecr-pull Resource list includes ccit-dev-tradepro-mcp, then: docker compose --profile mcp up -d\"",
+                "docker compose -f docker-compose.aws.yaml --profile mcp pull mcp > /tmp/tradepro-mcp-up.log 2>&1 || echo \"WARNING: MCP image pull failed — keeping the image already on the host\"",
+                "docker compose -f docker-compose.aws.yaml --profile mcp up -d mcp >> /tmp/tradepro-mcp-up.log 2>&1 && tail -8 /tmp/tradepro-mcp-up.log || echo \"WARNING: MCP endpoint did not start — site is UNAFFECTED. Check the EC2 role ecr-pull Resource list includes ccit-dev-tradepro-mcp, then: docker compose --profile mcp up -d\"",
                 "echo === docker compose ps ===",
                 "docker compose -f docker-compose.aws.yaml --profile mcp ps",
                 "docker image prune -f > /dev/null 2>&1 || true"
