@@ -91,9 +91,9 @@ const PAD_DAYS = 310;
 type Props = {
   symbol: string;
   timeframe: string; // one of WINDOW_DAYS keys
-  /** Bar resolution. "1d" (default) fetches Yahoo daily candles; an intraday
-   *  value ("1m"/"5m"/"15m"/"1h") fetches from the deep IBKR store
-   *  (ibkr_price_bars) instead, so the harvested intraday data is chartable. */
+  /** Bar resolution: "1d" (default) or an intraday value ("1m"/"5m"/"15m"/"1h").
+   *  Every resolution is served by /marketdata/candles from the golden bar
+   *  store (docs/DATA_ARCHITECTURE.md). */
   resolution?: string;
   height?: number;
   ccy?: string | null;
@@ -120,7 +120,6 @@ type IchiPoint = { time: UTCTimestamp; value: number };
 
 // Approx regular-session bars per day per resolution — turns a day-window into
 // a bar LIMIT for the intraday fetch (the store returns the latest N bars).
-const BARS_PER_DAY: Record<string, number> = { "1m": 390, "5m": 78, "15m": 26, "1h": 7, "1d": 1 };
 
 /** Indicator toggles — persisted so the trader's chart setup survives
  *  navigation. Defaults chosen per timeframe use: volume always, SMAs for
@@ -317,37 +316,25 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     // Display keeps the original symbol; only the fetch is canonicalised.
     const fetchSymbol = canonicalSymbol(symbol);
     const isIntraday = resolution !== "1d";
-    const fetchP = isIntraday
-      // Deep IBKR store (ibkr_price_bars) — the harvested intraday data. Returns
-      // the latest N bars; map to the same candle shape the chart already draws.
-      ? api
-          .ibkrBars({
-            symbol: fetchSymbol,
-            resolution,
-            limit: Math.min(5000, Math.max(50, (BARS_PER_DAY[resolution] ?? 390) * windowDays)),
-          })
-          .then((r) => {
-            if (!live) return;
-            setSeries({
-              symbol,
-              interval: resolution,
-              candles: r.bars.map((b) => ({
-                timestamp: b.ts,
-                open: b.open, high: b.high, low: b.low, close: b.close,
-                volume: b.volume ?? 0,
-              })),
-            } as unknown as CandleSeries);
-          })
-      // Daily: Yahoo candles + leading pad so the Ichimoku cloud spans the window.
-      : api
-          .candles({
-            symbol: fetchSymbol,
-            provider: config.defaultProvider,
-            interval: "1d",
-            from: new Date(Date.now() - (windowDays + PAD_DAYS) * 24 * 3600 * 1000).toISOString().slice(0, 10),
-            to: new Date().toISOString().slice(0, 10),
-          })
-          .then((s) => { if (live) setSeries(s); });
+    // ONE read path for bars (docs/DATA_ARCHITECTURE.md): every resolution comes
+    // from /marketdata/candles, served by the golden bar store. Until 12 Nov 2026
+    // the intraday view read a second, Postgres copy that filled before the
+    // close, so the chart and the strategies disagreed on the same symbol.
+    // Intraday: windowDays are SESSIONS; pad to calendar days for the request
+    // (7/5 for weekends, +3 for holidays and a partial today). Daily: leading
+    // pad so the Ichimoku cloud spans the window.
+    const padDays = isIntraday ? Math.ceil(windowDays * 7 / 5) + 3 : windowDays + PAD_DAYS;
+    const fetchP = api
+      .candles({
+        symbol: fetchSymbol,
+        provider: config.defaultProvider,
+        interval: resolution,
+        from: new Date(Date.now() - padDays * 24 * 3600 * 1000).toISOString().slice(0, 10),
+        // `to` is exclusive at the store: ask through tomorrow so today's
+        // partial session is included.
+        to: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10),
+      })
+      .then((s) => { if (live) setSeries(s); });
     fetchP
       .catch((e) => { if (live) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (live) setLoading(false); });

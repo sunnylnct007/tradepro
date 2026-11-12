@@ -83,7 +83,6 @@ IBKR_PRICE_BARS_ALLOWED = {
     "backend/TradePro.Api/db/migrations/057_ibkr_price_bars.sql",
     "backend/TradePro.Api/db/migrations/065_ibkr_volume_lot_fix.sql",
     "frontend/src/api/client.ts",
-    "frontend/src/components/desk/CandleIchimokuChart.tsx",
     "frontend/src/components/desk/HarvestView.tsx",
     "strategies/scripts/bar-cache-harvest-daily.sh",
     "strategies/scripts/check_store_vs_api_history.py",
