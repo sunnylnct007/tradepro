@@ -38,7 +38,9 @@ from tradepro_strategies.paper.registry import RETIRED
 #: mean_reversion_swing — the Swing sleeve. Live: mean_reversion_swing_ibkr.
 #: momentum_pullback    — the Momentum sleeve. Live on IBKR (winding down) and
 #:                        T212 (momentum_pullback_t212, placing since 13 Oct).
-EXPECTED = {"mean_reversion_swing", "momentum_pullback"}
+#: momentum_rotation    — the core engine, monthly top-10 rotation (spec 12 Nov
+#:                        2026). Paper: momentum_rotation_ibkr.
+EXPECTED = {"mean_reversion_swing", "momentum_pullback", "momentum_rotation"}
 
 # RETIRED is imported from the registry, NOT restated here. It is the list the
 # registry ENFORCES, so a test with its own copy would pass while the enforced

@@ -13,6 +13,7 @@ whether the caller has imported the class directly.
 Built-in registry keys today:
     mean_reversion_swing      Swing (2.25 sigma dip above the 200-day)
     momentum_pullback         Momentum (pullback to the 10-day in an uptrend)
+    momentum_rotation         Core engine: monthly top-10 rotation (12 Nov 2026)
 
 Those two are the whole live desk. See the RETIRED block below for what was
 deregistered on 10 Oct 2026 and why the files remain.
@@ -104,3 +105,4 @@ from . import mean_reversion_swing  # noqa: F401 — registers the Swing sleeve
 # Momentum: the SAME engine with a different rule (24 Sep 2026). Must be
 # imported AFTER mean_reversion_swing — it subclasses it.
 from . import momentum_pullback  # noqa: F401 — registers the Momentum sleeve
+from . import momentum_rotation  # noqa: F401 — registers the core engine (same chassis)

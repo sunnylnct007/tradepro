@@ -100,6 +100,7 @@ _DEFAULT_INTERVALS = {
 _SWING_FAMILY = {
     "mean_reversion_swing",
     "momentum_pullback",
+    "momentum_rotation",
 }
 
 

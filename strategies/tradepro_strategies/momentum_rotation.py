@@ -160,6 +160,78 @@ def _market_ok(spy: pd.Series, adj: pd.DataFrame, p: Params) -> pd.Series:
 # ── simulation ──────────────────────────────────────────────────────────
 
 
+@dataclass
+class Derived:
+    """Everything the monthly decision reads, computed once per run."""
+    adj_f: pd.DataFrame
+    opn_f: pd.DataFrame
+    score: pd.DataFrame
+    ret_long: pd.DataFrame
+    sma200: pd.DataFrame
+    history: pd.DataFrame
+    traded: pd.DataFrame
+    market_ok: pd.Series
+    daily_ret: pd.DataFrame
+
+
+def derive(P: Panels, p: Params) -> Derived:
+    # carry a stale price forward a few sessions so a one-day hole does not
+    # read as a crash; anything longer stays a hole (not tradeable).
+    adj_f = P.adj_close.ffill(limit=5)
+    score, ret_long = _score(adj_f, p)
+    return Derived(
+        adj_f=adj_f, opn_f=P.adj_open.fillna(adj_f), score=score, ret_long=ret_long,
+        sma200=adj_f.rolling(200).mean(), history=P.adj_close.notna().cumsum(),
+        traded=(P.raw_close * P.volume).rolling(p.liquidity_window, min_periods=40).median(),
+        market_ok=_market_ok(P.spy.reindex(P.dates).ffill(), adj_f, p),
+        daily_ret=adj_f.pct_change(fill_method=None))
+
+
+def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float = 1.0) -> dict:
+    """THE monthly decision for signal date t: picks, allocation, and why.
+    The backtest and the paper sleeve both call this, so they cannot drift."""
+    picks: list[str] = []
+    scores: dict[str, float] = {}
+    eligible = 0
+    reason = "market filter: SPY below its trend -> cash"
+    market = bool(D.market_ok.get(t, False))
+    if market and multiplier > 0:
+        elig = (D.history.loc[t] >= p.min_history) & D.score.loc[t].notna() \
+            & (P.raw_close.loc[t].ffill() > p.min_price) \
+            & (D.traded.loc[t] > p.min_traded_value)
+        if p.stock_trend_filter:
+            elig &= D.adj_f.loc[t] > D.sma200.loc[t]
+        cand = pd.DataFrame({"score": D.score.loc[t], "long": D.ret_long.loc[t]})[elig]
+        cand = cand.sort_values(["score", "long"], ascending=False)
+        per_sector: dict[str, int] = {}
+        for s in cand.index:
+            sec = P.sectors.get(s, "?")
+            if p.sector_cap and per_sector.get(sec, 0) >= p.sector_cap:
+                continue
+            picks.append(s)
+            scores[s] = round(float(cand.at[s, "score"]), 4)
+            per_sector[sec] = per_sector.get(sec, 0) + 1
+            if len(picks) == p.top_n:
+                break
+        eligible = int(elig.sum())
+        reason = f"{len(picks)} picks from {eligible} eligible"
+    elif market:
+        reason = "allocation cut to zero by the account drawdown alert"
+    alloc = p.base_allocation * multiplier
+    vol = None
+    if picks and p.vol_target:
+        window = D.daily_ret.loc[:t, picks].tail(p.vol_lookback)
+        vol = float(window.mean(axis=1).std() * math.sqrt(252))
+        if vol > 0:
+            alloc *= min(1.0, p.vol_target / vol)
+    return {"date": str(t.date()), "picks": picks, "scores": scores,
+            "sectors": {s: P.sectors.get(s, "?") for s in picks},
+            "allocation": round(alloc, 4), "weight_each": round(alloc / p.top_n, 4),
+            "allocation_exact": alloc,
+            "portfolio_vol": None if vol is None else round(vol, 4),
+            "market_ok": market, "eligible": eligible, "reason": reason}
+
+
 def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
     if panels is None:
         syms, sectors = load_universe()
@@ -167,17 +239,9 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
             syms = list(p.symbols)
         panels = load_panels(syms, sectors)
     P = panels
-    adj, opn = P.adj_close, P.adj_open
-    # carry a stale price forward a few sessions so a one-day hole does not
-    # read as a crash; anything longer stays a hole (not tradeable).
-    adj_f = adj.ffill(limit=5)
-    opn_f = opn.fillna(adj_f)
-    score, ret_long = _score(adj_f, p)
-    sma200 = adj_f.rolling(200).mean()
-    history = adj.notna().cumsum()
-    traded = (P.raw_close * P.volume).rolling(p.liquidity_window, min_periods=40).median()
-    market_ok = _market_ok(P.spy.reindex(P.dates).ffill(), adj_f, p)
-    daily_ret = adj_f.pct_change(fill_method=None)
+    adj = P.adj_close
+    D = derive(P, p)
+    adj_f, opn_f = D.adj_f, D.opn_f
 
     dates = P.dates
     start = pd.Timestamp(p.start)
@@ -293,38 +357,11 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
         if t in rebal:
             if dd > -(p.alert_halve or 1.0):
                 multiplier = 1.0
-            picks: list[str] = []
-            reason = "market filter: SPY below its trend -> cash"
-            if bool(market_ok.get(t, False)) and multiplier > 0:
-                elig = (history.loc[t] >= p.min_history) & score.loc[t].notna() \
-                    & (P.raw_close.loc[t].ffill() > p.min_price) \
-                    & (traded.loc[t] > p.min_traded_value)
-                if p.stock_trend_filter:
-                    elig &= adj_f.loc[t] > sma200.loc[t]
-                cand = pd.DataFrame({"score": score.loc[t], "long": ret_long.loc[t]})[elig]
-                cand = cand.sort_values(["score", "long"], ascending=False)
-                per_sector: dict[str, int] = {}
-                for s in cand.index:
-                    sec = P.sectors.get(s, "?")
-                    if p.sector_cap and per_sector.get(sec, 0) >= p.sector_cap:
-                        continue
-                    picks.append(s)
-                    per_sector[sec] = per_sector.get(sec, 0) + 1
-                    if len(picks) == p.top_n:
-                        break
-                reason = f"{len(picks)} picks from {int(elig.sum())} eligible"
-            alloc = p.base_allocation * multiplier
-            vol = None
-            if picks and p.vol_target:
-                window = daily_ret.loc[:t, picks].tail(p.vol_lookback)
-                vol = float(window.mean(axis=1).std() * math.sqrt(252))
-                if vol > 0:
-                    alloc *= min(1.0, p.vol_target / vol)
-            w = alloc / p.top_n
-            pending = {s: w for s in picks}
-            rebalance_log.append({"date": str(t.date()), "picks": picks, "allocation": round(alloc, 4),
-                                  "portfolio_vol": None if vol is None else round(vol, 4),
-                                  "reason": reason})
+            dec = select(t, D, P, p, multiplier)
+            w = dec["allocation_exact"] / p.top_n
+            pending = {s: w for s in dec["picks"]}
+            rebalance_log.append({k: dec[k] for k in ("date", "picks", "allocation",
+                                                      "portfolio_vol", "reason")})
 
     navs = pd.Series(nav, index=run_dates)
     return {"params": _jsonable(asdict(p)), "metrics": metrics(navs, run_dates, P),
@@ -364,6 +401,55 @@ def metrics(navs: pd.Series, run_dates: pd.DatetimeIndex, P: Panels) -> dict:
 
 def _jsonable(d: dict) -> dict:
     return {k: (list(v) if isinstance(v, tuple) else v) for k, v in d.items()}
+
+
+def _sessions(start, end) -> list:
+    from datetime import datetime, timezone
+    from .bar_cache.asset_classes import UsEtfPlugin
+    return UsEtfPlugin().expected_session_dates(
+        datetime(start.year, start.month, start.day, tzinfo=timezone.utc),
+        datetime(end.year, end.month, end.day, tzinfo=timezone.utc))
+
+
+def signal_dates_around(today) -> dict:
+    """Which monthly signal is ACTIVE on `today`, from the exchange calendar
+    (not from the bars we happen to have): the last session on or before the
+    15th whose NEXT session is on or before today."""
+    import datetime as _dt
+    sess = _sessions(today - _dt.timedelta(days=75), today + _dt.timedelta(days=45))
+    sigs = []
+    for (y, m) in sorted({(d.year, d.month) for d in sess}):
+        month = [d for d in sess if d.year == y and d.month == m and d.day <= 15]
+        if month:
+            sigs.append(month[-1])
+    nxt = {d: sess[i + 1] for i, d in enumerate(sess[:-1])}
+    active = [s for s in sigs if s in nxt and nxt[s] <= today]
+    if not active:
+        raise RuntimeError("no active signal in the calendar window")
+    sig = active[-1]
+    later = [s for s in sigs if s > sig]
+    return {"signal_date": sig, "order_date": nxt[sig],
+            "next_signal_date": later[0] if later else None}
+
+
+def decide(today=None, p: Params = Params()) -> dict:
+    """The decision the paper sleeve trades on `today`. FAILS CLOSED: if the
+    signal day's bar is not in the store yet, it returns an error and no picks,
+    and the sleeve does nothing rather than trading last month's list."""
+    import datetime as _dt
+    today = today or _dt.datetime.now(_dt.timezone.utc).date()
+    cal = signal_dates_around(today)
+    P = cached_panels(p.symbols, ttl_s=900)
+    t = pd.Timestamp(cal["signal_date"])
+    base = {k: str(v) if v else None for k, v in cal.items()}
+    if t not in P.dates:
+        return {**base, "error": f"no bar for the signal day {t.date()} in the store "
+                                 f"(newest {P.dates[-1].date()}); not trading on a stale list",
+                "picks": []}
+    dec = select(t, derive(P, p), P, p)
+    dec.pop("allocation_exact", None)
+    return {**base, **dec, "params": {"vol_target": p.vol_target, "top_n": p.top_n,
+                                      "trailing_stop": p.trailing_stop}}
 
 
 _PANEL_CACHE: dict[tuple, tuple[float, Panels]] = {}
