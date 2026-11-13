@@ -100,7 +100,7 @@ export function SymbolRangeRiskCard({ symbol }: { symbol: string }) {
           </div>
           <div style={{ marginTop: 8, fontSize: 10.5, color: "var(--text-dim)", lineHeight: 1.5 }}>
             {hot
-              ? `Near the 52w high (${rr.rangePctile.toFixed(0)}th pctile). The systematic signal buys strength — extended large_50 entries did fine historically, so it's not vetoed. `
+              ? `Near the 52w high (${rr.rangePctile.toFixed(0)}th pctile). The systematic signal buys strength, so a stretched entry is not vetoed on that alone. `
               : `Mid-range (${rr.rangePctile.toFixed(0)}th pctile) — room before the high. `}
             {rr.kijun != null && (
               <>Lower-risk discretionary entry: pullback to <b>kijun ${rr.kijun.toFixed(2)}</b> ({rr.riskToKijunPct! >= 0 ? "−" : "+"}{Math.abs(rr.riskToKijunPct!).toFixed(1)}% from here). </>

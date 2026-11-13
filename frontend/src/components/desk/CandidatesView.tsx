@@ -367,7 +367,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
           level: c.stop ?? null, levelLabel: "stop",
           metric: c.calcs?.atr_pct?.value ?? null, metricLabel: "ATR%",
           asOf: a.as_of_utc ?? r?.asOfUtc ?? null,
-          eligible: true, why: "Ichimoku, above cloud",
+          eligible: true, why: "pullback to the 10-day average in an uptrend",
         });
       }
     } catch (e) { problems.push(`Momentum: ${String((e as Error)?.message || e)}`); }
