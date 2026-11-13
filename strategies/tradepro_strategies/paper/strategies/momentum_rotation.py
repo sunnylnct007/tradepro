@@ -181,7 +181,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
         import datetime as _dt
 
         from ...daily_bars import load_bars
-        dec = self._decision() or {}
+        dec = self._board_decision()
         picks = list(dec.get("picks") or [])
         held = sorted(self._fill_price)
         orders = self._own_orders() or []
@@ -215,8 +215,13 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                     "stop": round(peak * (1 - self.TRAIL), 2) if peak else None,
                     "as_of": str(closes.index[-1])[:10]}
 
-        waiting = (f"to buy at the {since} open" if self._today and self._today < since
-                   else "not ordered yet")
+        if self._today and self._today < since:
+            waiting = f"to buy at the {since} open"
+        elif self._today and since and _dt.date.fromisoformat(self._today) > \
+                _dt.date.fromisoformat(since) + _dt.timedelta(days=self.ENTRY_WINDOW_DAYS):
+            waiting = "entry window closed — not buying a stale list"
+        else:
+            waiting = "not ordered yet"
         rows = []
         if dec.get("error"):
             pass
@@ -249,6 +254,25 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                 "per_name_pct": round(float(dec.get("weight_each") or 0) * 100, 2),
                 "error": dec.get("error"), "rows": rows,
                 "generated_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+
+    def _board_decision(self) -> dict:
+        """The decision the board should SHOW: the next one as soon as its
+        signal close is in the store (so on the evening of the 15th it shows
+        what will be bought at the next open), otherwise the active one. The
+        sleeve still TRADES only the active decision."""
+        import datetime as _dt
+        active = self._decision() or {}
+        try:
+            from ...momentum_rotation import _sessions, decide
+            today = _dt.date.fromisoformat(self._today)
+            nxt = [d for d in _sessions(today, today + _dt.timedelta(days=10)) if d > today]
+            if nxt:
+                upcoming = decide(nxt[0])
+                if not upcoming.get("error") and upcoming.get("signal_date") != active.get("signal_date"):
+                    return upcoming
+        except Exception as exc:  # noqa: BLE001 — the board falls back to the active decision
+            _log.info("no upcoming decision for the board: %s", str(exc)[:100])
+        return active
 
     def on_session_end(self, session_date) -> None:  # type: ignore[override]
         super().on_session_end(session_date)

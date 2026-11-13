@@ -113,9 +113,32 @@ def test_the_board_says_buy_sell_hold_and_what_paper_did(monkeypatch):
     idx = pd.to_datetime(["2026-10-16", "2026-11-13"])
     monkeypatch.setattr(db, "load_bars", lambda sym, res, lookback_days=None: pd.DataFrame(
         {"close": [220.0, 210.0]}, index=idx))
+    monkeypatch.setattr(s, "_board_decision", lambda: DEC)
     b = s.board()
     acts = {(r["action"], r["symbol"]): r for r in b["rows"]}
     assert ("BUY", "NVDA") in acts and acts[("BUY", "NVDA")]["paper"].startswith("filled")
     assert ("BUY", "MU") in acts
     assert ("SELL", "AAPL") in acts                      # held, not in the picks
     assert acts[("SELL", "AAPL")]["stop"] == 176.0      # 220 peak x 0.8
+
+
+def test_the_board_shows_the_next_decision_once_its_close_is_in(monkeypatch):
+    import tradepro_strategies.momentum_rotation as M
+    s = _s(today="2026-11-13", dec={**DEC, "signal_date": "2026-10-15", "order_date": "2026-10-16",
+                                     "picks": ["OLD"]})
+    nov = {**DEC, "picks": ["NEW"]}
+    monkeypatch.setattr(M, "decide", lambda d: nov)
+    assert s._board_decision()["picks"] == ["NEW"]
+    s._orders_cache = []
+    monkeypatch.setattr(s, "_board_decision", lambda: nov)
+    row = s.board()["rows"][0]
+    assert row["symbol"] == "NEW" and row["paper"] == "to buy at the 2026-11-16 open"
+
+
+def test_a_pick_past_its_entry_week_says_so():
+    s = _s(today="2026-12-01")
+    s._orders_cache = []
+    import types
+    s._board_decision = types.MethodType(lambda self: DEC, s)
+    paper = {r["symbol"]: r["paper"] for r in s.board()["rows"]}
+    assert paper["NVDA"].startswith("entry window closed")
