@@ -20,7 +20,9 @@ def _s(today="2026-11-16", sym="NVDA", dec=DEC, sold=frozenset()):
                                  params={"capital": 100_000})
     s._today, s._cur = today, sym
     s._dec_cache[today] = dec
-    s._sold_cache_day, s._sold_cache = today, (None if sold is None else set(sold))
+    s._orders_cache = None if sold is None else [
+        {"strategyId": "momentum_rotation_ibkr", "symbol": x, "side": "SELL",
+         "state": "FILLED", "createdAtUtc": "2026-11-17T15:00:00Z"} for x in sold]
     return s
 
 
@@ -97,3 +99,23 @@ def test_a_mid_cycle_start_waits_for_the_next_decision():
     assert not _s(today="2026-12-01")._wants_entry()        # stale list: wait
     # ...but a holding still exits on the rebalance or the stop
     assert _s(today="2026-12-01", sym="AAPL")._wants_exit([1.0] * 40, 39) == (True, "rebalance")
+
+
+def test_the_board_says_buy_sell_hold_and_what_paper_did(monkeypatch):
+    import pandas as pd
+
+    import tradepro_strategies.daily_bars as db
+    s = _s(sym="NVDA")
+    s._orders_cache = [{"strategyId": "momentum_rotation_ibkr", "symbol": "NVDA", "side": "BUY",
+                        "state": "FILLED", "avgFillPrice": 100.0, "createdAtUtc": "2026-11-16T14:31:00Z"}]
+    s._fill_price = {"AAPL": 200.0}
+    s._entry_bar = {"AAPL": "2026-10-16"}
+    idx = pd.to_datetime(["2026-10-16", "2026-11-13"])
+    monkeypatch.setattr(db, "load_bars", lambda sym, res, lookback_days=None: pd.DataFrame(
+        {"close": [220.0, 210.0]}, index=idx))
+    b = s.board()
+    acts = {(r["action"], r["symbol"]): r for r in b["rows"]}
+    assert ("BUY", "NVDA") in acts and acts[("BUY", "NVDA")]["paper"].startswith("filled")
+    assert ("BUY", "MU") in acts
+    assert ("SELL", "AAPL") in acts                      # held, not in the picks
+    assert acts[("SELL", "AAPL")]["stop"] == 176.0      # 220 peak x 0.8
