@@ -154,6 +154,8 @@ def test_a_check_that_crashes_becomes_UNKNOWN_rather_than_vanishing(monkeypatch)
     # went red immediately, which is the behaviour we want from it.
     monkeypatch.setattr(dc, "check_golden_store", lambda *a, **k: [])
     monkeypatch.setattr(dc, "check_code_version", lambda *a, **k: [])
+    monkeypatch.setattr(dc, "check_deployed_api", lambda *a, **k: [])
+    monkeypatch.setattr(dc, "check_lane_locations", lambda *a, **k: [])
     # Added 21 Oct 2026 with check_lane_schedules, for the reason stated just
     # above: this test went red the moment that check existed, which is exactly
     # what it is for. It also reads the real filesystem, so leaving it unstubbed

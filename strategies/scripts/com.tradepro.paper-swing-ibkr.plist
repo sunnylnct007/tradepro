@@ -10,10 +10,6 @@
 		<string>/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
 		<key>TRADEPRO_API_BASE_URL</key>
 		<string>http://16.60.201.137</string>
-		<key>TRADEPRO_FINNHUB_API_KEY</key>
-		<string>d7vgpghr01qldb7fua7gd7vgpghr01qldb7fua80</string>
-		<key>TRADEPRO_IBKR_ACCOUNT</key>
-		<string>DUP656969</string>
 		<key>TRADEPRO_IBKR_CLIENT_ID</key>
 		<string>23</string>
 		<key>TRADEPRO_IBKR_PORT</key>
@@ -25,7 +21,7 @@
 	<array>
 		<string>/bin/bash</string>
 		<string>-c</string>
-		<string>cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run --extra ibkr tradepro-paper --broker ibkr --strategy mean_reversion_swing --strategy-id mean_reversion_swing_ibkr --universe tradeable --capital-usd 100000 --interval 1d --max-open-positions 15 --max-position-pct-of-capital 5 --placement-mode auto --push 2&gt;&amp;1</string>
+		<string>/Users/skumar/tradepro-deploy/strategies/scripts/mac-deploy-sync.sh &gt;/dev/null 2&gt;&amp;1; cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run --extra ibkr tradepro-paper --broker ibkr --strategy mean_reversion_swing --strategy-id mean_reversion_swing_ibkr --universe tradeable --capital-usd 150000 --interval 1d --max-open-positions 15 --max-position-pct-of-capital 5 --wind-down --placement-mode auto --push 2&gt;&amp;1</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
