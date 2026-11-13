@@ -273,12 +273,87 @@ def check_code_version() -> list[Check]:
                       "unverified code version — a lane may be running anything")]
     if not local or not remote:
         return [Check("Code version", UNKNOWN, "empty SHA from the deploy checkout")]
+    # A checkout at the right SHA can still run different code: an edit made
+    # in place would be live in every lane and on no branch (owner, 13 Nov:
+    # "ensure we do not end up with code running locally with diff versions").
+    try:
+        dirty = [ln for ln in subprocess.run(
+            ["git", "-C", "/Users/skumar/tradepro-deploy", "status", "--porcelain",
+             "--untracked-files=no"], capture_output=True, text=True,
+            timeout=20).stdout.splitlines() if ln.strip()]
+    except Exception:  # noqa: BLE001
+        dirty = []
+    if dirty:
+        return [Check("Code version", BROKEN,
+                      f"the deploy checkout has {len(dirty)} uncommitted edit(s) "
+                      f"({', '.join(d[3:] for d in dirty[:3])}) — the lanes run code "
+                      "that is on no branch",
+                      "git -C ~/tradepro-deploy diff; commit it via a PR, then "
+                      "git -C ~/tradepro-deploy checkout -- .")]
     if local == remote:
         return [Check("Code version", OK, f"Mac lanes run {local} — same as origin/main")]
     return [Check("Code version", WARN,
                   f"Mac deploy checkout is {local} but origin/main is {remote} — "
                   "the lanes and jobs are running code that is NOT on main",
                   "launchctl start com.tradepro.mac-deploy-sync (runs every 600s anyway)")]
+
+
+def check_deployed_api(base: str) -> list[Check]:
+    """Was the API on AWS built from the code on main?
+
+    The API reports the commit it was built from. A different SHA is NOT drift
+    by itself: build-push only runs when backend, frontend or compose files
+    change, so a python-only merge leaves the API on an older commit with
+    identical code. Drift is when those paths DIFFER between the two commits.
+    """
+    import subprocess
+
+    import requests
+    try:
+        dep = (requests.get(f"{base.rstrip('/')}/health/details", timeout=15).json()
+               .get("deploy") or {})
+        built = str(dep.get("backendCommit") or "")[:12]
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Deployed API", UNKNOWN, f"could not read /health/details ({str(exc)[:60]})")]
+    if not built:
+        return [Check("Deployed API", UNKNOWN, "the API reports no build commit")]
+    repo = "/Users/skumar/tradepro-deploy"
+    try:
+        subprocess.run(["git", "-C", repo, "fetch", "-q", "origin"], timeout=60)
+        diff = subprocess.run(
+            ["git", "-C", repo, "diff", "--name-only", built, "origin/main", "--",
+             "backend", "frontend", "docker-compose.aws.yaml", "Caddyfile"],
+            capture_output=True, text=True, timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        return [Check("Deployed API", UNKNOWN, f"could not diff {built} ({str(exc)[:60]})")]
+    if diff.returncode != 0:
+        return [Check("Deployed API", UNKNOWN, f"commit {built} is not in the deploy checkout")]
+    changed = [f for f in diff.stdout.splitlines() if f.strip()]
+    if not changed:
+        return [Check("Deployed API", OK, f"built from {built[:8]}; no API code has changed since")]
+    return [Check("Deployed API", BROKEN,
+                  f"built from {built[:8]}, and {len(changed)} API file(s) changed on main since "
+                  f"({', '.join(changed[:3])}) — the site runs code that is not on main",
+                  "gh workflow run aws-build-push.yml")]
+
+
+def check_lane_locations() -> list[Check]:
+    """Every installed lane runs from the deploy checkout, never a dev folder.
+    A lane pointed at a working copy runs whatever branch that copy is on."""
+    import plistlib
+    bad = []
+    for f in sorted(LAUNCH_AGENTS.glob("com.tradepro.*.plist")):
+        try:
+            cmd = " ".join(plistlib.loads(f.read_bytes()).get("ProgramArguments") or [])
+        except Exception:  # noqa: BLE001
+            continue
+        if "/sourcecode/" in cmd or "/tradepro/tradepro" in cmd:
+            bad.append(f.stem.replace("com.tradepro.", ""))
+    if bad:
+        return [Check("Lane locations", BROKEN,
+                      f"{len(bad)} lane(s) run from a development folder: {', '.join(bad)}",
+                      "point them at /Users/skumar/tradepro-deploy")]
+    return [Check("Lane locations", OK, "every installed lane runs from the deploy checkout")]
 
 
 DEPLOY_SCRIPTS = pathlib.Path("/Users/skumar/tradepro-deploy/strategies/scripts")
@@ -418,7 +493,15 @@ def check_lane_schedules() -> list[Check]:
             # that could not be read was reported as "no lanes to compare",
             # which is how a check loses the very thing it exists to catch.
             checked += 1
-            if plistlib.loads(repo_raw) != plistlib.loads(installed.read_bytes()):
+            # EnvironmentVariables is excluded: it carries keys and account ids
+            # that live ONLY in the installed copy (the repo is public), so
+            # including it made every keyed lane drift forever and taught the
+            # reader to ignore this line.
+            def _shape(raw: bytes) -> dict:
+                d = plistlib.loads(raw)
+                d.pop("EnvironmentVariables", None)
+                return d
+            if _shape(repo_raw) != _shape(installed.read_bytes()):
                 drifted.append(repo_plist.name.replace("com.tradepro.", "")
                                .replace(".plist", ""))
         except Exception:  # noqa: BLE001 — an unreadable plist is not a pass
@@ -929,6 +1012,8 @@ def run_checks(base: str, token: str | None) -> list[Check]:
                lambda: check_option_legs_vs_book(base, token),
                lambda: check_golden_store(base, token),
                check_code_version,
+               lambda: check_deployed_api(base),
+               check_lane_locations,
                check_lane_schedules,
                check_host_power):
         try:

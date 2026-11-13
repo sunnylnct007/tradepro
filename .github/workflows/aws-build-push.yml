@@ -24,9 +24,12 @@ on:
     paths:
       - 'backend/**'
       - 'frontend/**'
-      # The read-only remote MCP server ships from here.
-      - 'strategies/tradepro_strategies/mcp/**'
-      - 'strategies/tradepro_strategies/cli/mcp_http.py'
+      # The read-only remote MCP server ships from here. The image COPIES the
+      # whole package (and tools/), so ANY change in it must rebuild: with only
+      # mcp/** listed, the 13 Nov momentum change (vol target 25%) merged and
+      # the server's backtest tool kept running the 20% default.
+      - 'strategies/tradepro_strategies/**'
+      - 'strategies/tools/**'
       - 'strategies/Dockerfile.mcp'
       - 'strategies/pyproject.toml'
       - 'strategies/uv.lock'
