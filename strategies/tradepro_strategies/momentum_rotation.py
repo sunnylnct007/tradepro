@@ -16,15 +16,12 @@ day's open; costs on traded value.
 """
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import asdict, dataclass, field, replace
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-UNIVERSE_FILE = Path(__file__).resolve().parent.parent / "universe" / "momentum_core.json"
 
 
 @dataclass(frozen=True)
@@ -53,16 +50,25 @@ class Params:
     rebalance_band: float = 0.02         # trade a kept holding only beyond +-2pp
     start: str = "2008-01-01"
     end: str | None = None
-    symbols: tuple[str, ...] | None = None  # None = universe/momentum_core.json
+    symbols: tuple[str, ...] | None = None  # None = harvest symbols with a sector label
 
 
 # ── data ────────────────────────────────────────────────────────────────
 
 
 def load_universe() -> tuple[list[str], dict[str, str]]:
-    doc = json.loads(UNIVERSE_FILE.read_text())
-    syms = [r["symbol"] for r in doc["symbols"]]
-    return syms, {r["symbol"]: r["sector"] for r in doc["symbols"]}
+    """Rule 1 (build pack, 13 Nov 2026): TradePro's daily-harvest symbols —
+    the harvest flag plus the owner's on/off toggles from the universes page —
+    that carry a sector label. ETFs and funds have no sector label, so they
+    are excluded here; SPY and QQQ are read separately as regime inputs. The
+    remaining eligibility filters (252 days of history, $10, $20M traded
+    value) are applied at each rebalance with data up to that day only."""
+    from .universe import apply_harvest_overrides, harvest_overrides
+    from .universe import load_universe as _load
+    rows = apply_harvest_overrides(_load()["symbols"], harvest_overrides())
+    rows = [r for r in rows if r.get("harvest", True) and r.get("sector")
+            and r["symbol"] not in ("SPY", "QQQ")]
+    return [r["symbol"] for r in rows], {r["symbol"]: r["sector"] for r in rows}
 
 
 @dataclass

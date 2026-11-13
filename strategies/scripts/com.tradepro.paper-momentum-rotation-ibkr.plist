@@ -3,7 +3,7 @@
 <!-- Momentum rotation, the core engine, on IBKR paper (spec 12 Nov 2026).
      Same chassis and cadence as paper-swing-ibkr. TEMPLATE: the installed copy
      adds the machine's EnvironmentVariables block (IBKR account and keys),
-     which never belongs in this public repo. Symbols = universe/momentum_core.json. -->
+     which never belongs in this public repo. Symbols = the harvest list (universe "tradeable"), the same list swing reads. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.tradepro.paper-momentum-rotation-ibkr</string>
@@ -11,7 +11,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>/Users/skumar/tradepro-deploy/strategies/scripts/mac-deploy-sync.sh &gt;/dev/null 2&gt;&amp;1; cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run --extra ibkr tradepro-paper --broker ibkr --strategy momentum_rotation --strategy-id momentum_rotation_ibkr --symbols AAPL,ABBV,AEP,AMD,AMGN,AMT,AMZN,APD,APP,AVGO,AZO,BA,BAC,BKNG,BRK-B,CAT,CBRE,CEG,CMCSA,COIN,COP,COST,CRH,CVX,DASH,DE,DIS,DLR,DUK,ECL,EQIX,ETN,FCX,GE,GEV,GOOGL,GS,HD,HOOD,INTC,JNJ,JPM,KO,LIN,LLY,MA,MCD,MDLZ,MDT,META,MLM,MO,MPC,MRK,MRNA,MRVL,MSFT,MU,NEE,NEM,NFLX,NKE,NRG,NUE,NVDA,O,OXY,PCG,PEP,PG,PLD,PLTR,PM,PSX,RTX,SHW,SLB,SO,T,TGT,TJX,TMO,TMUS,TSLA,UBER,UNH,V,VLO,VMRK,VRT,VST,VTR,VZ,WELL,WFC,WMB,WMT,XEL,XOM --capital-usd 150000 --interval 1d --max-open-positions 10 --max-position-pct-of-capital 5.5 --placement-mode auto --push 2&gt;&amp;1</string>
+    <string>/Users/skumar/tradepro-deploy/strategies/scripts/mac-deploy-sync.sh &gt;/dev/null 2&gt;&amp;1; cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run --extra ibkr tradepro-paper --broker ibkr --strategy momentum_rotation --strategy-id momentum_rotation_ibkr --universe tradeable --capital-usd 150000 --interval 1d --max-open-positions 10 --max-position-pct-of-capital 5.5 --placement-mode auto --push 2&gt;&amp;1</string>
   </array>
   <key>StartInterval</key><integer>900</integer>
   <key>SoftResourceLimits</key>

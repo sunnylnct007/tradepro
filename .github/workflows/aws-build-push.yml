@@ -30,6 +30,7 @@ on:
       # the server's backtest tool kept running the 20% default.
       - 'strategies/tradepro_strategies/**'
       - 'strategies/tools/**'
+      - 'strategies/universe/**'
       - 'strategies/Dockerfile.mcp'
       - 'strategies/pyproject.toml'
       - 'strategies/uv.lock'

@@ -20,10 +20,13 @@ reviewer expects it to fall, possibly to the low teens, on a fair universe.
 
 ## Universe
 
-`universe/momentum_core.json`: about 100 S&P 500 stocks, the 9 most liquid in each
-of the 11 GICS sectors (owner, 12 Nov 2026: "~100, sector-balanced", replacing
-the spec's whole-harvest universe, which was too slow to keep current). All are
-in the nightly harvest. SPY and QQQ are regime inputs only.
+TradePro's daily-harvest symbols (the `harvest` flag in universe/tradeable.json
+plus the owner's toggles on the universes page) that carry a sector label (build
+pack, 13 Nov 2026, rule 1). On 13 Nov that is 123 stocks: the ~100
+sector-balanced names the owner chose on 12 Nov (9 most liquid per GICS sector)
+plus live-book and earlier sector picks. ETFs have no sector label and are
+excluded; SPY and QQQ are regime inputs only. A harvested stock with no sector
+label is excluded until it gets one.
 
 Eligibility at each rebalance, using data up to that day only:
 - at least 252 trading days of history;
@@ -111,6 +114,10 @@ rule adherence of at least 95%, any override logged with its reason.
 ## Change log
 
 - 12 Nov 2026: universe narrowed to ~100 sector-balanced names (owner).
+- 13 Nov 2026: universe = harvest symbols with a sector label (build pack rule 1);
+  the separate 99-name file is retired so the harvest flag is the one list.
+- 13 Nov 2026: build pack rule 5 says a 20% volatility target; the owner kept
+  25% ("Keep 25%"), so this file and the code stay at 25%.
 - 12 Nov 2026, **AFTER the v1 results were seen**: volatility target 20% -> 25%
   (owner: "ok 25"). Evidence (account): 20% gave 8.4% CAGR / -13.0% DD, 25% gave
   9.5% / -13.0%, off gave 11.4% / -14.5%; the spec required the target to cut

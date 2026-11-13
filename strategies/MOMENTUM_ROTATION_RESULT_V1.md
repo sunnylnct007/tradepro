@@ -11,6 +11,24 @@ not 20%. Its row is "vol target 25%" below: 9.5% CAGR, -13.0% drawdown, Sharpe
 liquid S&P 500 names (9 per sector). Every one of them survived and grew into a
 leader by 2026; names that failed between 2008 and 2026 are absent.
 
+## v1.1 — the build pack universe (13 Nov 2026, late)
+
+Rerun on the build pack's rule 1 universe: 142 harvest symbols with a sector
+label (the core ~100 plus live-book, sector picks and names toggled on in the
+universes page), all rewritten into the one price convention first (STX, UAL
+fixed on the way). Volatility target 25% (owner).
+
+| | CAGR | Worst daily drawdown | Sharpe |
+|---|---|---|---|
+| Account (engine at most 50%) | 9.7% | -14.4% | 0.98 |
+| SPY at the same 50% budget | 7.9% | -25.9% | 0.69 |
+| SPY, fully invested | 11.2% | -51.9% | 0.63 |
+| Engine alone at 100%, alerts off | 19.1% | -25.5% | 1.02 |
+| Equal-weight universe, fully invested | 18.8% | -47.0% | 0.95 |
+
+The engine alone now edges the equal-weight hold (19.1% vs 18.8%) with about
+half its drawdown; on a survivor universe that is close to a draw on return.
+
 ## Data
 
 Golden store after the 12 Nov re-convention: one price convention

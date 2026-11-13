@@ -148,8 +148,11 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         "market_filter": "none", "rebalance_day": 0}. Returns account metrics
         (the engine at <=50% of NLV), SPY, SPY at the same 50% budget, an
         equal-weight hold of the universe, activity and the last rebalances.
-        The universe is survivor-biased (today's S&P 500 leaders) — say so when
-        quoting any number. Computes only; never trades."""
+        Universe = TradePro's daily-harvest symbols with a sector label, filtered
+        at each rebalance (252 days of history, close > $10, $20M median traded
+        value). Those symbols were chosen in 2026 and include no delisted names,
+        so results are survivor-biased — say so when quoting any number.
+        Computes only; never trades."""
         return _json(t.backtest_momentum_rotation(overrides))
 
     @mcp.tool()
