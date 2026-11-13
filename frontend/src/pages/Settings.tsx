@@ -320,10 +320,9 @@ export function Settings() {
       <div style={{ marginBottom: 14 }}>
         <h1 style={{ margin: 0, fontSize: 24 }}>Settings</h1>
         <p style={{ color: "var(--text-dim)", margin: "6px 0 0 0" }}>
-          Tune the rules the comparator applies. Saved values are picked up
-          on the next <code>tradepro-compare</code> run by the Strategy
-          Engine — no redeploy needed. The Compare page's LLM banner shows
-          the literal numbers that fired, so changes are visible immediately.
+          Runtime settings, strategy-to-broker routing, catalysts and data
+          sources. Saved values are read by the next run of the job that uses
+          them — no redeploy needed.
         </p>
       </div>
 

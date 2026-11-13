@@ -1,27 +1,11 @@
 import { config } from "../config";
 import { getIdToken } from "../firebase";
 import type {
-  CanonicalVerdict,
   CandleSeries,
-  CompareLatestResponse,
-  CompareUniverseSummary,
-  CorporateActionsResponse,
   DocumentEnvelope,
   DocumentSummary,
-  EarningsMarkersResponse,
-  HitRateRequest,
-  HitRateResult,
-  InsiderTradesResponse,
   InstrumentSearchResponse,
-  ScanRequest,
   StrategyCatalogResponse,
-  ScanResult,
-  SignalDecision,
-  SignalRequest,
-  SimulationRequest,
-  SimulationResult,
-  Watchlist,
-  WorkerHealth,
 } from "./types";
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -132,9 +116,6 @@ export const api = {
   strangleDecisions: (days = 30, market = "") =>
     get<{ rows: Record<string, unknown>[] }>(
       `/api/strangle-decisions?days=${days}${market ? `&market=${market}` : ""}`),
-  strangleDecisionSummary: (days = 30) =>
-    get<{ rows: Record<string, unknown>[] }>(
-      `/api/strangle-decisions/summary?days=${days}`),
   // Desk statistics. `caveats` is not decoration — it carries what the sample
   // cannot support, and at small n it is the most important field here.
   // Live desk P&L. Carries its OWN mark timestamp — a P&L without one is a
@@ -143,22 +124,6 @@ export const api = {
     get<Record<string, unknown>>(`/api/strangle-decisions/pnl?days=${days}`),
   strangleStats: (days = 90) =>
     get<Record<string, unknown>>(`/api/strangle-decisions/stats?days=${days}`),
-  // Integration/provider readiness — broker connectivity + cash, LLM, Finnhub.
-  // Public, no auth. Feeds the Health page + the cockpit caveats banner.
-  integrationsHealth: () =>
-    get<{
-      verdict: "ok" | "warn" | "needs_attention";
-      utc: string;
-      providers: Array<{
-        provider: string;
-        label: string;
-        status: "ok" | "degraded" | "down" | "disabled";
-        detail: string;
-        latencyMs: number | null;
-        lastCheckedUtc: string;
-        mode: string | null;
-      }>;
-    }>("/health/integrations"),
   providers: () => get<{ providers: string[] }>("/api/marketdata/providers"),
   strategies: () => get<StrategyCatalogResponse>("/api/simulations/strategies"),
   candles: (params: { symbol: string; provider?: string; interval?: string; from?: string; to?: string }) =>
@@ -225,39 +190,7 @@ export const api = {
       `/api/integrations/ibkr/pause${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`, {}),
   ibkrResume: () =>
     post<{ paused: boolean; note: string }, Record<string, never>>("/api/integrations/ibkr/resume", {}),
-  ibkrLivePrice: async (symbol: string): Promise<number | null> => {
-    try {
-      const r = await get<{ bars?: Array<{ c: number }>; error?: string }>(
-        "/api/integrations/ibkr/price-history",
-        { symbol, period: "1d", bar: "1min" },
-      );
-      const bars = r.bars ?? [];
-      return bars.length ? bars[bars.length - 1].c : null;
-    } catch {
-      return null;
-    }
-  },
-  runSimulation: (req: SimulationRequest) =>
-    post<SimulationResult, SimulationRequest>("/api/simulations/run", req),
-  evaluateSignal: (req: SignalRequest) =>
-    post<SignalDecision, SignalRequest>("/api/signals/evaluate", req),
-  /** Canonical verdict from the CACHED compare payloads the Decide page
-   *  serves — same data + pipeline, so the two never disagree. Fast,
-   *  prod-available. 404s when the symbol isn't in any compared universe. */
-  symbolVerdictCached: (symbol: string) =>
-    get<CanonicalVerdict>("/api/compare/verdict",
-      { symbol: symbol.trim().toUpperCase() }),
-  scanSignals: (req: ScanRequest) =>
-    post<ScanResult, ScanRequest>("/api/signals/scan", req),
-  hitRate: (req: HitRateRequest) =>
-    post<HitRateResult, HitRateRequest>("/api/signals/hitrate", req),
-  ukWatchlist: () => get<Watchlist>("/api/watchlists/uk"),
   watchlists: () => get<{ names: string[] }>("/api/watchlists/"),
-  compareUniverses: () =>
-    get<{ universes: CompareUniverseSummary[] }>("/api/compare/universes"),
-  compareLatest: (universe: string) =>
-    get<CompareLatestResponse>("/api/compare/latest", { universe }),
-  workerHealth: () => get<WorkerHealth>("/api/health/worker"),
   searchInstruments: (q: string, limit = 10) =>
     get<InstrumentSearchResponse>("/api/instruments/search", { q, limit }),
   documents: (symbol?: string) =>
@@ -265,166 +198,6 @@ export const api = {
       symbol ? { symbol } : undefined),
   document: (docId: string) =>
     get<DocumentEnvelope>(`/api/documents/${encodeURIComponent(docId)}`),
-  documentText: async (docId: string): Promise<string> => {
-    const url = new URL(
-      `/api/documents/${encodeURIComponent(docId)}/text`,
-      config.apiBaseUrl,
-    );
-    const token = await getIdToken();
-    const headers: Record<string, string> = {};
-    if (token) headers.authorization = `Bearer ${token}`;
-    const resp = await fetch(url, { headers });
-    if (!resp.ok) {
-      throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
-    }
-    return resp.text();
-  },
-  // Paper-trading backtest reports — list newest-first + drill into one.
-  // Phase D-2: every summary row now carries the optional data_state_hash.
-  // Null when the report was produced before Phase D-1 or by a non-BarStore
-  // code path (e.g. legacy paper_session callers reading via cache.py).
-  paperBacktestReports: () =>
-    get<Array<{
-      reportId: string;
-      kind: string;
-      symbol: string;
-      start?: string;
-      end?: string;
-      entryCount: number;
-      receivedAtUtc: string;
-      dataStateHash: string | null;
-    }>>("/api/paper/backtest/reports"),
-  paperBacktestReport: (reportId: string) =>
-    get<unknown>(`/api/paper/backtest/reports/${encodeURIComponent(reportId)}`),
-  // Phase D-2: find every report that ran on the same data state.
-  // The cockpit result viewer hits this when the user clicks the hash
-  // chip on a backtest row.
-  paperBacktestReportsByHash: (dataStateHash: string) =>
-    get<{
-      dataStateHash: string;
-      count: number;
-      reports: Array<{
-        reportId: string;
-        kind: string;
-        symbol: string;
-        start?: string;
-        end?: string;
-        entryCount: number;
-        receivedAtUtc: string;
-        dataStateHash: string | null;
-      }>;
-    }>(
-      `/api/paper/backtest/reports/by-hash/${encodeURIComponent(dataStateHash)}`,
-    ),
-  paperStrategies: () =>
-    get<{
-      count: number;
-      strategies: Array<{
-        name: string;
-        class: string;
-        summary: string;
-        source?: string;                 // "trader-quant" | "alpha-engine" | "scaffold"
-        status?: string;                 // code default; overridden via strategyStatusOverrides
-        default_lookback_days?: number;  // pre-fill for the Lookback (days) input
-        caveats?: string[];              // operator-facing design limitations
-        default_params: Record<string, unknown>;
-      }>;
-    }>("/api/paper/strategies/"),
-
-  // Promotion-lifecycle overrides keyed by strategy_id. Merge client-
-  // side with paperStrategies — the override wins when present, otherwise
-  // catalog status is the source of truth.
-  strategyStatusOverrides: () =>
-    get<{
-      overrides: Array<{
-        StrategyId: string;
-        Status: string;
-        UpdatedAtUtc: string;
-        UpdatedBy: string;
-      }>;
-    }>("/api/paper/strategy-status/"),
-
-  setStrategyStatus: (strategyId: string, status: string) =>
-    post<unknown, { Status: string }>(
-      `/api/paper/strategy-status/${encodeURIComponent(strategyId)}`,
-      { Status: status },
-    ),
-
-  clearStrategyStatus: async (strategyId: string) => {
-    // .NET MapDelete; no `del` helper today, use raw fetch.
-    const headers = await authHeaders();
-    const resp = await fetch(
-      new URL(
-        `/api/paper/strategy-status/${encodeURIComponent(strategyId)}`,
-        config.apiBaseUrl,
-      ),
-      { method: "DELETE", headers },
-    );
-    if (!resp.ok && resp.status !== 404) {
-      throw new Error(`${resp.status} ${resp.statusText}`);
-    }
-  },
-
-  // Ops queue — UI-driven strategy runs (task #68 / #69). User
-  // enqueues; Mac claims; status flows back to /api/ops/sessions.
-  opsSessions: (kind?: string, limit = 100) =>
-    get<{
-      // Backend ops Envelope() emits snake_case to keep wire format
-      // consistent with the rest of the ops surface. The old type
-      // here used camelCase, which silently meant every consumer was
-      // reading `undefined` from .status / .requestId / .resultSummary
-      // — the cockpit signals panel "always empty" symptom traced
-      // back to this. Wire is what's real; types now match it.
-      sessions: Array<{
-        request_id: string;
-        kind: string;
-        state: string;
-        params: Record<string, unknown>;
-        claimed_by: string | null;
-        requested_at_utc: string;
-        claimed_at_utc: string | null;
-        completed_at_utc: string | null;
-        result_summary: Record<string, unknown> | null;
-        error: string | null;
-      }>;
-    }>("/api/ops/sessions", { kind, limit }),
-  runIntraday: (payload: Record<string, unknown>) =>
-    post<{
-      // Backend ops Envelope() emits snake_case so the response
-      // matches the rest of the ops surface (getOpsSession, etc.).
-      // Was previously typed as `requestId` etc. but the wire is
-      // `request_id` — callers reading res.requestId got undefined
-      // and crashed on .slice().
-      request_id: string;
-      kind: string;
-      state: string;
-      params: Record<string, unknown>;
-      requested_at_utc: string;
-      claimed_at_utc: string | null;
-      claimed_by: string | null;
-      completed_at_utc: string | null;
-      result_summary: unknown;
-      error: string | null;
-    }, Record<string, unknown>>("/api/ops/run-intraday", payload),
-
-  cancelOpsSession: (requestId: string) =>
-    post<unknown, {}>(
-      `/api/ops/sessions/${encodeURIComponent(requestId)}/cancel`, {}),
-  // Single-session lookup for the Session Detail page. Returns the
-  // full snake_case envelope (request_id, params, result_summary, ...).
-  getOpsSession: (requestId: string) =>
-    get<{
-      request_id: string;
-      kind: string;
-      params: unknown;
-      state: string;
-      requested_at_utc: string;
-      claimed_at_utc: string | null;
-      claimed_by: string | null;
-      completed_at_utc: string | null;
-      result_summary: unknown;
-      error: string | null;
-    }>(`/api/ops/sessions/${encodeURIComponent(requestId)}`),
   paperSnapshots: () =>
     get<Array<{
       sessionLabel: string;
@@ -436,16 +209,6 @@ export const api = {
     }>>("/api/paper/snapshots/"),
   paperSnapshot: (sessionLabel: string) =>
     get<unknown>(`/api/paper/snapshots/${encodeURIComponent(sessionLabel)}`),
-  // Per-strategy P&L time series for the cockpit "P&L at a glance" graph.
-  // scope=daily → one point/strategy/day (all-time); intraday → today.
-  pnlSeries: (scope: "daily" | "intraday") =>
-    get<{
-      scope: string;
-      series: Array<{
-        strategyId: string;
-        points: Array<{ ts: string; realised: number; unrealised: number; equity: number; total: number }>;
-      }>;
-    }>("/api/paper/pnl/series", { scope }),
   // Broker-reported REALISED P&L per day (golden source; nets spread +
   // financing). The honest "what did we actually make/lose each day" the OMS
   // can't give (pre-2026-06-02 IG fills were booked at price 0).
@@ -455,29 +218,6 @@ export const api = {
       error?: string | null;
       points: Array<{ broker: string; date: string; currency: string | null; value: number }>;
     }>("/api/account-value/history", { days }),
-  igHistory: (days = 7) =>
-    get<{
-      enabled: boolean;
-      from?: string; to?: string;
-      totalRealised?: number;
-      byDay?: Array<{ date: string; realised: number; trades: number }>;
-      byStrategy?: Array<{
-        strategyId: string;       // OMS strategy_id, or "unattributed"
-        assetClass: string | null; // "FX" | "EQUITY" | null
-        realised: number;
-        trades: number;
-      }>;
-      byStrategySymbol?: Array<{
-        strategyId: string;
-        symbol: string;           // clean instrument label (FX pair / company)
-        gross: number;            // DEAL trade P&L
-        cost: number;             // financing + admin + commission (WITH)
-        net: number;              // gross + cost
-        trades: number;
-      }>;
-      attributionBasis?: string;
-      error?: string | null;
-    }>("/api/integrations/ig/history", { days }),
   // Per-strategy P&L comparison — one row per strategy, per native currency.
   // Any field null = genuinely not available (reason in `notes`), never a guess.
   // The paper P&L LEDGER — broker-confirmed fills by placement record;
@@ -644,55 +384,6 @@ export const api = {
       };
     }>("/api/today-setups/momentum/latest"),
 
-  tradeableUniverse: () =>
-    get<{
-      universe: string; label: string; asOfUtc: string;
-      artifact: {
-        kind: string; as_of: string;
-        criteria: { min_price: number; min_dollar_volume: number; min_sessions: number };
-        counts: { scanned: number; included: number; excluded: number };
-        symbols: Array<{
-          symbol: string; price: number; dollar_volume_median: number; sessions: number;
-          beta: number | null; beta_long: number | null; beta_tier: string | null;
-          beta_unstable?: boolean; atr_pct: number | null; volatility_tier: string | null;
-        }>;
-        excluded: Array<{ symbol: string; class: string; reason: string }>;
-      };
-    }>("/api/today-setups/universe/latest"),
-
-  todaySetups: (universe: string) =>
-    get<{
-      universe: string;
-      label: string;
-      asOfUtc: string;
-      artifact: {
-        kind: string;
-        universe: string;
-        as_of_utc: string;
-        counts: { consider: number; extended: number; excluded: number; scanned: number; hold?: number; weak?: number; suspect?: number };
-        setups: Array<{
-          symbol: string;
-          rank: number;
-          classification: "consider" | "extended" | "hold";
-          close: number;
-          range_pctile: number;
-          pct_off_high: number;
-          pct_over_200sma: number;
-          atr_pct: number | null;
-          kijun: number;
-          dist_to_kijun_pct: number | null;
-          dist_atr: number | null;
-          stop8: number;
-          why: string;
-        }>;
-        excluded_symbols: string[];
-        data_suspect?: string[];
-        missing: string[];
-        note: string;
-      };
-    }>(`/api/today-setups/${encodeURIComponent(universe)}/latest`),
-
-
   // Central run-log — every process/machine's runs + failures, one place.
   runLog: (limit = 60, status?: string) =>
     get<{
@@ -719,160 +410,6 @@ export const api = {
         stale: boolean;
       }>;
     }>(`/api/run-log/recent?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ""}`),
-  paperPendingOrders: () =>
-    get<Array<{
-      orderId: string;
-      broker: string;
-      brokerMode: string;
-      strategyId: string;
-      symbol: string;
-      t212Ticker: string;
-      side: string;
-      quantity: number;
-      orderType: string;
-      tag?: string | null;
-      suggestedAtUtc: string;
-      barAtEmitClose?: number | null;
-      barAtEmitTime?: string | null;
-      state: string;
-      receivedAtUtc: string;
-      decidedAtUtc?: string | null;
-      brokerOrderId?: number | null;
-      brokerStatus?: string | null;
-      rejectionReason?: string | null;
-      error?: string | null;
-      responseBody?: string | null;
-    }>>("/api/paper/pending-orders/"),
-  approvePendingOrder: (orderId: string) =>
-    post<unknown, {}>(`/api/paper/pending-orders/${encodeURIComponent(orderId)}/approve`, {}),
-  rejectPendingOrder: (orderId: string, reason?: string) => {
-    const qs = reason ? `?reason=${encodeURIComponent(reason)}` : "";
-    return post<unknown, {}>(
-      `/api/paper/pending-orders/${encodeURIComponent(orderId)}/reject${qs}`, {});
-  },
-  // Bulk-reject Pending rows. tickerLike is a SQL LIKE pattern;
-  // pass undefined to reject ALL Pending. Returns { rejected: N }.
-  bulkRejectPending: (tickerLike?: string, reason?: string) =>
-    post<{ rejected: number }, { TickerLike?: string; Reason?: string }>(
-      "/api/paper/pending-orders/reject-all",
-      { TickerLike: tickerLike, Reason: reason }),
-
-  // Paper-session trigger queue
-  runPaperSession: (params: {
-    strategy: string;
-    symbols: string[];
-    capital_usd: number;
-    broker?: string;
-    placement_mode?: string;
-    interval?: string | null;
-  }) =>
-    post<{ request_id: string; state: string; params: unknown }, typeof params>(
-      "/api/ops/run-paper", params
-    ),
-
-  paperSessions: (limit = 50) =>
-    get<{ sessions: Array<{
-      request_id: string;
-      kind: string;
-      params: unknown;
-      state: string;
-      requested_at_utc: string;
-      claimed_at_utc: string | null;
-      claimed_by: string | null;
-      completed_at_utc: string | null;
-      result_summary: unknown;
-      error: string | null;
-    }> }>("/api/ops/paper-sessions", { limit }),
-
-  cancelPaperSession: (requestId: string) =>
-    post<unknown, {}>(`/api/ops/paper-sessions/${encodeURIComponent(requestId)}/cancel`, {}),
-
-  // Quant backtest queue — /api/quant/backtest/*. The .NET endpoint
-  // enqueues a session_request with kind="backtest"; the Mac daemon
-  // claims it via /api/ops/poll-backtest and writes back the full
-  // result_summary (charts + ensemble summary + monte-carlo summary).
-  // Status flows back via getBacktest(); the existing Session Detail
-  // page (/paper-live/session/:id) renders the charts.
-  runBacktest: (req: {
-    Strategy: string;
-    Symbols: string[];
-    Start?: string | null;
-    End?: string | null;
-    InitialCapital?: number | null;
-    NSims?: number | null;
-    Years?: number | null;
-    Seed?: number | null;
-    Label?: string | null;
-  }) =>
-    post<{ requestId: string; state: string }, typeof req>(
-      "/api/quant/backtest/run", req,
-    ),
-
-  getBacktest: (requestId: string) =>
-    get<{
-      request_id: string;
-      kind: string;
-      params: unknown;
-      state: string;
-      requested_at_utc: string;
-      claimed_at_utc: string | null;
-      claimed_by: string | null;
-      completed_at_utc: string | null;
-      result_summary: unknown;
-      error: string | null;
-    }>(`/api/quant/backtest/${encodeURIComponent(requestId)}`),
-
-  listBacktests: (limit = 50) =>
-    get<{
-      backtests: Array<{
-        request_id: string;
-        kind: string;
-        params: unknown;
-        state: string;
-        requested_at_utc: string;
-        claimed_at_utc: string | null;
-        claimed_by: string | null;
-        completed_at_utc: string | null;
-        result_summary: unknown;
-        error: string | null;
-      }>;
-    }>("/api/quant/backtest/", { limit }),
-
-  cancelBacktest: (requestId: string) =>
-    post<unknown, {}>(
-      `/api/quant/backtest/${encodeURIComponent(requestId)}/cancel`, {},
-    ),
-
-  uploadDocument: async (
-    file: File,
-    title: string,
-    symbols: string,
-    sourceUrl?: string,
-  ): Promise<{
-    docId: string;
-    title: string;
-    fileKind: string;
-    extractor: string;
-    charCount: number;
-    pageCount: number | null;
-    linkedSymbols: string[];
-  }> => {
-    const url = new URL("/api/documents/upload", config.apiBaseUrl);
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("title", title);
-    fd.append("symbols", symbols);
-    if (sourceUrl) fd.append("sourceUrl", sourceUrl);
-    const token = await getIdToken();
-    const headers: Record<string, string> = {};
-    if (token) headers.authorization = `Bearer ${token}`;
-    const resp = await fetch(url, { method: "POST", headers, body: fd });
-    if (!resp.ok) {
-      throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
-    }
-    return resp.json();
-  },
-
   // OMS — order lifecycle. /api/oms/* lives in OmsEndpoints.cs; backs
   // the OmsOrders page. Field names are PascalCase because .NET
   // serializes records that way (no [JsonPropertyName] overrides).
@@ -887,10 +424,6 @@ export const api = {
     if (includeDeleted) q.includeDeleted = "true";
     return get<{ orders: OmsOrderRow[] }>("/api/oms/orders", q);
   },
-  omsOrderEvents: (orderId: string) =>
-    get<{ events: OmsOrderEventRow[] }>(
-      `/api/oms/orders/${encodeURIComponent(orderId)}/events`,
-    ),
   // Full decision-chain audit: OMS state transitions + RiskGate
   // events + LLM evaluations. Answers "on what basis was this
   // approved/rejected" in one round trip.
@@ -1079,20 +612,6 @@ export const api = {
     }
   },
 
-  omsEnqueue: (intent: {
-    ClientOrderId: string;
-    Broker: string;
-    Symbol: string;
-    Side: "BUY" | "SELL";
-    Qty: number;
-    OrderType: "MKT" | "LMT" | string;
-    StrategyId: string;
-    PlacedBy: string;
-    TimeInForce?: string;
-    LimitPrice?: number | null;
-    StopPrice?: number | null;
-  }) =>
-    post<OmsOrderRow, typeof intent>(`/api/oms/orders`, intent),
   omsReject: (orderId: string, reason: string) =>
     post<OmsOrderRow, { Reason: string }>(
       `/api/oms/orders/${encodeURIComponent(orderId)}/reject`,
@@ -1103,23 +622,6 @@ export const api = {
       `/api/oms/orders/${encodeURIComponent(orderId)}/cancel`,
       { Reason: reason },
     ),
-  // T212 cash balance — Invest product (stocks/ETFs). CFD cash is
-  // a separate T212 endpoint not yet wired (follow-up).
-  t212Cash: (account: "demo" | "live" = "demo") =>
-    get<{
-      enabled: boolean;
-      mode: string;
-      message?: string;
-      free?: number | null;
-      invested?: number | null;
-      total?: number | null;
-      blocked?: number | null;
-      ppl?: number | null;
-      currency?: string | null;
-      error?: string | null;
-      fetchedAtUtc?: string;
-    }>("/api/integrations/trading212/cash", { account }),
-
   // Multi-broker cash summary — every connected broker's cash in one
   // hit so the cockpit can show a strip rather than fetching each
   // broker separately. Each row has `status` so the UI can render
@@ -1144,150 +646,10 @@ export const api = {
       }>;
     }>("/api/integrations/cash-summary"),
 
-  // Per-strategy run-timing + outcome health, so a silently-stopped strategy is
-  // visible on the cockpit instead of buried in logs. status: healthy | idle |
-  // blocked | stale | unknown.
-  strategiesHealth: () =>
-    get<{
-      generatedAtUtc: string;
-      strategies: Array<{
-        strategy: string;
-        label: string;
-        // "retired" = not in the pushed strategy registry, so not trading BY
-        // DECISION — never a fault, and must not count toward "needs
-        // attention". Distinct from "stale", which means a sleeve that IS
-        // registered and should be trading but isn't. When the registry cannot
-        // be read the API returns "stale" with a reason saying so, rather than
-        // guessing either way.
-        status: "healthy" | "idle" | "blocked" | "stale" | "unknown" | "retired";
-        reason: string;
-        lastOrderUtc: string | null;
-        minutesSinceOrder: number | null;
-        today: { fills: number; cancels: number; pending: number; total: number };
-      }>;
-    }>("/api/strategies/health"),
-
-  bulkCancelPending: (body: { strategyPrefix?: string; broker?: string; reason?: string }) =>
-    post<{ cancelled: number; ids: string[]; strategyPrefix: string | null; broker: string | null; actor: string; reason: string }, typeof body>(
-      "/api/admin/oms/bulk-cancel-pending", body),
-
-  // Operational alerts surfaced in the cockpit banner. The first
-  // producer is the paper-session fail-closed guard (a strategy that
-  // aborted because it couldn't confirm its position from the broker).
-  alerts: (limit = 50) =>
-    get<{
-      count: number;
-      critical: number;
-      alerts: Array<{
-        id: string;
-        source: string;
-        severity: "info" | "warn" | "critical";
-        code: string;
-        title: string;
-        detail: string;
-        strategyId: string | null;
-        broker: string | null;
-        symbols: string[];
-        dedupKey: string | null;
-        occurrences: number;
-        firstSeenUtc: string;
-        lastSeenUtc: string;
-      }>;
-    }>("/api/alerts", { limit }),
-  resolveAlert: (id: string) =>
-    post<{ resolved: boolean; id: string }, Record<string, never>>(
-      `/api/alerts/${id}/resolve`, {},
-    ),
-
-  // Sync OMS ← broker: adopt the broker's actual net positions into the
-  // OMS (synthetic, audited RECONCILE adjustments). broker = OMS label
-  // e.g. "T212_DEMO" | "IG_DEMO". Returns the adjustments made.
-  // force=true confirms the broker is genuinely flat (e.g. after a demo
-  // reset) so the "broker empty + OMS has positions" fail-safe flattens
-  // the OMS instead of refusing with 409.
-  syncOmsFromBroker: (broker: string, force = false) =>
-    post<{
-      broker: string;
-      adjusted: number;
-      adjustments: Array<{ symbol: string; side: string; delta: number; targetQty: number; fromOmsQty: number }>;
-    }, { broker: string; force: boolean }>("/api/oms/positions/sync-from-broker", { broker, force }),
-
   // T212 open positions (equity). account = demo | live.
   t212Positions: (account: "demo" | "live" = "demo") =>
     get<T212PosResp>(
       "/api/integrations/trading212/positions", { account }),
-
-  // Flatten (net to flat) open IG deals. Pass { dealId } to close one
-  // deal, { symbol } (bare pair e.g. "EURUSD") to close all deals for a
-  // pair, or {} to flatten everything. Each close is confirmed at IG, so
-  // `closed`/`failed` reflect actual execution (a weekend-closed market
-  // returns failed with reason MARKET_CLOSED). Mutating → UI confirms.
-  flattenIg: (opts?: { symbol?: string; dealId?: string }) =>
-    post<{
-      symbol: string;
-      requested: number;
-      closed: number;
-      failed: number;
-      details: Array<{ epic: string; dealId?: string; direction?: string; size?: number; ok: boolean; error?: string | null }>;
-    }, { symbol?: string; dealId?: string }>(
-      "/api/integrations/ig/positions/flatten", opts ?? {}),
-
-  // IG open positions (FX / CFD). The cockpit position panel is
-  // otherwise T212-equity-only; this surfaces the FX book that the
-  // ichimoku_fx_mr strategy trades via IG. Not account-scoped — IG
-  // demo/live is a single backend config.
-  igPositions: () =>
-    get<{
-      enabled: boolean;
-      mode: string;
-      count?: number;
-      error?: string | null;
-      positions: Array<{
-        ticker: string;
-        quantity: number;
-        averagePricePaid: number | null;
-        currentPrice: number | null;
-        unrealisedAbs: number | null;
-        unrealisedPct: number | null;
-        lotSize: number | null;
-        instrumentName: string | null;
-        dealId: string | null;
-      }>;
-    }>("/api/integrations/ig/positions"),
-
-  // IBKR open positions (equities). READ-ONLY. Surfaced in the desk +
-  // cockpit position tables with an IBKR broker tag, the same way T212
-  // live positions render. When the tradepro/ibkr secret is absent the
-  // backend returns { enabled:false, note } and the UI renders nothing.
-  ibkrPositions: () =>
-    get<{
-      enabled: boolean;
-      broker?: string;
-      mode?: string;
-      count?: number;
-      note?: string;
-      error?: string | null;
-      positions: Array<{
-        ticker: string | null;
-        instrumentName: string | null;
-        quantity: number;
-        averagePricePaid: number | null;
-        currentPrice: number | null;
-        unrealisedAbs: number | null;
-        unrealisedPct: number | null;
-        currency: string | null;
-        // OPTION fields. Added to the API when option positions were made
-        // visible (31 Aug 2026) and to `conid` when the close stopped
-        // re-resolving contracts (1 Sep) — but never mirrored here, so every
-        // consumer had to cast. isOption is the only way to tell an option
-        // from a stock; multiplier is what turns a per-share price into money,
-        // and assuming 100 is how "-99.06%" was printed on a winning position.
-        assetClass?: string | null;
-        isOption?: boolean;
-        multiplier?: number | null;
-        conid?: number | null;
-      }>;
-    }>("/api/integrations/ibkr/positions"),
 
   // Broker account snapshots the Mac daemons pushed (broker_account_state).
   // Surfaces an algo clone's OWN account — e.g. the IBKR PAPER clone DUP656969,
@@ -1319,91 +681,12 @@ export const api = {
       }>;
     }>("/api/integrations/account-state"),
 
-  omsPositions: (strategyId?: string) =>
-    // `attributed` is FALSE when the underlying orders carry no strategy_id —
-    // an account holding or a reconcile ADJUSTMENT. strategyId then reads
-    // "(unattributed)", which is a COALESCE display label, not a strategy. Use
-    // this flag rather than matching that string; and remember one (broker,
-    // symbol) legitimately has several rows, which must be NETTED. See
-    // buildAttribution in PositionsTable.
-    get<{ positions: Array<{ strategyId: string; symbol: string; broker: string; quantity: number; avgPrice: number | null; lastFillAtUtc: string; attributed?: boolean }> }>(
-      "/api/oms/positions", strategyId ? { strategyId } : undefined,
-    ),
-  omsPositionsDiff: (account: "demo" | "live" = "demo", strategyId?: string) =>
-    get<{
-      account: string;
-      strategyId: string | null;
-      brokerEnabled: boolean;
-      t212Error: string | null;
-      fetchedAtUtc: string;
-      totalSymbols: number;
-      drifted: number;
-      rows: Array<{ symbol: string; omsQty: number; t212Qty: number; diff: number }>;
-    }>("/api/oms/positions/diff", strategyId ? { account, strategyId } : { account }),
   omsMode: () => get<{ mode: string }>("/api/oms/mode"),
   setOmsMode: (mode: "auto" | "manual") =>
     post<{ mode: string; prior: string }, { Mode: string }>(
       "/api/oms/mode",
       { Mode: mode },
     ),
-
-  // ── IT admin: raw-table browsers ─────────────────────────────
-  adminEvents: (p?: { event_type?: string; since_seq?: number; before_seq?: number; limit?: number }) =>
-    get<{ rows: AdminEventRow[] }>("/api/admin/events", p as Record<string, string | number | undefined>),
-  adminOrders: (p?: { symbol?: string; strategy?: string; mode?: string; limit?: number }) =>
-    get<{ rows: AdminOrderRow[] }>("/api/admin/orders", p as Record<string, string | number | undefined>),
-  adminFills: (p?: { order_id?: string; limit?: number }) =>
-    get<{ rows: AdminFillRow[] }>("/api/admin/fills", p as Record<string, string | number | undefined>),
-  adminOmsEvents: (p?: { order_id?: string; limit?: number }) =>
-    get<{ rows: AdminOmsEventRow[] }>("/api/admin/oms-events", p as Record<string, string | number | undefined>),
-  adminStrategyVersions: () =>
-    get<{ rows: AdminStrategyVersionRow[] }>("/api/admin/strategy-versions"),
-
-  // ── Equity pipeline validation artifact ──────────────────────
-  // Backed by EquityPipelineEndpoints.cs — Mac CLI
-  // tradepro-equity-pipeline --push emits the JSON; this read
-  // surfaces it on the strategy validation page.
-  equityPipelineLatest: (strategy: string, label = "latest") =>
-    get<EquityPipelineEnvelope>(
-      `/api/equity-pipeline/${encodeURIComponent(strategy)}/latest`,
-      { label },
-    ),
-  equityPipelineRuns: (strategy: string) =>
-    get<{
-      strategy: string;
-      runs: Array<{
-        label: string;
-        as_of_utc: string;
-        uploaded_at_utc: string;
-        uploaded_by: string | null;
-        note: string | null;
-      }>;
-    }>(`/api/equity-pipeline/${encodeURIComponent(strategy)}`),
-
-  // Earnings-marker overlay for PriceHistoryChart. Returns reported earnings
-  // events for `symbol` within the last `lookbackDays` (default 1825 = 5y).
-  // Empty on fetch failure so the chart degrades to "no markers" cleanly.
-  earningsMarkers: (symbol: string, lookbackDays?: number) =>
-    get<EarningsMarkersResponse>("/api/marketdata/earnings", {
-      symbol,
-      ...(lookbackDays !== undefined ? { lookbackDays } : {}),
-    }),
-
-  // Corporate-action overlay (dividends "D" + splits "S") for PriceHistoryChart.
-  // Defaults to 5y lookback. Silent failure — chart renders with no chips.
-  corporateActions: (symbol: string, lookbackDays?: number) =>
-    get<CorporateActionsResponse>("/api/marketdata/corporate-actions", {
-      symbol,
-      ...(lookbackDays !== undefined ? { lookbackDays } : {}),
-    }),
-
-  // Insider buy overlay — discretionary purchase transactions only.
-  // Default 365d lookback. Silent failure → no "I" chips on chart.
-  insiderBuys: (symbol: string, lookbackDays?: number) =>
-    get<InsiderTradesResponse>("/api/marketdata/insiders", {
-      symbol,
-      ...(lookbackDays !== undefined ? { lookbackDays } : {}),
-    }),
 
   // Trustworthy data layer — Phase A (migrations 029 + 030 +
   // DataTrustEndpoints.cs). Three concerns:
@@ -1455,18 +738,6 @@ export const api = {
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
     return resp.json();
   },
-  deleteDataSourcePreference: async (assetClass: string, resolution: string) => {
-    const url = new URL(
-      `/api/admin/data-trust/preferences/${encodeURIComponent(assetClass)}/${encodeURIComponent(resolution)}`,
-      config.apiBaseUrl,
-    );
-    const resp = await fetch(url, {
-      method: "DELETE",
-      headers: await authHeaders(),
-    });
-    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}: ${await resp.text()}`);
-    return resp.json();
-  },
   // Phase B-2: bar-cache observability. The Python BarStore POSTs
   // a telemetry event per fetch to /events; per-symbol health is
   // an incrementally-updated snapshot on /health. The cockpit panel
@@ -1507,36 +778,6 @@ export const api = {
       }>;
     }>("/api/admin/data-trust/bar-cache/events", qp);
   },
-  fillAttribution: (params: { date?: string; days?: number; strategy?: string }) => {
-    const qp: Record<string, string | undefined> = {};
-    if (params.date) qp.date = params.date;
-    if (params.days) qp.days = String(params.days);
-    if (params.strategy) qp.strategy = params.strategy;
-    return get<{
-      kind: string;
-      from_date: string;
-      to_date: string;
-      total_realised_pnl: number;
-      total_fills: number;
-      symbols_traded: number;
-      worst_symbol: string | null;
-      worst_pnl: number | null;
-      best_symbol: string | null;
-      best_pnl: number | null;
-      per_symbol: Array<{
-        symbol: string;
-        realised_pnl: number;
-        fills: number;
-        closed_trades: number;
-        winning_trades: number;
-        win_rate_pct: number | null;
-        buys: number;
-        sells: number;
-      }>;
-      note: string;
-    }>("/api/fills/attribution", qp);
-  },
-
   /** One row per DATASET: is the data there, and since when. */
   dataReadiness: () =>
     get<{
@@ -1776,10 +1017,6 @@ export const api = {
         } | null;
       }>;
     }>("/api/options/candidates"),
-  runScreener: () =>
-    post<{ ok: boolean; skipped?: boolean; reason?: string; result?: { run_date: string; tickers_screened: number; wheel_top: string[]; swing_top: string[]; dual_candidates: string[] }; stderr?: string }, Record<string, never>>("/api/screener/run", {}),
-  screenerLive: () =>
-    get<{ fetched_at_utc: string; rows: Array<{ ticker: string; price: number | null; change_pct: number | null; change_abs: number | null; ivp_52w: number | null; iv_annual: number | null; hv30: number | null; div_yield: number | null; put_yield_pct: number | null; high_52w: number | null; low_52w: number | null; dist_low_pct: number | null; avg_vol_90d: number | null }> }>("/api/screener/live"),
   // Options Desk — paper wheel positions (BRD §11 ledger). Record a paper
   // CSP entry + the risk-engine verdict, list/track them, transition state.
   optionsPositions: (state?: string) =>

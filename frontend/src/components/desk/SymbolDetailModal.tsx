@@ -10,7 +10,6 @@
 import { useEffect } from "react";
 import { SymbolChartCard } from "./SymbolChartCard";
 import { SymbolPositionCard, type PositionRow } from "./SymbolPositionCard";
-import { SymbolDecisionCard } from "./SymbolDecisionCard";
 import { SymbolRangeRiskCard } from "./SymbolRangeRiskCard";
 import { SymbolValidationCard } from "./SymbolValidationCard";
 import { SymbolOrdersCard } from "./SymbolOrdersCard";
@@ -144,7 +143,6 @@ export function SymbolDetailModal({
               />
             )}
             <SymbolPositionCard symbol={symbol} positions={positions} />
-            <SymbolDecisionCard symbol={symbol} positions={positions} />
             <SymbolRangeRiskCard symbol={symbol} />
             <SymbolValidationCard symbol={symbol} strategy={strategy} orders={orders} loading={ordersLoading} />
             <SymbolOrdersCard symbol={symbol} strategy={strategy} orders={orders} loading={ordersLoading} />

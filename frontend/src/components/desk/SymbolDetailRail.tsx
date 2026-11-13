@@ -4,7 +4,6 @@
  * Composes four single-responsibility cards stacked vertically:
  *   1. SymbolChartCard   — CandleIchimokuChart + timeframe pills
  *   2. SymbolPositionCard — shares·avg·mkt value·unrealized P&L
- *   3. SymbolDecisionCard — WHY/trend from compareLatest
  *   4. SymbolOrdersCard  — OMS orders for this symbol
  *
  * Plus a header strip: symbol label + close/back button.
@@ -24,7 +23,6 @@ import { bareSymbol } from "../../util/brokerSymbols";
 import { brokerPortal } from "../../util/brokerLinks";
 import { SymbolChartCard } from "./SymbolChartCard";
 import { SymbolPositionCard, type PositionRow } from "./SymbolPositionCard";
-import { SymbolDecisionCard } from "./SymbolDecisionCard";
 import { SymbolRangeRiskCard } from "./SymbolRangeRiskCard";
 import { SymbolOrdersCard } from "./SymbolOrdersCard";
 import { SymbolValidationCard } from "./SymbolValidationCard";
@@ -201,7 +199,6 @@ export function SymbolDetailRail({
 
       {/* 3. Signal / Why held — pass positions so it can reconcile the
           verdict against your entry (explains "trend up but I'm down"). */}
-      <SymbolDecisionCard symbol={symbol} positions={positions} />
 
       {/* 3b. Range / Risk — discretionary + risk overlay next to the systematic
           signal: 52w-range position, ATR, kijun pullback level, 8% stop level. */}
