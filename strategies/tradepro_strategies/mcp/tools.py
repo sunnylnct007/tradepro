@@ -4949,3 +4949,8 @@ def compare_momentum_rotation_variants(variants: list[dict]) -> dict:
     """Run several variants on the same data; every row is reported."""
     from ..momentum_rotation import compare
     return compare(variants[:40])
+
+
+def get_momentum_signal() -> dict:
+    """The core engine's BUY / SELL / HOLD board and what paper execution did."""
+    return _get("/api/today-setups/momentum_rotation/latest")

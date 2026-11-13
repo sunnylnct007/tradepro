@@ -36,6 +36,7 @@ import { BrokerBookCard } from "../components/desk/BrokerBookCard";
 import { ActionBoard } from "../components/desk/ActionBoard";
 import { LiveView } from "../components/desk/LiveView";
 import { DeskKpiStrip } from "../components/desk/DeskKpiStrip";
+import { SignalBoard } from "../components/desk/SignalBoard";
 import { RunLogCard } from "../components/desk/RunLogCard";
 import { DeskTabs } from "../components/desk/DeskTabs";
 import { DeskRightRail } from "../components/desk/DeskRightRail";
@@ -180,6 +181,7 @@ export function Desk() {
 
               One screen, one question: Candidates = what to do. Portfolio =
               what you hold and how it is doing. */}
+          <SignalBoard />
           <DeskKpiStrip />
 
 

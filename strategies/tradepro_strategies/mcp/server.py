@@ -129,6 +129,16 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_swing_candidates())
 
     @mcp.tool()
+    @instrumented("get_momentum_signal")
+    def get_momentum_signal() -> str:
+        """TODAY's signal from the core engine (monthly momentum rotation):
+        BUY / SELL / HOLD rows, each with its reason, and what the IBKR paper
+        account did about it (waiting, ordered, filled). Holdings carry their
+        entry, last close, P&L and the 20% trailing-stop price. Published by
+        the paper sleeve every 15 minutes; check generated_at_utc for age."""
+        return _json(t.get_momentum_signal())
+
+    @mcp.tool()
     @instrumented("backtest_momentum_rotation")
     def backtest_momentum_rotation(overrides: dict | None = None) -> str:
         """Backtest the monthly momentum rotation (the core engine, owner spec

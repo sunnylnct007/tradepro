@@ -79,17 +79,11 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
     def _in_window(self, dec: dict) -> bool:
         return bool(dec) and not dec.get("error") and self._today >= str(dec.get("order_date"))
 
-    def _sold_this_cycle(self, dec: dict) -> set[str] | None:
-        """Symbols this strategy has SOLD since the decision's order day — read
-        from the OMS, because remember()/recall() is in-memory and the daemon
-        restarts every 15 minutes: a stopped-out name held only in memory would
-        be bought straight back on the next run. Within a cycle a pick is only
-        ever sold by the trailing stop, so "sold since the order day" IS
-        "stopped out, stays in cash until the next decision". None = the OMS
-        could not be read."""
-        day = self._today
-        if getattr(self, "_sold_cache_day", None) == day:
-            return self._sold_cache
+    def _own_orders(self) -> list[dict] | None:
+        """This strategy's orders from the OMS, read once per run. None = the
+        OMS could not be read."""
+        if getattr(self, "_orders_cache", "unset") != "unset":
+            return self._orders_cache
         try:
             import requests
 
@@ -103,19 +97,33 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             orders = r.json()
             if isinstance(orders, dict):
                 orders = orders.get("orders") or orders.get("items") or []
-            since = str(dec.get("order_date"))
-            sold = {str(o.get("symbol") or "").split("_")[0].upper() for o in orders
-                    if o.get("strategyId") == self.strategy_id
-                    and str(o.get("side") or "").upper() == "SELL"
-                    and str(o.get("state") or "").upper() not in ("REJECTED", "CANCELLED")
-                    and str(o.get("createdAtUtc") or "")[:10] >= since}
+            orders = [o for o in orders if o.get("strategyId") == self.strategy_id]
         except Exception as exc:  # noqa: BLE001
-            _log.warning("could not read this sleeve's sells from the OMS (%s) — "
-                         "no entries this run, so a stopped-out name cannot be "
-                         "bought back on a guess", str(exc)[:110])
-            sold = None
-        self._sold_cache_day, self._sold_cache = day, sold
-        return sold
+            _log.warning("could not read this sleeve's orders from the OMS (%s)", str(exc)[:110])
+            orders = None
+        self._orders_cache = orders
+        return orders
+
+    @staticmethod
+    def _sym(o: dict) -> str:
+        return str(o.get("symbol") or "").split("_")[0].upper()
+
+    def _sold_this_cycle(self, dec: dict) -> set[str] | None:
+        """Symbols this strategy has SOLD since the decision's order day. Read
+        from the OMS, because remember()/recall() is in-memory and the daemon
+        restarts every 15 minutes: a stopped-out name held only in memory would
+        be bought straight back on the next run. Within a cycle a pick is only
+        ever sold by the trailing stop, so "sold since the order day" IS
+        "stopped out, stays in cash until the next decision". None = the OMS
+        could not be read, and then nothing is bought."""
+        orders = self._own_orders()
+        if orders is None:
+            return None
+        since = str(dec.get("order_date"))
+        return {self._sym(o) for o in orders
+                if str(o.get("side") or "").upper() == "SELL"
+                and str(o.get("state") or "").upper() not in ("REJECTED", "CANCELLED")
+                and str(o.get("createdAtUtc") or "")[:10] >= since}
 
     def _wants_entry(self) -> bool:
         import datetime as _dt
@@ -164,3 +172,98 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
         if capital <= 0 or price <= 0 or w <= 0:
             return 0
         return int((capital * w) // price)
+
+    # ── the signal board ──────────────────────────────────────────────────
+    def board(self) -> dict:
+        """BUY / SELL / HOLD for the engine, and what paper execution did about
+        each. This is what the cockpit shows: the signal, then whether the
+        paper account followed it."""
+        import datetime as _dt
+
+        from ...daily_bars import load_bars
+        dec = self._decision() or {}
+        picks = list(dec.get("picks") or [])
+        held = sorted(self._fill_price)
+        orders = self._own_orders() or []
+        since = str(dec.get("order_date") or "")
+
+        def last_order(sym: str, side: str) -> dict | None:
+            mine = [o for o in orders if self._sym(o) == sym
+                    and str(o.get("side") or "").upper() == side
+                    and str(o.get("createdAtUtc") or "")[:10] >= since]
+            return max(mine, key=lambda o: str(o.get("createdAtUtc") or "")) if mine else None
+
+        def status(o: dict | None, waiting: str) -> str:
+            if not o:
+                return waiting
+            st = str(o.get("state") or "").upper()
+            px = o.get("avgFillPrice") or o.get("limitPrice")
+            return f"{st.lower()}" + (f" @ {float(px):.2f}" if px else "")
+
+        def price_info(sym: str) -> dict:
+            df = load_bars(sym, "1d", lookback_days=400)
+            if df is None:
+                return {}
+            entry = self._entry_bar.get(sym)
+            closes = df["close"].astype(float)
+            since_entry = closes[[str(t)[:10] >= (entry or "9999") for t in closes.index]]
+            peak = float(since_entry.max()) if len(since_entry) else None
+            fill = self._fill_price.get(sym)
+            last = float(closes.iloc[-1])
+            return {"last": round(last, 2), "entry": round(fill, 2) if fill else None,
+                    "pnl_pct": round((last / fill - 1) * 100, 1) if fill else None,
+                    "stop": round(peak * (1 - self.TRAIL), 2) if peak else None,
+                    "as_of": str(closes.index[-1])[:10]}
+
+        waiting = (f"to buy at the {since} open" if self._today and self._today < since
+                   else "not ordered yet")
+        rows = []
+        if dec.get("error"):
+            pass
+        else:
+            for k, sym in enumerate(picks, 1):
+                if sym in held:
+                    continue
+                rows.append({"action": "BUY", "symbol": sym, "sector": dec.get("sectors", {}).get(sym),
+                             "why": f"rank {k} of 10 by 3/6/12-month momentum (score {dec.get('scores', {}).get(sym)})",
+                             "paper": status(last_order(sym, "BUY"), waiting)})
+        for sym in held:
+            info = price_info(sym)
+            if not dec.get("error") and sym not in picks:
+                rows.append({"action": "SELL", "symbol": sym, **info,
+                             "why": f"no longer in the top 10 on the {dec.get('signal_date')} close",
+                             "paper": status(last_order(sym, "SELL"), "sell at the next open")})
+            elif info.get("stop") and info.get("last") and info["last"] <= info["stop"]:
+                rows.append({"action": "SELL", "symbol": sym, **info,
+                             "why": "closed 20% below its highest close since entry (trailing stop)",
+                             "paper": status(last_order(sym, "SELL"), "sell at the next open")})
+            else:
+                rows.append({"action": "HOLD", "symbol": sym, **info,
+                             "why": "still in the top 10; exits on the stop or at the next rebalance"})
+        return {"strategy": "Momentum rotation (core engine)", "strategy_id": self.strategy_id,
+                "signal_date": dec.get("signal_date"), "order_date": dec.get("order_date"),
+                "next_signal_date": dec.get("next_signal_date"),
+                "market": ("SPY above its 200-day average: invested" if dec.get("market_ok")
+                           else "SPY below its 200-day average: cash"),
+                "allocation_pct": round(float(dec.get("allocation") or 0) * 100, 1),
+                "per_name_pct": round(float(dec.get("weight_each") or 0) * 100, 2),
+                "error": dec.get("error"), "rows": rows,
+                "generated_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+
+    def on_session_end(self, session_date) -> None:  # type: ignore[override]
+        super().on_session_end(session_date)
+        if not self._today:
+            return
+        try:
+            import os
+
+            from ...cli import push_to_api as _pta
+            base, token = _pta.load_credentials()
+            if base:
+                _pta.push("today-setups", {"universe": "momentum_rotation", "label": "latest",
+                                           "uploaded_by": os.uname().nodename,
+                                           "artifact": self.board()},
+                          base.rstrip("/"), token, retries=2)
+        except Exception as exc:  # noqa: BLE001 — publishing never breaks a run
+            _log.warning("could not publish the momentum signal board: %s", str(exc)[:120])
+
