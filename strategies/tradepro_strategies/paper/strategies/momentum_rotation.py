@@ -272,7 +272,18 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                      "leaving": [x for x in picks if x not in set(tr.get("picks", []))]}
         except Exception as exc:  # noqa: BLE001 — the daily view is extra; the board stands without it
             _log.info("no daily ranking for the board: %s", str(exc)[:100])
+        # THE INPUTS, STATED. A list of ten names means little without "out of
+        # how many" and "sized on what"; the board said neither.
+        try:
+            from ...momentum_rotation import load_universe
+            universe_n = len(load_universe()[0])
+        except Exception:  # noqa: BLE001
+            universe_n = None
+        p = self._p()
+        capital = float(p.get("capital") or p.get("start_capital") or 0) or None
         return {"strategy": "Momentum rotation (core engine)", "strategy_id": self.strategy_id,
+                "universe_n": universe_n, "eligible_n": dec.get("eligible"),
+                "capital": capital,
                 "today": today,
                 "signal_date": dec.get("signal_date"), "order_date": dec.get("order_date"),
                 "next_signal_date": dec.get("next_signal_date"),
