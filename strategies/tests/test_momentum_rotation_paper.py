@@ -9,6 +9,17 @@ import pytest
 from tradepro_strategies.paper.strategies.momentum_rotation import MomentumRotationStrategy
 from tradepro_strategies.paper.strategy import Bar, OrderSide
 
+@pytest.fixture(autouse=True)
+def _no_market_data(monkeypatch):
+    """The board's daily ranking and live prices read the store and Yahoo;
+    unit tests must not."""
+    import tradepro_strategies.live_quote as lq
+    import tradepro_strategies.momentum_rotation as mr
+    monkeypatch.setattr(mr, "ranking_today", lambda *a, **k: {
+        "date": "2026-11-13", "picks": ["NVDA", "AMD"], "scores": {}, "market_ok": True})
+    monkeypatch.setattr(lq, "live_prices", lambda syms: {})
+
+
 DEC = {"signal_date": "2026-11-13", "order_date": "2026-11-16",
        "next_signal_date": "2026-12-15", "picks": ["NVDA", "MU"],
        "scores": {"NVDA": 0.9, "MU": 0.7}, "weight_each": 0.05,
@@ -142,3 +153,11 @@ def test_a_pick_past_its_entry_week_says_so():
     s._board_decision = types.MethodType(lambda self: DEC, s)
     paper = {r["symbol"]: r["paper"] for r in s.board()["rows"]}
     assert paper["NVDA"].startswith("entry window closed")
+
+
+def test_the_board_shows_todays_ranking_and_what_is_drifting(monkeypatch):
+    s = _s()
+    s._orders_cache = []
+    monkeypatch.setattr(s, "_board_decision", lambda: DEC)
+    t = s.board()["today"]
+    assert t["entering"] == ["AMD"] and t["leaving"] == ["MU"]
