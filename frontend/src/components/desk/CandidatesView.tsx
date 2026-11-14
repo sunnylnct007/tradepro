@@ -328,74 +328,10 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
     // Swing CLOSED 13 Nov 2026 (owner: "if swing is of no use we close it for now
     // as opposed to mislead on UI"). No rows, no lane.
 
-    try {
-      const r: any = await api.momentumCandidates();
-      const a: any = r?.artifact ?? {};
-      if (a.candidates_v2?.length) {
-        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
-      } else
-      for (const c of (a.candidates ?? [])) {
-        out.push({
-          symbol: c.symbol, strategy: "Momentum", tierRaw: "gated", tier: "trusted",
-          action: "buy", entry: c.calcs?.entry?.value ?? c.close ?? null,
-          level: c.stop ?? null, levelLabel: "stop",
-          metric: c.calcs?.atr_pct?.value ?? null, metricLabel: "ATR%",
-          asOf: a.as_of_utc ?? r?.asOfUtc ?? null,
-          eligible: true, why: "pullback to the 10-day average in an uptrend",
-        });
-      }
-    } catch (e) { problems.push(`Momentum: ${String((e as Error)?.message || e)}`); }
-
-    try {
-      const r: any = await api.optionsCandidates();
-      if (r?.candidates_v2?.length) {
-        out.push(...fromV2(r.candidates_v2, r?.generated_at_utc ?? null));
-      } else
-      for (const c of (r?.candidates ?? [])) {
-        out.push({
-          symbol: c.symbol, strategy: "Wheel", tierRaw: "failed", tier: "unproven",
-          // Structure-aware. `economics.long_strike` is the floor; when the
-          // chain could not price one the row keeps the single strike and the
-          // screen's own note says the max loss is unpriced, rather than
-          // implying a floor that does not exist.
-          action: c.structure === "BULL_PUT_SPREAD" ? "sell put spread" : "sell put",
-          entry: c.ref_close ?? null,
-          level: c.suggested_strike ?? null,
-          levelText: c.economics?.long_strike != null
-            ? `${c.economics.short_strike}/${c.economics.long_strike}`
-            : undefined,
-          levelLabel: c.economics?.long_strike != null ? "put spread" : "strike",
-          metric: c.annualized_yield_pct ?? null, metricLabel: "%/yr",
-          asOf: r?.generated_at_utc ?? null,
-          eligible: !!c.eligible,
-          // "clears every gate" was INVENTED here, discarding what the
-          // producer actually said. The screen's own why is
-          // "passes today's screen · wheel BACKTEST FAILED (CAGR 7.61% vs 8%
-          // bar; worst name -71.4% vs 40% bar)" — written deliberately so the
-          // row could not read as an endorsement. The frontend then replaced
-          // it with three cheerful words sitting next to a "failed" badge,
-          // which is the contradiction the owner asked about.
-          why: c.eligible
-            ? (c.why ?? "passes today's screen · wheel BACKTEST FAILED")
-            : (c.blocks?.[0] ?? "blocked"),
-          // Option context on a row the board calls "sell put". Without it a
-          // wheel row showed a strike and a yield and nothing about the
-          // contract behind them.
-          extra: {
-            optionContext: {
-              expiry: c.expiry ?? null,
-              dte: c.dte ?? null,
-              delta: c.suggested_delta ?? null,
-              premium: c.suggested_premium ?? null,
-              openInterest: c.open_interest ?? null,
-              spread: c.spread_usd ?? null,
-              ivHv: c.iv_hv_ratio ?? null,
-              sigma: c.sigma_context ?? null,
-            },
-          },
-        });
-      }
-    } catch (e) { problems.push(`Wheel: ${String((e as Error)?.message || e)}`); }
+    // Momentum pullback (winding down, no new entries) and the Wheel (failed its
+    // backtest, nothing trades it) are NOT shown, 14 Nov 2026. Owner: "whatever
+    // we show in tradepro we need to support it" / "no more hanging of
+    // unreliable screens".
 
     // YOUR BOOK, matched onto the candidates. Owner, 2 Sep 2026: "and i have
     // some symbols on" — FCX was a Wheel candidate while 10 shares of FCX sat

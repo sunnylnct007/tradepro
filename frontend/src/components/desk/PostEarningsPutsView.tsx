@@ -111,7 +111,7 @@ export function PostEarningsPutsView() {
         )}
       </div>
 
-      {cands.length === 0 ? (
+      {!putLimit.allowed ? null : cands.length === 0 ? (
         <div style={{ padding: 16, border: "1px dashed var(--border)", borderRadius: 8,
                       color: "var(--text-dim)", fontSize: 15 }}>
           <b>No candidates right now.</b>{" "}

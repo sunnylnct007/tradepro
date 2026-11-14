@@ -102,7 +102,7 @@ export function ActionBoard() {
   const [showWhy, setShowWhy] = useState(false);
   const [putsAgeH, setPutsAgeH] = useState<number | null>(null);
   const putLimit = usePutLimit();
-  const [showBlockedPuts, setShowBlockedPuts] = useState(false);
+  const putsStale = putsAgeH == null || putsAgeH > 20;
 
   const load = useCallback(async () => {
     const out: Act[] = [];
@@ -123,45 +123,6 @@ export function ActionBoard() {
     // lead with trades that cannot happen. They are WITHHELD AND COUNTED, not
     // hidden: the footer says how many and why, which is this card's first
     // rule.
-    const WINDING_DOWN = new Set(["Swing", "Momentum"]);
-
-    const equity = async (
-      fetcher: () => Promise<any>, label: string,
-    ) => {
-      try {
-        const r: any = await fetcher();
-        const a: any = r?.artifact ?? {};
-        const rows: any[] = a.candidates_v2 ?? [];
-        if (!rows.length) { held.push(`${label}: no rows published yet`); return; }
-        const gated = rows[0]?.tier === "gated";
-        if (WINDING_DOWN.has(label)) {
-          const live = rows.filter((c: any) => {
-            const act = String(c.action || "").toLowerCase();
-            return c.eligible && (act === "buy" || act === "consider");
-          }).length;
-          held.push(`${label}: ${live} entry signal(s) not shown — the sleeve runs `
-                  + `exits-only, so these would not be placed`);
-          return;
-        }
-        let blocked = 0;
-        for (const c of rows) {
-          const act = String(c.action || "").toLowerCase();
-          if (!c.eligible || (act !== "buy" && act !== "consider")) { blocked++; continue; }
-          out.push({
-            key: `${label}-${c.symbol}`, kind: "buy", verb: "BUY", symbol: c.symbol, notes: [],
-            detail: c.entry != null ? `limit ~${fmt(c.entry)}` : "",
-            why: String(c.why || "").split("·")[0].trim(),
-            strategy: label, gated, ev: null,
-            // Equity rows rank by how stretched the dip is — the rule's own
-            // entry statistic — NOT by anything this card invents.
-            rank: 1000 + (parseFloat(String(c.why).match(/-?\d+\.\d+(?=σ)/)?.[0] ?? "0") * -1),
-          });
-        }
-        if (blocked) held.push(`${label}: ${blocked} row(s) not actionable today`);
-      } catch (e: any) {
-        problems.push(`${label} could not load — ${e?.message ?? "unknown error"}`);
-      }
-    };
 
     // THE CORE ENGINE FIRST (13 Nov 2026). Its board is the same one the
     // Portfolio page shows; without it this card said "0 to buy" while the one
@@ -182,7 +143,6 @@ export function ActionBoard() {
     } catch (e: any) {
       problems.push(`Momentum rotation could not load — ${e?.message ?? "unknown error"}`);
     }
-    await equity(() => api.momentumCandidates(), "Momentum");
 
     // ── OPTIONS, ranked by expectancy net of the spread ─────────────────
     try {
@@ -315,7 +275,8 @@ export function ActionBoard() {
         <span style={{ color: TONE.dim, fontSize: 12 }}>
           {loading ? "loading…" : `${buys.filter((b) => b.verb === "BUY").length} to buy · `
             + `${buys.filter((b) => b.verb === "SELL").length} to sell · `
-            + (putLimit.allowed ? `${putsWorth.length} put(s) worth selling` : "no new puts (limit)")}
+            + (!putLimit.allowed ? "no new puts (limit)"
+               : putsStale ? "put ideas out of date" : `${putsWorth.length} put(s) worth selling`)}
         </span>
         <button
           onClick={() => setShowWhy((v) => !v)}
@@ -361,19 +322,15 @@ export function ActionBoard() {
         />
       )}
       {puts.length > 0 && <PutLimitBanner limit={putLimit} />}
-      {puts.length > 0 && putsAgeH != null && putsAgeH > 20 && (
-        <div style={{ fontSize: 11.5, color: "#d29922", margin: "4px 0" }}>
-          Put prices below are {Math.round(putsAgeH)} h old.
+      {/* ONLY WHAT CAN BE TRUSTED (owner, 14 Nov). Puts are listed only when the
+          limit allows new puts AND the prices are from the last 20 hours. */}
+      {puts.length > 0 && putLimit.allowed && putsStale && (
+        <div style={{ fontSize: 12, color: "#d29922", margin: "4px 0" }}>
+          Put ideas not shown: the put screen last published {Math.round(putsAgeH!)} h ago, so its prices are out of date.
         </div>
       )}
-      {puts.length > 0 && !putLimit.allowed && !putLimit.loading && (
-        <div onClick={() => setShowBlockedPuts((v) => !v)}
-          style={{ fontSize: 11.5, color: TONE.dim, cursor: "pointer", userSelect: "none" }}>
-          {showBlockedPuts ? "▲ hide the put list" : `▼ show the ${putsWorth.length} put(s) the screen found anyway — reference only, not to act on`}
-        </div>
-      )}
-      {putsWorth.length > 0 && (putLimit.allowed || showBlockedPuts) && (
-        <div style={{ marginTop: buys.length ? 14 : 12, opacity: putLimit.allowed ? 1 : 0.55 }}>
+      {putsWorth.length > 0 && putLimit.allowed && !putsStale && (
+        <div style={{ marginTop: buys.length ? 14 : 12 }}>
           {putsShown.map((a) => (
             <Line key={a.key} a={a} onBuild={a.build ? () => setBuilding(a.build!) : undefined} />
           ))}
@@ -394,7 +351,7 @@ export function ActionBoard() {
         </div>
       )}
 
-      {putsThin.length > 0 && (putLimit.allowed || showBlockedPuts) && (
+      {putsThin.length > 0 && putLimit.allowed && !putsStale && (
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
           <div style={{ color: TONE.dim, fontSize: 11, marginBottom: 4 }}>
             {putsThin.length} put(s) pass every gate but their expectancy does

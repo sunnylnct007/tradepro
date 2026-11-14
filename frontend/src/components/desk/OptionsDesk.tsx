@@ -411,7 +411,7 @@ export function OptionsDesk() {
           2-minute morning loop doesn't require reading the full data table
           below. Never capital-gated here (project_wheel_signal_vs_paper_
           capital_split) — size-fit is informational, shown not filtered. */}
-      {!loading && !err && cands.length > 0 && (
+      {!loading && !err && cands.length > 0 && putLimit.allowed && (
         <MorningCandidatesPanel candidates={cands} all={cands} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
       )}
 

@@ -30,8 +30,8 @@ export function usePutLimit(): PutLimit {
         const asOf = a.as_of_utc ?? r?.asOfUtc;
         const ageHours = asOf ? (Date.now() - new Date(asOf).getTime()) / 3600_000 : null;
         if (!lim) {
-          setState({ allowed: false, loading: false, ageHours,
-            detail: "the live book has not been checked against your put limits yet — treat as no new puts" });
+          setState({ allowed: false, loading: false, ageHours: null,
+            detail: "your put limits have not been checked against the live book yet (first check: the next live-risk run, Monday 22:50) — until then, no new puts" });
         } else if (ageHours == null || ageHours > 36) {
           setState({ allowed: false, loading: false, ageHours,
             detail: `the last limit check is ${ageHours == null ? "of unknown age" : `${Math.round(ageHours)} h old`} — treat as no new puts until it runs again` });

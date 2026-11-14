@@ -2651,8 +2651,11 @@ def _wheel_records(rows: list[dict], as_of: str | None) -> list[dict]:
 # How many times to try publishing, and how long to wait between tries. The
 # screen's work is expensive (82 symbols of IBKR chains, minutes of wall
 # clock) and the publish is one HTTP call at the very end of it.
-_PUBLISH_ATTEMPTS = int(os.environ.get("TRADEPRO_PUBLISH_ATTEMPTS", "4"))
-_PUBLISH_BACKOFF_S = float(os.environ.get("TRADEPRO_PUBLISH_BACKOFF_S", "5"))
+# 10 attempts, 15 s x attempt apart: ~11 minutes. On 13 Nov a 22-minute screen
+# ran to completion and then lost its result to a DNS blip that outlasted the
+# old 4 x 5 s (~30 s) — the board stayed on Thursday's prices until Monday.
+_PUBLISH_ATTEMPTS = int(os.environ.get("TRADEPRO_PUBLISH_ATTEMPTS", "10"))
+_PUBLISH_BACKOFF_S = float(os.environ.get("TRADEPRO_PUBLISH_BACKOFF_S", "15"))
 
 #: HARD wall-clock ceiling for ONE publish attempt, DNS lookup included.
 #:
