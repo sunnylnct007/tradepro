@@ -118,6 +118,12 @@ rule adherence of at least 95%, any override logged with its reason.
   the separate 99-name file is retired so the harvest flag is the one list.
 - 13 Nov 2026: build pack rule 5 says a 20% volatility target; the owner kept
   25% ("Keep 25%"), so this file and the code stay at 25%.
+- 14 Nov 2026: an outside review of the first live list proposed four rule
+  changes. Measured as switches (MOMENTUM_ROTATION_RESULT_V1.md, "Review of the
+  first list"); none is distinguishable from noise on this universe. Decision
+  (owner, 14 Nov): the 16 Nov orders trade the design AS DECIDED. The 50-day
+  entry filter (`entry_above_sma50`) is scheduled as a recorded change from the
+  15 Dec 2026 signal; it is switched on before that close, not earlier.
 - 12 Nov 2026, **AFTER the v1 results were seen**: volatility target 20% -> 25%
   (owner: "ok 25"). Evidence (account): 20% gave 8.4% CAGR / -13.0% DD, 25% gave
   9.5% / -13.0%, off gave 11.4% / -14.5%; the spec required the target to cut
