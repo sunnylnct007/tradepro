@@ -103,6 +103,29 @@ public class DataReadinessGradingTests
     }
 
     [Fact]
+    public void ALaneRescopedDown_IsGradedOnItsNewSizeAfterThreeRuns()
+    {
+        // 14 Nov 2026: daily harvest cut from 969 to 180 symbols. With 56 old
+        // 969-symbol runs still in the window, the percentile kept 969 as
+        // "typical" and reported a lane that ran every night as 109h stale.
+        var history = new List<int> { 180, 180, 180, 180 };
+        history.AddRange(Enumerable.Repeat(969, 56));
+        var (index, ignored) = DataReadinessEndpoints.PickGradedRun(history);
+        Assert.Equal(0, index);
+        Assert.Equal(0, ignored);
+    }
+
+    [Fact]
+    public void TwoSmallRuns_AreNotYetARescope()
+    {
+        var history = new List<int> { 180, 180 };
+        history.AddRange(Enumerable.Repeat(969, 58));
+        var (index, ignored) = DataReadinessEndpoints.PickGradedRun(history);
+        Assert.Equal(2, index);
+        Assert.Equal(2, ignored);
+    }
+
+    [Fact]
     public void EmptyHistory_IsHandled()
     {
         Assert.Equal(-1, DataReadinessEndpoints.PickGradedRun(System.Array.Empty<int>()).Index);
