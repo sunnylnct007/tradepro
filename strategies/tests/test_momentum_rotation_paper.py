@@ -161,3 +161,29 @@ def test_the_board_shows_todays_ranking_and_what_is_drifting(monkeypatch):
     monkeypatch.setattr(s, "_board_decision", lambda: DEC)
     t = s.board()["today"]
     assert t["entering"] == ["AMD"] and t["leaving"] == ["MU"]
+
+
+def test_entries_go_at_market_not_capped_at_the_signal_close(monkeypatch):
+    """14 Nov: the chassis sent a DAY limit at signal close +1.5%. A momentum
+    pick that opens 2% up would never fill; the backtest buys at the open."""
+    import tradepro_strategies.paper.strategies.mean_reversion_swing as mrs
+    from tradepro_strategies.paper.strategy import OrderType
+    monkeypatch.setattr(mrs, "_entry_chase_pct", lambda: 1.5)
+    s = _s(sym="NVDA")
+    s.seed_positions({}, {})
+    monkeypatch.setattr(s, "_history", lambda sym, bar: ([100.0] * 40, None))
+    monkeypatch.setattr(s, "_broker_positions", lambda: {})
+    monkeypatch.setattr(s, "remember", lambda *a, **k: None)
+    bar = Bar(symbol="NVDA", timestamp=datetime(2026, 11, 16, 15, tzinfo=timezone.utc),
+              open=100, high=100, low=100, close=100, volume=1, timeframe_seconds=86400)
+    orders = s.on_bar(bar)
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY
+    assert orders[0].type == OrderType.MARKET and orders[0].limit_price is None
+    assert orders[0].quantity == 50          # 5% of 100k at 100
+
+
+def test_exits_are_left_as_they_are():
+    from tradepro_strategies.paper.strategy import Order, OrderType
+    sell = Order(strategy_id="x", symbol="A", side=OrderSide.SELL, quantity=1,
+                 type=OrderType.MARKET, tag="t")
+    assert MomentumRotationStrategy._at_market(sell) is sell

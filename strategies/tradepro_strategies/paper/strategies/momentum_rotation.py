@@ -157,7 +157,32 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
     def on_bar(self, bar):  # type: ignore[override]
         self._cur = bar.symbol
         self._today = self._day(bar.timestamp)
-        return super().on_bar(bar)
+        return [self._at_market(o) for o in super().on_bar(bar)]
+
+    @staticmethod
+    def _at_market(order):
+        """ENTRIES GO AT MARKET, as the backtest assumes (14 Nov 2026).
+
+        The chassis sends swing's entry: a DAY limit at the signal close +1.5%
+        (swing_entry_max_chase_pct), an anti-chase cap built for buying DIPS.
+        For a momentum rotation it is the wrong rule. The picks are the names
+        that have been rising, the backtest buys them at the next open at
+        whatever price, and any pick opening more than 1.5% above Friday's
+        close would simply not fill — paper quietly diverging from the
+        strategy it exists to test, on exactly the strongest names. The
+        pullback sleeve's own record on this chassis: 5 of 31 limit buys
+        expired unfilled, and those were dip entries.
+
+        Exits are already MARKET. Sizing still uses the decision's weight.
+        """
+        import dataclasses
+
+        from ..strategy import OrderSide, OrderType
+        if order.side == OrderSide.BUY and order.type == OrderType.LIMIT:
+            return dataclasses.replace(
+                order, type=OrderType.MARKET, limit_price=None,
+                tag=f"{order.tag} · at market (rotation buys at the open, like the backtest)")
+        return order
 
     def _ranked_today(self, bar):  # type: ignore[override]
         """The decision IS the ranking: its picks, best score first."""
