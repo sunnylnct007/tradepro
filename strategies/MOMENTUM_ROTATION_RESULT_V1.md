@@ -126,3 +126,32 @@ its first mid-month rebalance.
 4. The blend is not fragile: 6- and 9-month lookbacks match it, 12-month and
    12-minus-1 are weaker. The market filter choice barely matters on this
    universe; month-end rebalancing is worse than mid-month.
+
+
+## Review of the first list (14 Nov 2026)
+
+An outside review of the 13 Nov decision (MRNA, MU, MPC, VLO, DELL, PSX, AMD,
+TGT, MTD, MRK) raised trend health, outlier risk, concentration and earnings.
+
+- Confirmed: six picks closed below their 50-day average; three are refiners.
+- Corrected: its volatility figures were 3-5x too high (standard deviation of
+  price LEVELS, not daily returns). Returns-based 60-day vol: MRNA 95%, MTD 25%.
+  At ~2.6% a name with a 20% trailing stop, any one name risks about 0.5% of
+  the account.
+- Earnings: the rules allow holding stocks across earnings (the options rule
+  does not apply to stock); the trailing stop covers a gap.
+
+Its four proposed rules, 142-name universe, 2008-now:
+
+| Change | Account CAGR | Drawdown | Sharpe | Engine alone CAGR / DD |
+|---|---|---|---|---|
+| decided design | 9.68% | -14.4% | 0.98 | 19.1% / -25.5% |
+| veto picks below the 50-day | 10.29% | -14.5% | 1.04 | 20.0% / -26.3% |
+| rank by return / volatility | 8.96% | -13.9% | 1.00 | 17.2% / -25.9% |
+| cap scores at 3x the median | 9.35% | -14.4% | 0.95 | 18.2% / -25.5% |
+| two names per sector | 9.38% | -13.0% | 0.97 | 18.6% / -24.4% |
+| all four | 9.18% | -12.3% | 1.06 | 18.0% / -23.0% |
+
+Outcome: trade 16 Nov as decided; the 50-day filter from the 15 Dec signal, as
+a recorded change. Caveat logged: a survivor universe likely understates that
+filter's value, since the hardest fallers are missing from the sample.
