@@ -300,41 +300,6 @@ export const api = {
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
       "/api/today-setups/preearnings/latest"),
 
-  momentumCandidates: () =>
-    get<{
-      universe: string; label: string; asOfUtc: string;
-      artifact: {
-        kind: string; as_of_utc: string; count: number; signal_bar: string;
-        rule: { entry: string; stop: string; trailing: string; timeout: string };
-        evidence: {
-          gates_file: string; gates_commit: string; trades: number;
-          win_rate_pct: number; mean_per_trade_pct: number;
-          worst_trade_pct: number; median_hold_sessions: number; note: string;
-          median_per_trade_pct?: number;
-        };
-        limits: string[];
-        quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
-        candidates: Array<{
-          symbol: string; bar: string; close: number; entry_hint: number;
-          volume_vs_20d?: number | null; volume_vs_20d_unavailable?: string | null; chg_5d_pct?: number | null;
-          latest?: { price: number; as_of: string; session: string; high: number; low: number } | null;
-          stop: number; trailing_pct: number; pct_above_200sma: number;
-          pct_above_20sma: number; atr_pct: number | null;
-          off_52w_high_pct: number | null;
-          expected_hold_sessions: number; max_hold_sessions: number;
-          checks: Array<{ label: string; detail: string; value: string; ok: boolean }>;
-          levels: { sma10: number; sma20: number; sma50: number; sma200: number };
-          history: {
-            trades: number; win_rate_pct: number; mean_pct: number;
-            median_pct: number; best_pct: number; worst_pct: number;
-            median_bars: number; sample_warning: string | null;
-            last_5: Array<{ entry_date: string; exit_date: string; pct: number; bars: number; exit: string }>;
-          } | null;
-        }>;
-      };
-    }>("/api/today-setups/momentum/latest"),
-
-  // Central run-log — every process/machine's runs + failures, one place.
   runLog: (limit = 60, status?: string) =>
     get<{
       rows: Array<{

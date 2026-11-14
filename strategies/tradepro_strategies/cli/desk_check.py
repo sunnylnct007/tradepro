@@ -53,7 +53,6 @@ BOARDS = {
     "wheel": ("Wheel (put selling)", 30),
     "preearnings": ("Watch / pre-earnings", 30),
     "momentum_rotation": ("Momentum rotation (core engine)", 6),
-    "momentum": ("Momentum pullback", 30),
 }
 
 # Live strategies whose execution we can verify against the OMS.
@@ -100,7 +99,6 @@ DORMANT_AFTER_DAYS = 10
 # "not scheduled at all" the same evening, which is exactly its job.
 SCHEDULED_JOBS = (
     "com.tradepro.option-chain-capture",
-    "com.tradepro.momentum-candidates",
     "com.tradepro.bar-cache-harvest-daily",
     "com.tradepro.trade-alerts",
     "com.tradepro.paper-momentum-rotation-ibkr",
