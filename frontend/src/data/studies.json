@@ -1,130 +1,206 @@
 {
  "schemaVersion": 1,
- "note": "Every pre-registered study run on TradePro. Gates were COMMITTED TO GIT BEFORE each run \u2014 the commit sha is on each entry so the claim is checkable, not trusted. A study with a FAIL verdict is kept, not deleted: the negative results are the point.",
+ "note": "Every pre-registered study run on TradePro. Gates were COMMITTED TO GIT BEFORE each run — the commit sha is on each entry so the claim is checkable, not trusted. A study with a FAIL verdict is kept, not deleted: the negative results are the point.",
  "studies": [
   {
+   "id": "momentum_rotation_v1",
+   "title": "Monthly momentum rotation — the core engine",
+   "date": "2026-11-13",
+   "gatesFile": "MOMENTUM_ROTATION_GATES_V1.md",
+   "gatesCommit": "2dc3809a",
+   "question": "Top 10 stocks by 3/6/12-month return, rebalanced mid-month, cash when SPY is below its 200-day, 20% trailing stop, volatility-targeted: does it beat SPY and an equal-weight hold of the same names, and survive a walk-forward?",
+   "prediction": "The owner's 72-name test returned ~22.7% a year; the reviewer expected it to fall, possibly to the low teens, on a fairer universe.",
+   "verdict": "PASS (4 of 5 gates) — PAPER TRADING FROM 16 NOV",
+   "headline": "142 harvest names, 2008-now: account (engine at most 50%) 9.7% a year, worst drawdown -14.4%, vs SPY at the same budget 7.9% / -25.9%. Engine alone 19.1% / -25.5% vs equal-weight hold 18.8% / -47.0%. Walk-forward: 7.3% in-sample, 9.5% out-of-sample.",
+   "why": "Passes on a like-for-like budget, drawdown, walk-forward and robustness (15 of 22 variants beat SPY). Only narrowly beats holding the same names, which are 2026 survivors, so the point-in-time universe test is still owed before live money. Volatility target set to 25% after the results (recorded as such); the 50-day entry filter is scheduled from the 15 Dec signal.",
+   "gates": [
+    {
+     "id": "G1",
+     "test": "Beats SPY at the same budget",
+     "result": "9.7% vs 7.9%",
+     "pass": true
+    },
+    {
+     "id": "G2",
+     "test": "Beats equal-weight hold of the same universe",
+     "result": "engine 19.1% vs 18.8% (narrow, survivor universe)",
+     "pass": true
+    },
+    {
+     "id": "G3",
+     "test": "Worst drawdown x 50% inside 25%",
+     "result": "-25.5% x 50% = 12.8%",
+     "pass": true
+    },
+    {
+     "id": "G4",
+     "test": "Walk-forward keeps half the in-sample return",
+     "result": "7.3% -> 9.5%",
+     "pass": true
+    },
+    {
+     "id": "G5",
+     "test": "Point-in-time universe (no survivorship)",
+     "result": "not run — owner parked the data source",
+     "pass": false
+    }
+   ]
+  },
+  {
+   "id": "entry_edge_v1",
+   "title": "Do the Swing and Momentum entries have an edge at all?",
+   "date": "2026-10-20",
+   "gatesFile": "ENTRY_EDGE_GATES_V1.md",
+   "gatesCommit": "61419794",
+   "question": "Both live sleeves were losing. Is the exit the problem, or do the entries themselves pick bad moments?",
+   "prediction": "Momentum passes at 10 days; Swing passes at 3-5 days; both fail against SPY.",
+   "verdict": "FAIL — both entries negative vs both controls",
+   "headline": "8 of 8 strategy x horizon combinations negative against both a random-time control and SPY. At 5 days Swing gave up 1.34 points vs holding the same names at random; Momentum 1.80, widening to 2.83 at 10 days.",
+   "why": "The rules bought the moments these names did NOT drift up. This stopped both sleeves: Swing was closed on 14 Nov 2026; Momentum pullback runs exits only.",
+   "gates": [
+    {
+     "id": "G1",
+     "test": "Signal beats a random-time control",
+     "result": "negative at every horizon",
+     "pass": false
+    },
+    {
+     "id": "G2",
+     "test": "Signal beats SPY",
+     "result": "Swing -1.09, Momentum -1.78 at 5 days",
+     "pass": false
+    },
+    {
+     "id": "G3",
+     "test": "Hit rate > 50% at 5 days",
+     "result": "33% / 44%",
+     "pass": false
+    }
+   ]
+  },
+  {
    "id": "wheel_v3",
-   "title": "Wheel CSP \u2014 200-SMA primary-trend floor",
+   "title": "Wheel CSP — 200-SMA primary-trend floor",
    "date": "2026-08-15",
    "gatesFile": "WHEEL_BACKTEST_GATES_V3.md",
    "gatesCommit": "f296405",
    "question": "Does refusing to sell puts on names below their 200-SMA fix the wheel's single-name drawdown?",
    "prediction": "G4 passes (the floor blocks the META-class entry); G3 is the risk.",
-   "verdict": "FAIL \u2014 DO NOT FUND",
-   "headline": "G3 CAGR 7.61% (v2 8.25%), G4 full-period META \u221271.4%",
-   "why": "The trend floor did not save it. Worse, the harness had never graded G4 on the FULL window \u2014 v2's celebrated '8/9 PASS' was flattered by a gate that was never scored. Entry filters cannot reach the failure mechanism, which is being assigned into a decliner and holding it.",
+   "verdict": "FAIL — DO NOT FUND",
+   "headline": "G3 CAGR 7.61% (v2 8.25%), G4 full-period META −71.4%",
+   "why": "The trend floor did not save it. Worse, the harness had never graded G4 on the FULL window — v2's celebrated '8/9 PASS' was flattered by a gate that was never scored. Entry filters cannot reach the failure mechanism, which is being assigned into a decliner and holding it.",
    "gates": [
     {
      "id": "G3",
-     "test": "Full-period net CAGR \u2265 8%/yr",
+     "test": "Full-period net CAGR ≥ 8%/yr",
      "result": "7.61%",
      "pass": false
     },
     {
      "id": "G4",
-     "test": "Worst single-symbol DD \u2264 40%",
-     "result": "META \u221271.4% (full)",
+     "test": "Worst single-symbol DD ≤ 40%",
+     "result": "META −71.4% (full)",
      "pass": false
     }
    ]
   },
   {
    "id": "sr_levels_v1",
-   "title": "Support/resistance levels \u2014 do they predict anything?",
+   "title": "Support/resistance levels — do they predict anything?",
    "date": "2026-08-15",
    "gatesFile": "SR_LEVEL_STUDY_GATES_V1.md",
    "gatesCommit": "aac6b03",
    "question": "When price touches one of the levels drawn on our charts, does it reject more often than an identically-placed line that is NOT a level?",
    "prediction": "G1/G2 fail with an edge of 0-3 points.",
-   "verdict": "FAIL \u2014 the chart lines carry no edge",
-   "headline": "76,260 touch events. Resistance edge \u22120.34 pts, support \u22121.26 pts vs placebo.",
-   "why": "Both edges are NEGATIVE: a randomly-placed line predicted the next 5 bars marginally better than a real pivot level. The unconditional 5-bar down-rate is 45.50% against a 45.19% resistance rejection rate \u2014 touching resistance tells you nothing drift does not. Well-powered, not a small sample.",
+   "verdict": "FAIL — the chart lines carry no edge",
+   "headline": "76,260 touch events. Resistance edge −0.34 pts, support −1.26 pts vs placebo.",
+   "why": "Both edges are NEGATIVE: a randomly-placed line predicted the next 5 bars marginally better than a real pivot level. The unconditional 5-bar down-rate is 45.50% against a 45.19% resistance rejection rate — touching resistance tells you nothing drift does not. Well-powered, not a small sample.",
    "gates": [
     {
      "id": "V0",
-     "test": "\u22652,000 touch events per side",
+     "test": "≥2,000 touch events per side",
      "result": "40,888 / 35,372",
      "pass": true
     },
     {
      "id": "G1",
-     "test": "Resistance edge \u2265 +5.0 pts",
-     "result": "\u22120.34 pts",
+     "test": "Resistance edge ≥ +5.0 pts",
+     "result": "−0.34 pts",
      "pass": false
     },
     {
      "id": "G2",
-     "test": "Support edge \u2265 +5.0 pts",
-     "result": "\u22121.26 pts",
+     "test": "Support edge ≥ +5.0 pts",
+     "result": "−1.26 pts",
      "pass": false
     },
     {
      "id": "G4",
      "test": "Edge same sign in both halves",
-     "result": "+0.03 / \u22120.66",
+     "result": "+0.03 / −0.66",
      "pass": false
     }
    ]
   },
   {
    "id": "ich_sr_filter",
-   "title": "Ichimoku \u2014 support-distance entry filter",
+   "title": "Ichimoku — support-distance entry filter",
    "date": "2026-08-20",
    "gatesFile": "ICH_SR_FILTER_GATES_V1.md",
    "gatesCommit": "93585ad",
-   "question": "ICH's live record is \u2212$376 at a 20% win rate with losses 4.7x wins. Does refusing entries within 2 ATR of a support level fix it?",
-   "prediction": "G1/G2/G5 pass, G3 fails \u2014 better trades, less money.",
-   "verdict": "FAIL",
+   "question": "ICH's live record is −$376 at a 20% win rate with losses 4.7x wins. Does refusing entries within 2 ATR of a support level fix it?",
+   "prediction": "G1/G2/G5 pass, G3 fails — better trades, less money.",
+   "verdict": "RETIRED — FAIL",
    "headline": "Win rate +1.9 pts (needed +4). Avg/trade +9% relative (needed +50%). Loss/win ratio got WORSE.",
-   "why": "A forward-return study on 25,120 entries had shown a clean 2.25x separation at 2 ATR. It did not survive real entries, real exits and costs. Prediction was wrong in the opposite direction \u2014 the per-trade improvement barely exists.",
+   "why": "A forward-return study on 25,120 entries had shown a clean 2.25x separation at 2 ATR. It did not survive real entries, real exits and costs. Prediction was wrong in the opposite direction — the per-trade improvement barely exists.",
    "gates": [
     {
      "id": "G1",
-     "test": "Win rate \u2265 +4 pts vs unfiltered",
+     "test": "Win rate ≥ +4 pts vs unfiltered",
      "result": "+1.9 pts",
      "pass": false
     },
     {
      "id": "G2",
-     "test": "Avg P&L \u2265 +50% relative",
+     "test": "Avg P&L ≥ +50% relative",
      "result": "+9%",
      "pass": false
     },
     {
      "id": "G5",
      "test": "Loss/win size ratio improves",
-     "result": "0.41 vs 0.38 \u2014 worse",
+     "result": "0.41 vs 0.38 — worse",
      "pass": false
     }
    ]
   },
   {
    "id": "ich_exit_v1",
-   "title": "Ichimoku \u2014 exit rule variants",
+   "title": "Ichimoku — exit rule variants",
    "date": "2026-08-21",
    "gatesFile": "ICH_EXIT_GATES_V1.md",
    "gatesCommit": "fc2fdcf",
-   "question": "Three entry ideas failed. The exit is 'close<cloud_bottom OR tenkan<kijun' \u2014 tenkan is a 5-period line against kijun's 32, so it fires on any pullback. Is the fast leg what cuts winners?",
+   "question": "Three entry ideas failed. The exit is 'close<cloud_bottom OR tenkan<kijun' — tenkan is a 5-period line against kijun's 32, so it fires on any pullback. Is the fast leg what cuts winners?",
    "prediction": "B (cloud-only) passes G1/G2/G3; G4 is the risk.",
-   "verdict": "PASS \u2014 all five gates",
-   "headline": "Removing the tenkan<kijun leg: total +41%, mean/trade 2.46x, median hold 19\u219234 bars, tail concentration FELL 55%\u219251%.",
-   "why": "Confirmed by the control: variant D (kijun trail) exits fastest at a 6-bar median and is the WORST on every measure with a 72% tail share \u2014 which is the live sleeves' behaviour reproduced deliberately. Caveat: win rate falls 39.1%\u219234.7%, and this DEPARTS from the trader's documented spec so it needs a parity test before adoption.",
+   "verdict": "RETIRED — PASS — all five gates",
+   "headline": "Removing the tenkan<kijun leg: total +41%, mean/trade 2.46x, median hold 19→34 bars, tail concentration FELL 55%→51%.",
+   "why": "Confirmed by the control: variant D (kijun trail) exits fastest at a 6-bar median and is the WORST on every measure with a 72% tail share — which is the live sleeves' behaviour reproduced deliberately. Caveat: win rate falls 39.1%→34.7%, and this DEPARTS from the trader's documented spec so it needs a parity test before adoption.",
    "gates": [
     {
      "id": "G1",
-     "test": "Total \u2265 baseline x1.30",
+     "test": "Total ≥ baseline x1.30",
      "result": "1.41x",
      "pass": true
     },
     {
      "id": "G2",
-     "test": "Mean/trade \u2265 x1.20",
+     "test": "Mean/trade ≥ x1.20",
      "result": "2.46x",
      "pass": true
     },
     {
      "id": "G3",
-     "test": "Median hold \u2265 21 bars",
+     "test": "Median hold ≥ 21 bars",
      "result": "34 bars",
      "pass": true
     },
@@ -138,37 +214,37 @@
   },
   {
    "id": "ich_exit_v2",
-   "title": "Ichimoku \u2014 profit targets, win rate as a HARD gate",
+   "title": "Ichimoku — profit targets, win rate as a HARD gate",
    "date": "2026-08-22",
    "gatesFile": "ICH_EXIT_GATES_V2_TARGETS.md",
    "gatesCommit": "d9f0790",
    "question": "Owner: 'a winrate of 34-35% is a no-go for an algo platform.' Can profit targets lift the win rate without gutting the tail?",
    "prediction": "H (scale-out) passes all four; E (+10% target) passes G1 and fails G2.",
-   "verdict": "FAIL \u2014 the family's ceiling is ~44%",
-   "headline": "Best win rate 44.2% (E), which loses money vs baseline. Best overall G (min-hold+20% target): 43.2% win, beats baseline total, and cuts tail dependence 54%\u219223%.",
-   "why": "No variant reached 45%. The prediction was WRONG \u2014 H (scale-out) was the worst variant, below baseline. The conclusion registered in advance applies: this signal family cannot deliver \u226545%, so the choice is accept ~43% or change family. Notably G more than halves tail dependence, which addresses the fragility behind the win-rate objection.",
+   "verdict": "RETIRED — FAIL — the family's ceiling is ~44%",
+   "headline": "Best win rate 44.2% (E), which loses money vs baseline. Best overall G (min-hold+20% target): 43.2% win, beats baseline total, and cuts tail dependence 54%→23%.",
+   "why": "No variant reached 45%. The prediction was WRONG — H (scale-out) was the worst variant, below baseline. The conclusion registered in advance applies: this signal family cannot deliver ≥45%, so the choice is accept ~43% or change family. Notably G more than halves tail dependence, which addresses the fragility behind the win-rate objection.",
    "gates": [
     {
      "id": "G1",
-     "test": "Win rate \u2265 45% (HARD)",
+     "test": "Win rate ≥ 45% (HARD)",
      "result": "44.2% best",
      "pass": false
     },
     {
      "id": "G2",
-     "test": "Total \u2265 baseline",
+     "test": "Total ≥ baseline",
      "result": "G: 18,419% vs 17,836%",
      "pass": true
     },
     {
      "id": "G3",
-     "test": "Median hold \u2265 21 bars",
+     "test": "Median hold ≥ 21 bars",
      "result": "G: 22 bars",
      "pass": true
     },
     {
      "id": "G4",
-     "test": "Top-1% share \u2264 baseline",
+     "test": "Top-1% share ≤ baseline",
      "result": "G: 23% vs 54%",
      "pass": true
     }
@@ -180,21 +256,21 @@
    "date": "2026-08-22",
    "gatesFile": "MEAN_REVERSION_GATES_V1.md",
    "gatesCommit": "6c9f330",
-   "question": "Owner wants candidates to get into and out of quickly with a high hit rate. Ichimoku cannot do that \u2014 its edge IS the long hold and the tail. Can mean reversion?",
+   "question": "Owner wants candidates to get into and out of quickly with a high hit rate. Ichimoku cannot do that — its edge IS the long hold and the tail. Can mean reversion?",
    "prediction": "M1 (RSI2) + X1 strongest; G5 (worst trade) is where I expect trouble.",
-   "verdict": "PARTIAL \u2014 confirmed on clean data, one gate unmet",
-   "headline": "M2+X2 (2.5\u03c3 dip in an uptrend, target the 20-day mean, \u22128% stop): 62.4% win, 4-bar median hold, worst \u221212.5%. RE-RUN on the cleaned store after 6 wrong-venue symbols were dropped: 2,400 trades, 62.4% win, +0.77%/trade \u2014 IDENTICAL. Fails G4 only (tail 26% vs 25%).",
-   "why": "Completely different profile from Ichimoku: 65% win vs 39%, 4-bar holds vs 41+ bars needed, and profit spread across many trades rather than 54% from the top 1%. A stop fixes the worst trade (\u221234%\u2192\u221216%) but breaks G4 by concentrating the tail (25%\u219237%) \u2014 a real trade-off, not a fix. IMPORTANT: the first pass was contaminated by corrupt bars; mean reversion is uniquely exposed because its premise is BUY THE CRASH, and a fake \u221260% print is exactly what it buys. Numbers here are post-guard. RE-RUN 22 Aug against the store after another dev's wrong-venue remediation, dropping the 6 symbols still carrying a different instrument's series (MTUM 18.9x, QUAL 16.7x, VIXY 16.6x, USMV 14.5x, VLUE 9.5x, BILL 6.2x their recent medians). Only 13 of 2,413 trades came from them and every headline number was unchanged \u2014 the edge was never riding on corrupt data. Those symbols are now DROPPED and NAMED by the live screen rather than silently included.",
+   "verdict": "CLOSED — PARTIAL — confirmed on clean data, one gate unmet (Swing closed 14 Nov)",
+   "headline": "M2+X2 (2.5σ dip in an uptrend, target the 20-day mean, −8% stop): 62.4% win, 4-bar median hold, worst −12.5%. RE-RUN on the cleaned store after 6 wrong-venue symbols were dropped: 2,400 trades, 62.4% win, +0.77%/trade — IDENTICAL. Fails G4 only (tail 26% vs 25%).",
+   "why": "Completely different profile from Ichimoku: 65% win vs 39%, 4-bar holds vs 41+ bars needed, and profit spread across many trades rather than 54% from the top 1%. A stop fixes the worst trade (−34%→−16%) but breaks G4 by concentrating the tail (25%→37%) — a real trade-off, not a fix. IMPORTANT: the first pass was contaminated by corrupt bars; mean reversion is uniquely exposed because its premise is BUY THE CRASH, and a fake −60% print is exactly what it buys. Numbers here are post-guard. RE-RUN 22 Aug against the store after another dev's wrong-venue remediation, dropping the 6 symbols still carrying a different instrument's series (MTUM 18.9x, QUAL 16.7x, VIXY 16.6x, USMV 14.5x, VLUE 9.5x, BILL 6.2x their recent medians). Only 13 of 2,413 trades came from them and every headline number was unchanged — the edge was never riding on corrupt data. Those symbols are now DROPPED and NAMED by the live screen rather than silently included.",
    "gates": [
     {
      "id": "V0",
-     "test": "\u22651,000 trades",
+     "test": "≥1,000 trades",
      "result": "2,400 (clean)",
      "pass": true
     },
     {
      "id": "G1",
-     "test": "Win rate \u2265 55%",
+     "test": "Win rate ≥ 55%",
      "result": "65.5%",
      "pass": true
     },
@@ -206,45 +282,45 @@
     },
     {
      "id": "G3",
-     "test": "Median hold \u2264 10 bars",
+     "test": "Median hold ≤ 10 bars",
      "result": "4 bars",
      "pass": true
     },
     {
      "id": "G4",
-     "test": "Top-1% share \u2264 25%",
-     "result": "26% (clean re-run) \u2014 fails by 1 pt",
+     "test": "Top-1% share ≤ 25%",
+     "result": "26% (clean re-run) — fails by 1 pt",
      "pass": false
     },
     {
      "id": "G5",
-     "test": "Worst trade \u2265 \u221225%",
-     "result": "\u221212.5% with the \u22128% stop",
+     "test": "Worst trade ≥ −25%",
+     "result": "−12.5% with the −8% stop",
      "pass": true
     }
    ]
   },
   {
    "id": "momentum_v2",
-   "title": "Momentum \u2014 pullback in an uptrend, trailing + hard stop",
+   "title": "Momentum — pullback in an uptrend, trailing + hard stop",
    "date": "2026-08-22",
    "gatesFile": "MOMENTUM_GATES_V2.md",
    "gatesCommit": "ca494bf",
-   "question": "The mean-reversion screen refuses to buy strength \u2014 MU on Friday (966.78, 69% above its 200-SMA) triggered nothing, its entry sat 24% lower. Is there a tradeable edge in continuation, with calculated risk?",
-   "prediction": "C (hard \u22128%) passes all six; D (\u22126%) passes G5 but fails G1; the risk is G4.",
-   "verdict": "PASS \u2014 all six gates",
-   "headline": "Pullback to the 10-SMA in an uptrend, 8% trailing stop plus a hard \u22128% initial stop: 5,815 trades \u00b7 47.0% win \u00b7 +1.53%/trade \u00b7 34-bar median hold \u00b7 worst \u221214.7%. The \u221210% variant also passes.",
-   "why": "v1 proved the family's edge REQUIRES the hold \u2014 a trailing stop earns +1.9%/trade over 32-35 bars, while forcing 10 bars costs two thirds of it. G3 was therefore changed from \u226420 to \u226440 bars as a DECLARED scope change, written down before the v2 run: momentum is accepted as a longer-hold sleeve running alongside the 4-day Swing screen, not as a substitute. The hard stop cut the worst case from \u221233.3% to \u221214.7% for 1.3 points of win rate and 0.07%/trade \u2014 cheap insurance. Prediction was correct: C passed, D (\u22126%) failed G1 at 42.9% by stopping out of trades that later worked. NOTE the first run was contaminated (\u221298% worst cases): capping total return is the WRONG guard for a 30-bar hold, since a real winner can exceed it; the guard belongs on the HOLD (reject any session moving >35% mid-trade).",
+   "question": "The mean-reversion screen refuses to buy strength — MU on Friday (966.78, 69% above its 200-SMA) triggered nothing, its entry sat 24% lower. Is there a tradeable edge in continuation, with calculated risk?",
+   "prediction": "C (hard −8%) passes all six; D (−6%) passes G5 but fails G1; the risk is G4.",
+   "verdict": "SUPERSEDED — passed its backtest, entries failed live (Entry edge, 20 Oct); winding down",
+   "headline": "Pullback to the 10-SMA in an uptrend, 8% trailing stop plus a hard −8% initial stop: 5,815 trades · 47.0% win · +1.53%/trade · 34-bar median hold · worst −14.7%. The −10% variant also passes.",
+   "why": "v1 proved the family's edge REQUIRES the hold — a trailing stop earns +1.9%/trade over 32-35 bars, while forcing 10 bars costs two thirds of it. G3 was therefore changed from ≤20 to ≤40 bars as a DECLARED scope change, written down before the v2 run: momentum is accepted as a longer-hold sleeve running alongside the 4-day Swing screen, not as a substitute. The hard stop cut the worst case from −33.3% to −14.7% for 1.3 points of win rate and 0.07%/trade — cheap insurance. Prediction was correct: C passed, D (−6%) failed G1 at 42.9% by stopping out of trades that later worked. NOTE the first run was contaminated (−98% worst cases): capping total return is the WRONG guard for a 30-bar hold, since a real winner can exceed it; the guard belongs on the HOLD (reject any session moving >35% mid-trade).",
    "gates": [
     {
      "id": "V0",
-     "test": "\u22651,000 trades",
+     "test": "≥1,000 trades",
      "result": "5,815",
      "pass": true
     },
     {
      "id": "G1",
-     "test": "Win rate \u2265 45%",
+     "test": "Win rate ≥ 45%",
      "result": "47.0%",
      "pass": true
     },
@@ -256,47 +332,47 @@
     },
     {
      "id": "G3",
-     "test": "Median hold \u2264 40 bars (changed from \u226420, declared)",
+     "test": "Median hold ≤ 40 bars (changed from ≤20, declared)",
      "result": "34 bars",
      "pass": true
     },
     {
      "id": "G4",
-     "test": "Top-1% share \u2264 35%",
+     "test": "Top-1% share ≤ 35%",
      "result": "31%",
      "pass": true
     },
     {
      "id": "G5",
-     "test": "Worst trade \u2265 \u221225%",
-     "result": "\u221214.7%",
+     "test": "Worst trade ≥ −25%",
+     "result": "−14.7%",
      "pass": true
     }
    ]
   },
   {
    "id": "momentum_v3_volume",
-   "title": "Momentum v3 \u2014 does entry-bar volume add anything?",
+   "title": "Momentum v3 — does entry-bar volume add anything?",
    "date": "2026-08-22",
-   "verdict": "FAIL \u2014 all three variants",
-   "prediction": "G7 (must survive a TIME split and a SYMBOL split) is where this most likely dies \u2014 under 50% that anything passes G1-G6 and then survives it. D (>=1.2x) fails G1 on trade count. C (>=1.0x) marginal on G4, median between -0.1% and +0.4%.",
-   "headline": "Entry-bar volume looked monotonic on the full sample (<0.7x: 45.4% win; >1.2x: 52.2%). It is a REGIME, not an edge: in the first half of the record, filtering on volume makes the strategy WORSE, and worst for the strictest filter. D goes +2.24%\u2192+1.62% pre-2020 and +2.17%\u2192+3.50% after. All three variants fail G7.",
+   "verdict": "FAIL — all three variants",
+   "prediction": "G7 (must survive a TIME split and a SYMBOL split) is where this most likely dies — under 50% that anything passes G1-G6 and then survives it. D (>=1.2x) fails G1 on trade count. C (>=1.0x) marginal on G4, median between -0.1% and +0.4%.",
+   "headline": "Entry-bar volume looked monotonic on the full sample (<0.7x: 45.4% win; >1.2x: 52.2%). It is a REGIME, not an edge: in the first half of the record, filtering on volume makes the strategy WORSE, and worst for the strictest filter. D goes +2.24%→+1.62% pre-2020 and +2.17%→+3.50% after. All three variants fail G7.",
    "gates": [
     {
      "id": "G1",
-     "test": "\u2265 1,500 trades",
+     "test": "≥ 1,500 trades",
      "result": "D: 1,184",
      "pass": false
     },
     {
      "id": "G2",
-     "test": "Win rate \u2265 50%",
+     "test": "Win rate ≥ 50%",
      "result": "D: 52.2%",
      "pass": true
     },
     {
      "id": "G3",
-     "test": "Mean \u2265 +2.00%",
+     "test": "Mean ≥ +2.00%",
      "result": "D: +2.84%",
      "pass": true
     },
@@ -308,54 +384,54 @@
     },
     {
      "id": "G5",
-     "test": "Worst \u2265 \u221225%",
-     "result": "B/C: \u221229.7%",
+     "test": "Worst ≥ −25%",
+     "result": "B/C: −29.7%",
      "pass": false
     },
     {
      "id": "G6",
-     "test": "Median hold \u2264 40",
+     "test": "Median hold ≤ 40",
      "result": "32",
      "pass": true
     },
     {
      "id": "G7",
      "test": "Survives BOTH splits",
-     "result": "fails the time split \u2014 inverts pre-2020",
+     "result": "fails the time split — inverts pre-2020",
      "pass": false
     },
     {
      "id": "G8",
-     "test": "\u2265 0.5 signals/session",
+     "test": "≥ 0.5 signals/session",
      "result": "D: 0.30",
      "pass": false
     }
    ],
    "gatesFile": "MOMENTUM_GATES_V3.md",
    "gatesCommit": "d147326",
-   "verdictLabel": "REJECTED \u2014 all three variants fail G7",
-   "predictionGraded": "3 of 5 correct. The one that mattered \u2014 that G7 would kill it \u2014 was called before the run.",
+   "verdictLabel": "REJECTED — all three variants fail G7",
+   "predictionGraded": "3 of 5 correct. The one that mattered — that G7 would kill it — was called before the run.",
    "resultCommit": "e50cd2a",
-   "why": "D passed the symbol split cleanly \u2014 either split ALONE would have shipped it. Requiring two independent cuts is what caught it. No untouched hold-out existed (the effect was found on the full sample), which is stated in the gates file rather than glossed. Consequence: no volume filter ships; v2 stands. Volume is shown in the drill-down as context labelled a failed filter. Also corrected the screen's published evidence \u2014 5,815/47.0%/+1.53%/-14.7% predated the _tradeable fix and included futures and indices; the true figures are 5,396 trades, 48.8% win, +2.20%/trade, median -0.33%, worst -29.7%."
+   "why": "D passed the symbol split cleanly — either split ALONE would have shipped it. Requiring two independent cuts is what caught it. No untouched hold-out existed (the effect was found on the full sample), which is stated in the gates file rather than glossed. Consequence: no volume filter ships; v2 stands. Volume is shown in the drill-down as context labelled a failed filter. Also corrected the screen's published evidence — 5,815/47.0%/+1.53%/-14.7% predated the _tradeable fix and included futures and indices; the true figures are 5,396 trades, 48.8% win, +2.20%/trade, median -0.33%, worst -29.7%."
   },
   {
    "id": "mean_reversion_v2",
-   "title": "Mean reversion v2 \u2014 first reproducible Swing measurement",
+   "title": "Mean reversion v2 — first reproducible Swing measurement",
    "date": "2026-08-22",
-   "verdict": "PASS \u2014 all six gates",
+   "verdict": "SUPERSEDED — passed its backtest, entries failed live (Entry edge, 20 Oct); Swing closed 14 Nov",
    "harness": "backtests/studies/mean_reversion_v2.py",
-   "prediction": "Not a fresh pre-registration \u2014 graded against v1's gates, unchanged, on a defined universe and cleaned data.",
-   "headline": "1,270 trades \u00b7 66.2% win \u00b7 +0.88%/trade \u00b7 median +1.91% \u00b7 worst -17.7% \u00b7 hold 7. G4 (top-1% tail) 19.9% of net vs the 25% ceiling \u2014 v1 FAILED this at 26% and shipped anyway. Passes a two-split test that rejected momentum v3 and the intraday dip study the same day.",
+   "prediction": "Not a fresh pre-registration — graded against v1's gates, unchanged, on a defined universe and cleaned data.",
+   "headline": "1,270 trades · 66.2% win · +0.88%/trade · median +1.91% · worst -17.7% · hold 7. G4 (top-1% tail) 19.9% of net vs the 25% ceiling — v1 FAILED this at 26% and shipped anyway. Passes a two-split test that rejected momentum v3 and the intraday dip study the same day.",
    "gates": [
     {
      "id": "V0",
-     "test": "\u2265 1,000 trades",
+     "test": "≥ 1,000 trades",
      "result": "2,310",
      "pass": true
     },
     {
      "id": "G1",
-     "test": "Win rate \u2265 55%",
+     "test": "Win rate ≥ 55%",
      "result": "72.8%",
      "pass": true
     },
@@ -367,38 +443,38 @@
     },
     {
      "id": "G3",
-     "test": "Median hold \u2264 10 bars",
+     "test": "Median hold ≤ 10 bars",
      "result": "7 bars",
      "pass": true
     },
     {
      "id": "G4",
-     "test": "Top-1% share of net \u2264 25%",
+     "test": "Top-1% share of net ≤ 25%",
      "result": "18.2%",
      "pass": true
     },
     {
      "id": "G5",
-     "test": "Worst trade \u2265 \u221225%",
-     "result": "\u221223.9%",
+     "test": "Worst trade ≥ −25%",
+     "result": "−23.9%",
      "pass": true
     }
    ],
    "gatesFile": "MEAN_REVERSION_GATES_V1.md",
    "gatesCommit": "6c9f330",
    "verdictLabel": "ALL SIX gates pass, incl. G4 which v1 failed",
-   "why": "The v1 harness did not exist \u2014 written in a scratch dir, never committed, and its surviving log does not record hold length, so '4 bars' traced to no artifact. This is therefore the FIRST reproducible measurement, not a reconciliation. Trade count halved because v1's universe included futures and indices. The worst trade got WORSE (-12.5% -> -17.7%) as a CORRECTION: stops now fill at min(stop, open), because a gap through a stop does not fill at the stop \u2014 modelling the fill at the trigger gave exactly -8.0% in every variant, a stop that never slips. No exit convention reproduces v1's 4-bar hold; all four give 7-10 and all four pass every gate."
+   "why": "The v1 harness did not exist — written in a scratch dir, never committed, and its surviving log does not record hold length, so '4 bars' traced to no artifact. This is therefore the FIRST reproducible measurement, not a reconciliation. Trade count halved because v1's universe included futures and indices. The worst trade got WORSE (-12.5% -> -17.7%) as a CORRECTION: stops now fill at min(stop, open), because a gap through a stop does not fill at the stop — modelling the fill at the trigger gave exactly -8.0% in every variant, a stop that never slips. No exit convention reproduces v1's 4-bar hold; all four give 7-10 and all four pass every gate."
   },
   {
    "id": "post_earnings_put_v1",
    "date": "2026-08-28",
-   "title": "Post-earnings cash-secured put \u2014 no market filter",
+   "title": "Post-earnings cash-secured put — no market filter",
    "gatesFile": "POST_EARNINGS_PUT_GATES_V1.md",
    "gatesCommit": "243f1ff",
    "question": "Is selling a put AFTER a report that dropped >=8% better than selling puts at random?",
-   "prediction": "G3 (beats the null) is where I expect trouble \u2014 the earnings set is concentrated in volatile names and volatile weeks.",
+   "prediction": "G3 (beats the null) is where I expect trouble — the earnings set is concentrated in volatile names and volatile weeks.",
    "headline": "n=284, win 87.0%, mean +1.19%/trade, p5 -5.48%; NULL was -0.15%",
-   "verdict": "FAIL \u2014 V0 (284<300) and G5 (halves inconsistent)",
+   "verdict": "FAIL — V0 (284<300) and G5 (halves inconsistent)",
    "why": "The prediction was WRONG in the strategy's favour: G3 passed decisively (+1.25pt over a same-filtered null of -0.15%), so the earnings trigger does real work. It failed on sample size and on consistency: half 1 (2020-22) returned +0.75% with p5 -13.69% against half 2's +1.37%/-5.21%. Half 1 holds the 2022 bear market; a short put is long delta and behaved like it.",
    "gates": [
     {
@@ -452,10 +528,10 @@
    "gatesFile": "POST_EARNINGS_PUT_GATES_V1.md",
    "gatesCommit": "243f1ff",
    "question": "Does entering only while SPY is above its 200-day average fix V1's failure?",
-   "prediction": "W6 passes; W7 (retention) is the risk \u2014 earnings drops cluster in bad markets, so the filter may 'work' by refusing to trade.",
+   "prediction": "W6 passes; W7 (retention) is the risk — earnings drops cluster in bad markets, so the filter may 'work' by refusing to trade.",
    "headline": "n=229, win 89.5%, mean +1.29%, worst -23.4% (was -54.1%); retained 81% of events",
-   "verdict": "PASS (8/8) \u2014 PAPER FORWARD TEST, NOT FUNDED",
-   "why": "Prediction wrong again in the strategy's favour: retention was 81% against a 60% floor. Half 1 improved from +0.75%/p5 -13.69% to +1.43%/p5 +0.00%. THE WEAK PASS, recorded not fixed: W6 ('2022 must not lose') passed on NINE events \u2014 the filter removed 41 of 2022's 50 drops, so 'fixed' is thinly evidenced. Earnings history starts Oct 2020, so both halves sit in ONE regime.",
+   "verdict": "PASS (8/8) — PAPER FORWARD TEST, NOT FUNDED",
+   "why": "Prediction wrong again in the strategy's favour: retention was 81% against a 60% floor. Half 1 improved from +0.75%/p5 -13.69% to +1.43%/p5 +0.00%. THE WEAK PASS, recorded not fixed: W6 ('2022 must not lose') passed on NINE events — the filter removed 41 of 2022's 50 drops, so 'fixed' is thinly evidenced. Earnings history starts Oct 2020, so both halves sit in ONE regime.",
    "gates": [
     {
      "id": "W0",
@@ -510,14 +586,14 @@
   {
    "id": "short_strangle_india_v1",
    "date": "2026-08-29",
-   "title": "Intraday short strangle, low-VIX filter \u2014 BANKNIFTY, 18 years",
+   "title": "Intraday short strangle, low-VIX filter — BANKNIFTY, 18 years",
    "gatesFile": "SHORT_STRANGLE_GATES_V1.md",
    "gatesCommit": "c256115",
    "question": "Owner's live Indian strategy: does a fixed-width intraday short strangle, entered only on low-VIX days and closed EOD, make money?",
-   "prediction": "G5 is the risk \u2014 the early half contains 2008 and the taper tantrum.",
-   "headline": "SUPERSEDED \u2014 the -2,469/trade figure was a MODELLING ERROR, not a result",
-   "verdict": "WITHDRAWN \u2014 see short_strangle_india_v2",
-   "why": "Two errors in MY model, both mine, both material. (1) BANKNIFTY options were priced at India VIX, which measures NIFTY; BANKNIFTY realises ~1.35x that, so the premium was under-collected by ~35%. (2) Strikes were held at a fixed +/-0.87%, which is near-the-money at 2009-era volatility \u2014 a far riskier trade than is actually placed. Corrected, the same 17 years turn positive. The original verdict contradicted the owner's live P&L and the live P&L was right.",
+   "prediction": "G5 is the risk — the early half contains 2008 and the taper tantrum.",
+   "headline": "SUPERSEDED — the -2,469/trade figure was a MODELLING ERROR, not a result",
+   "verdict": "WITHDRAWN — see short_strangle_india_v2",
+   "why": "Two errors in MY model, both mine, both material. (1) BANKNIFTY options were priced at India VIX, which measures NIFTY; BANKNIFTY realises ~1.35x that, so the premium was under-collected by ~35%. (2) Strikes were held at a fixed +/-0.87%, which is near-the-money at 2009-era volatility — a far riskier trade than is actually placed. Corrected, the same 17 years turn positive. The original verdict contradicted the owner's live P&L and the live P&L was right.",
    "gates": [
     {
      "id": "V0",
@@ -554,14 +630,14 @@
   {
    "id": "short_strangle_india_v2",
    "date": "2026-08-29",
-   "title": "Intraday short strangle \u2014 BANKNIFTY-scaled IV, vol-scaled strikes",
+   "title": "Intraday short strangle — BANKNIFTY-scaled IV, vol-scaled strikes",
    "gatesFile": "SHORT_STRANGLE_GATES_V1.md",
    "gatesCommit": "c256115",
    "question": "With the two modelling errors corrected, does the owner's live Indian strategy hold up over 17 years?",
-   "prediction": "(post-hoc correction of v1, not an independent pre-registration \u2014 treat accordingly)",
+   "prediction": "(post-hoc correction of v1, not an independent pre-registration — treat accordingly)",
    "headline": "17y: +93/trade overall. 2017-26 +595 (90.6% win). 2009-16 -427 (81.7%). Last 2 months +1,582 (95.3%).",
-   "verdict": "REGIME-DEPENDENT \u2014 works now, lost 2009-2016",
-   "why": "The corrected model REPRODUCES the owner's live results: 95.3% win and +1,582/trade over the last two months, matching his reported '>90%' and two months of real profit. It is profitable across 2017-2026 and marginally positive over the full 17 years. The risk is not that it does not work \u2014 it is that it STOPPED working in 2009-2016, the high-vol post-GFC era, losing 427/trade there. So the live edge is real and the exposure is to a volatility-regime change, not to the strategy being wrong. UNTESTED and material: the intraday profit target and the strangle->straddle conversion, neither of which this model can reach and both of which the owner actually uses.",
+   "verdict": "REGIME-DEPENDENT — works now, lost 2009-2016",
+   "why": "The corrected model REPRODUCES the owner's live results: 95.3% win and +1,582/trade over the last two months, matching his reported '>90%' and two months of real profit. It is profitable across 2017-2026 and marginally positive over the full 17 years. The risk is not that it does not work — it is that it STOPPED working in 2009-2016, the high-vol post-GFC era, losing 427/trade there. So the live edge is real and the exposure is to a volatility-regime change, not to the strategy being wrong. UNTESTED and material: the intraday profit target and the strangle->straddle conversion, neither of which this model can reach and both of which the owner actually uses.",
    "gates": [
     {
      "id": "note",
