@@ -44,6 +44,9 @@ type Board = {
   rows: Row[];
   today?: Today | null;
   generated_at_utc?: string;
+  universe_n?: number | null;
+  eligible_n?: number | null;
+  capital?: number | null;
 };
 
 const TONE: Record<Row["action"], string> = { BUY: "#3fb950", SELL: "#f85149", HOLD: "#8b949e" };
@@ -148,6 +151,13 @@ export function SignalBoard() {
           Decided on the {day(board.signal_date)} close; paper orders at the {day(board.order_date)} open.
           Next decision {day(board.next_signal_date)}. {board.market}. {board.allocation_pct}% of capital,
           {" "}{board.per_name_pct}% a name.
+          {(board.universe_n || board.capital) ? (
+            <div style={{ color: "var(--text-muted)", fontSize: 11.5 }}>
+              {board.universe_n ? <>Ranked {board.eligible_n != null ? `${board.eligible_n} eligible of ` : ""}{board.universe_n} names (sector-labelled universe, SPY/QQQ excluded). </> : null}
+              {board.capital ? <>Paper orders sized on ${Math.round(board.capital).toLocaleString()} paper capital
+                {board.per_name_pct ? ` — about $${Math.round(board.capital * board.per_name_pct / 100).toLocaleString()} a name` : ""}.</> : null}
+            </div>
+          ) : null}
         </div>
       )}
       {board.today && board.today.picks.length > 0 && (

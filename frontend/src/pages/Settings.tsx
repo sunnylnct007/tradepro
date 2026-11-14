@@ -129,7 +129,10 @@ const SETTINGS_TABS: SettingsTabDef[] = [
   { key: "ig-harvester",   label: "IG Harvester",    title: "L1 snapshot harvester status" },
   { key: "catalysts",      label: "Catalysts",       title: "Dated-events registry" },
   { key: "sentiment",      label: "Sentiment",       title: "Sentiment demotion + placement mode" },
-  { key: "intraday",       label: "Intraday",        title: "Intraday automation" },
+  // "intraday" REMOVED from the tab list 14 Nov 2026: it configured
+  // intraday_flat, which is retired and whose lane is unloaded. Owner: "only
+  // show what we can trust" — a control for a strategy that does not run is a
+  // knob wired to nothing. The saved settings are left untouched in the API.
 ];
 
 const LS_TAB_KEY = "settings_active_tab";
