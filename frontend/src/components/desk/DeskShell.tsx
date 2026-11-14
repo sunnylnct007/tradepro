@@ -172,11 +172,11 @@ const NAV: NavEntry[] = [
     title: "Swing — WINDING DOWN. Entries graded negative against both controls "
          + "(ENTRY_EDGE_GATES_V1, 20 Oct). Exits only; no new positions. Board kept "
          + "so the archive keeps accruing." },
-  { key: "momentum",  label: "Momentum",  icon: "🚀", view: "momentum",  tier: "blocked",
-    title: "Momentum — WINDING DOWN. 40 closed trades, 2 wins, -7,712 replayed; "
+  { key: "momentum",  label: "Pullback",  icon: "🚀", view: "momentum",  tier: "blocked",
+    title: "Momentum pullback (not the core engine) — WINDING DOWN. 40 closed trades, 2 wins, -7,712 replayed; "
          + "entries negative against both controls. Exits only; no new positions." },
   { key: "portfolio", label: "Portfolio", icon: "📊", view: "portfolio", tier: "trusted",
-    title: "Portfolio — your actual positions" },
+    title: "Portfolio — today's signal from the core engine, and the PAPER accounts" },
   { key: "oms",       label: "Orders",    icon: "📋", view: "oms",       tier: "trusted",
     title: "Orders — what was actually placed and filled" },
   { key: "research",  label: "Research",  icon: "🔬", view: "research",  tier: "trusted",

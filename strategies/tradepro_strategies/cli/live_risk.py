@@ -273,6 +273,8 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
         "exposures": exposures(rows, [
             {"symbol": p.get("symbol"), "qty": p.get("quantity")} for _o, p in stocks],
             sectors=_sector_map(), nav_usd=nav_usd),
+        "put_limits": put_limits(rows, nav_usd=nav_usd, sectors=_sector_map()),
+        "nav_usd": nav_usd,
         "positions": rows,
         "calls": calls,
         # Every distinct event any contract in the book runs across, soonest
@@ -333,6 +335,48 @@ CASH_RESERVE_USD = float(os.environ.get("TRADEPRO_LIVE_CASH_RESERVE_USD", "50000
 #: Assignment obligation as a multiple of account value. At 1.0x every short
 #: put could be exercised and paid for. The live book was at 2.8x.
 MAX_ASSIGNMENT_X_NAV = float(os.environ.get("TRADEPRO_LIVE_MAX_ASSIGNMENT_X_NAV", "1.0"))
+
+
+#: The owner's short-put limits (build pack, 13 Nov 2026, section 2): total
+#: strike value at most 50% of net liquidation, 20% per sector, 10% per name.
+PUT_LIMIT_TOTAL = float(os.environ.get("TRADEPRO_PUT_LIMIT_TOTAL_X_NAV", "0.50"))
+PUT_LIMIT_SECTOR = float(os.environ.get("TRADEPRO_PUT_LIMIT_SECTOR_X_NAV", "0.20"))
+PUT_LIMIT_NAME = float(os.environ.get("TRADEPRO_PUT_LIMIT_NAME_X_NAV", "0.10"))
+
+
+def put_limits(rows: list[dict], *, nav_usd: float | None,
+               sectors: dict[str, str] | None = None) -> dict:
+    """Is the book inside the owner's short-put limits, and may NEW puts be
+    sold? One answer every screen reads. Without an account value the answer
+    is "unknown", and screens treat unknown as no new puts."""
+    sectors = sectors or {}
+    total = sum((r.get("strike") or 0) * 100 * abs(r.get("qty") or 0) for r in rows)
+    if not nav_usd:
+        return {"status": "unknown", "new_puts_allowed": False, "strike_value_usd": round(total),
+                "detail": "account value not supplied, so the limit cannot be checked — "
+                          "treat as no new puts"}
+    by_sector: dict[str, float] = defaultdict(float)
+    by_name: dict[str, float] = defaultdict(float)
+    for r in rows:
+        ob = (r.get("strike") or 0) * 100 * abs(r.get("qty") or 0)
+        by_sector[sectors.get(r.get("symbol")) or "unclassified"] += ob
+        by_name[str(r.get("symbol") or "").upper()] += ob
+    breaches = []
+    if total > PUT_LIMIT_TOTAL * nav_usd:
+        breaches.append(f"total strike value ${total:,.0f} is {total / nav_usd:.0%} of "
+                        f"${nav_usd:,.0f} account value (limit {PUT_LIMIT_TOTAL:.0%})")
+    for sec, ob in sorted(by_sector.items(), key=lambda kv: -kv[1]):
+        if ob > PUT_LIMIT_SECTOR * nav_usd:
+            breaches.append(f"{sec} ${ob:,.0f} is {ob / nav_usd:.0%} (limit {PUT_LIMIT_SECTOR:.0%})")
+    for name, ob in sorted(by_name.items(), key=lambda kv: -kv[1]):
+        if ob > PUT_LIMIT_NAME * nav_usd:
+            breaches.append(f"{name} ${ob:,.0f} is {ob / nav_usd:.0%} (limit {PUT_LIMIT_NAME:.0%})")
+    return {"status": "breached" if breaches else "within", "new_puts_allowed": not breaches,
+            "strike_value_usd": round(total), "nav_usd": round(nav_usd),
+            "limits": {"total": PUT_LIMIT_TOTAL, "sector": PUT_LIMIT_SECTOR, "name": PUT_LIMIT_NAME},
+            "breaches": breaches,
+            "detail": ("No new puts until the book is back within limits: " + "; ".join(breaches[:3])
+                       if breaches else "inside every short-put limit")}
 
 
 def exposures(rows: list[dict], equity: list[dict], *,

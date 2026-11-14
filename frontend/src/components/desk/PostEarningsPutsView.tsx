@@ -16,6 +16,7 @@
  * that states 89.5% also has to state that this is ONE regime and that the
  * worst trade was -23.4%. Verdict on record: PAPER FORWARD TEST, NOT FUNDED.
  */
+import { PutLimitBanner, usePutLimit } from "./PutLimit";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { EventChips, MarketEventsStrip, type EventsWindow } from "./EventChips";
@@ -44,6 +45,7 @@ type Market = { ok: boolean | null; reason: string; spy_close?: number;
                 spy_sma200?: number; pct_above?: number; as_of?: string };
 
 export function PostEarningsPutsView() {
+  const putLimit = usePutLimit();
   const [art, setArt] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [runState, setRunState] = useState<string | null>(null);
@@ -79,6 +81,7 @@ export function PostEarningsPutsView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: 16 }}>
+      <PutLimitBanner limit={putLimit} />
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Post-earnings puts</h2>
         <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>

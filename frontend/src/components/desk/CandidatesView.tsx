@@ -486,7 +486,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       // Nothing is deleted. Clicking a strategy's own pill still shows it in
       // full — that click is an explicit choice to look at unproven work.
       if (only === "all") {
-        v = v.filter((r) => r.tierRaw !== "failed" && r.tierRaw !== "unproven");
+        v = v.filter((r) => r.tierRaw !== "failed" && r.tierRaw !== "unproven"
+          && !WINDING_DOWN.has(r.strategy));
       }
     }
     // Actionable tiers first, then by each strategy's own ranking metric.
@@ -500,7 +501,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       || ((b.metric ?? -Infinity) - (a.metric ?? -Infinity)));
   }, [rows, only, hideBlocked]);
 
-  const eligibleCount = rows.filter((r) => r.eligible && r.tierRaw !== "failed").length;
+  const eligibleCount = rows.filter((r) => r.eligible && r.tierRaw !== "failed"
+    && !WINDING_DOWN.has(r.strategy)).length;
   const withheldCount = rows.filter((r) => r.eligible && r.tierRaw === "failed").length;
   // COUNTED, NEVER HIDDEN — the same promise the failed tier already carries.
   // Withholding unproven rows from the combined view is only defensible if the
@@ -586,8 +588,9 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
 
       {hideBlocked && only === "all" && (withheldCount > 0 || unprovenCount > 0) && (
         <div style={{ fontSize: 11.5, color: MUTED }}>
-          This list is what has EVIDENCE — every row below comes from a
-          strategy that passed its pre-registered gates.
+          This list shows rows from live strategies that passed their gates.
+          Swing and Momentum pullback are winding down (exits only) and are left
+          out; click their pill to see what their old rules would have picked.
           {withheldCount > 0 && (
             <> {withheldCount} row(s) from a strategy whose backtest FAILED are
             not listed.</>

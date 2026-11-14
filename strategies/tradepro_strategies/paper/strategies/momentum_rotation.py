@@ -287,7 +287,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                 _pta.push("today-setups", {"universe": "momentum_rotation", "label": "latest",
                                            "uploaded_by": os.uname().nodename,
                                            "artifact": self.board()},
-                          base.rstrip("/"), token, retries=2)
+                          base.rstrip("/"), token)   # default retries ~63 s: outlasts an API redeploy
         except Exception as exc:  # noqa: BLE001 — publishing never breaks a run
             _log.warning("could not publish the momentum signal board: %s", str(exc)[:120])
 

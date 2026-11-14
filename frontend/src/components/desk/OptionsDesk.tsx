@@ -1,6 +1,6 @@
+import { PutLimitBanner, usePutLimit } from "./PutLimit";
 import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
-import { EventChips } from "./EventChips";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
 import { WheelBoardTable } from "./WheelBoardTable";
 import { AnalysisPanel } from "./AnalysisPanel";
@@ -126,7 +126,6 @@ interface ScreenResp {
 
 const FX_GBPUSD = 1.27;
 const TONE = { ok: "#1D9E75", warn: "#E6A817", bad: "#D85A30", dim: "var(--text-muted)", line: "#4C9AFF" };
-const REGIME_TONE: Record<string, string> = { GREEN: TONE.ok, YELLOW: TONE.warn, ORANGE: "#E67E22", RED: TONE.bad };
 const STATE_TONE: Record<string, string> = {
   SHORT_PUT_OPEN: TONE.warn, ASSIGNED: "#E67E22", COVERED_CALL_OPEN: TONE.warn, CLOSED: TONE.dim,
 };
@@ -322,8 +321,13 @@ export function OptionsDesk() {
     return (b.annualized_yield_pct ?? 0) - (a.annualized_yield_pct ?? 0);
   });
   const eligible = cands.filter((c) => c.eligible);
-  const best = cands.find((c) => c.is_best) ?? null;
-  const open = positions.filter((p) => p.state !== "CLOSED");
+  // An option past its expiry is not open, whatever its stored state says: an
+  // SLV put that expired 18 Sep still read "Open" on 13 Nov.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const isExpired = (p: any) => !!p.expiry && String(p.expiry).slice(0, 10) < todayIso;
+  const open = positions.filter((p) => p.state !== "CLOSED" && !isExpired(p));
+  const expiredUnsettled = positions.filter((p) => p.state !== "CLOSED" && isExpired(p));
+  const putLimit = usePutLimit();
   // Names where we actually HOLD STOCK. Only ASSIGNED and COVERED_CALL_OPEN
   // qualify: an open SHORT_PUT is the obligation to buy, not the shares, and a
   // covered call written against it would be a naked call.
@@ -335,11 +339,12 @@ export function OptionsDesk() {
   return (
     <div style={{ padding: "8px 4px" }}>
       <MarketDataBanner />
+      <PutLimitBanner limit={putLimit} />
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>Options Desk — the Wheel</div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 2 }}>
           Cash-secured puts on quality names, risk-first. A candidate is <b>eligible</b> only when it
-          clears <b>every</b> gate: constructive regime (in/above the Ichimoku cloud, not a falling knife),
+          clears <b>every</b> gate: constructive regime (price trend intact, not a falling knife),
           a <b>vega edge</b> (IV-Rank &gt; 30 once our IV dataset matures; until then the IV/HV&nbsp;≥&nbsp;1.0
           bridge — implied must at least pay for realised vol), delta 0.20–0.35, 25–50 DTE, OI ≥ 250,
           spread within the premium-relative cap, a <b>premium floor</b> (≥ $0.20 and ≥ 8%/yr annualised —
@@ -356,7 +361,10 @@ export function OptionsDesk() {
               value={eligible.length}
               tone={eligible.some((c: any) => c.premium_source === "live_mid") ? "ok" : "warn"} />
         <Stat label="Screened" value={cands.length} tone="dim" />
-        <Stat label="Open paper" value={open.length} tone="warn" />
+        <Stat label="Open" value={open.length} tone="warn" />
+        {expiredUnsettled.length > 0 && (
+          <Stat label="Expired, not settled" value={expiredUnsettled.length} tone="warn" />
+        )}
         <Stat label="Realised £" value={realised.toFixed(0)} tone={realised >= 0 ? "ok" : "bad"} />
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           {data?.generated_at_utc ? `last screen ${new Date(data.generated_at_utc).toLocaleString()}` : "no screen yet"}
@@ -409,7 +417,10 @@ export function OptionsDesk() {
 
       {/* ── Candidate screen ───────────────────────────────────── */}
       <SectionTitle>Full candidate screen</SectionTitle>
-      {!loading && !err && cands.length > 0 && <BestPick best={best} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />}
+      {/* "Best to trade now" removed 13 Nov 2026: it named a cash-secured put the
+          engine had already routed to a spread, on prices ~30 h old, while the
+          live book was over the short-put limit. The table below carries the
+          same rows with their gates. */}
       {loading && <div style={{ color: "var(--text-muted)", padding: 16 }}>Loading screen…</div>}
       {err && <div style={{ color: TONE.bad, padding: 16 }}>Screen unavailable: {err}</div>}
       {!loading && !err && cands.length === 0 && (
@@ -764,58 +775,6 @@ function MorningCandidatesPanel({ candidates, all, onAnalyze, onRecord, busy }: 
   );
 }
 
-function BestPick({ best, onAnalyze, onRecord, busy }: { best: Candidate | null; onAnalyze: (c: Candidate) => void; onRecord: (c: Candidate) => void; busy: boolean }) {
-  if (!best) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 12, borderRadius: 8, border: "1px dashed var(--border)", background: "var(--surface-2)" }}>
-        <span style={{ fontSize: 16 }}>⏳</span>
-        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-          <b style={{ color: "var(--text-dim)" }}>No best pick right now.</b> No candidate clears every gate yet — see the why-not column below.
-          Live strikes/premiums/OI arrive when the US market opens; the best CSP will be crowned here automatically.
-        </div>
-      </div>
-    );
-  }
-  const c = REGIME_TONE[best.regime || ""] || TONE.ok;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", marginBottom: 12, borderRadius: 10, border: `1px solid ${TONE.ok}66`, background: `${TONE.ok}14`, flexWrap: "wrap" }}>
-      <div style={{ fontSize: 22 }}>⭐</div>
-      <div style={{ flex: 1, minWidth: 220 }}>
-        <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: TONE.ok, fontWeight: 700 }}>Best to trade now</div>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>
-          <span style={{ fontFamily: "var(--font-mono)" }}>{best.symbol}</span> cash-secured put
-          {best.suggested_strike != null ? <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}> · ${best.suggested_strike}{best.suggested_premium != null ? ` @ $${best.suggested_premium.toFixed(2)}` : ""}</span> : null}
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-          <b style={{ color: TONE.ok }}>{best.annualized_yield_pct != null ? `${best.annualized_yield_pct.toFixed(0)}%/yr` : "—"}</b> premium yield ·
-          <span style={{ color: c, fontWeight: 600 }}> {best.regime}</span> regime ·
-          IV-Rank {best.iv_rank != null ? `${best.iv_rank.toFixed(0)}%` : "n/a"} ·
-          highest yield among {/* eligible */}the names that clear every gate
-        </div>
-        <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)" }}>Before expiry:</span>
-          <EventChips w={(best as any).events} />
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => onAnalyze(best)} style={btnStyle(true, TONE.line)}>Analyze</button>
-        <button disabled={busy || best.suggested_strike == null} onClick={() => onRecord(best)} style={btnStyle(best.suggested_strike != null)}>Record CSP</button>
-      </div>
-    </div>
-  );
-}
-
-/** Market-data session banner.
- *
- * IBKR grants ONE market-data session per account. Opening the IBKR portal or
- * TWS — or another client on the same account, including an MCP connector —
- * silently takes it: auth stays valid, contracts still resolve, prices go dark
- * and the board falls back to carried premiums. That cost a full trading day of
- * investigation before anything on screen said so (18 Aug 2026).
- *
- * The owner NEEDS the portal, so the answer is not "don't use it" — it is to
- * make the state visible and give a one-click recheck for after they close it.
- */
 function MarketDataBanner() {
   const [state, setState] = useState<{
     live: boolean; last: string | null; availability: string | null;
