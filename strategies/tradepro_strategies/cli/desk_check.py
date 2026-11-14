@@ -51,7 +51,6 @@ RANK = {BROKEN: 0, UNKNOWN: 1, WARN: 2, OK: 3}
 # Wednesday is stale on Friday whatever the calendar says.
 BOARDS = {
     "wheel": ("Wheel (put selling)", 30),
-    "preearnings": ("Watch / pre-earnings", 30),
     "momentum_rotation": ("Momentum rotation (core engine)", 6),
 }
 

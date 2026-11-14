@@ -223,7 +223,6 @@ function ageHours(asOf: string | null): number | null {
 }
 
 import { SymbolDetailModal } from "./SymbolDetailModal";
-import { MoversGrid } from "./MoversGrid";
 
 // The per-view tone palette every other desk component declares locally
 // (MomentumView, OptionsDesk, OptionsPayoff all carry the same three). This
@@ -240,11 +239,6 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
   // position yet, so empty position/order data is correct, and the chart
   // card fetches its own bars by symbol.
   const [chartSym, setChartSym] = useState<string | null>(null);
-  // One-stop market movers (universe + owner extras, ~15-min refresh) — the
-  // owner's "where is today's action" strip. Click a mover to chart it.
-  const [movers, setMovers] = useState<any | null>(null);
-  // Collapsed by default — see the note at the strip.
-  const [moversOpen, setMoversOpen] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -280,18 +274,9 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         extra: c.extra ?? null,
       }));
 
-    try {
-      // Pre-earnings watch: rows arrive already in the common shape, and the
-      // WHY column carries the latest engine output (WATCH / ORDER_PROPOSAL /
-      // CONFIGURATION_BLOCKED) so the newest potential order is on this
-      // screen, not only in an email.
-      const r: any = await api.preEarningsCandidates();
-      const a: any = r?.artifact ?? {};
-      if (a.candidates_v2?.length) {
-        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
-      }
-      if (a.movers) setMovers(a.movers);
-    } catch { /* engine not yet run this cycle — absence is not an error */ }
+    // Watchlist / Pre-Earn REMOVED 14 Nov 2026 (owner: "Remove it"): a hand-
+    // picked list scored by rules never backtested does not belong on a screen
+    // that shows only what can be trusted. Its movers strip went with it.
 
     // SETUPS LANE REMOVED (26 Sep 2026). It IS the Ichimoku scanner over
     // large_50 + high_beta, and Ichimoku is retired on this desk — the live
@@ -471,23 +456,6 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
                 label={`${s} (${rows.filter((r) => r.strategy === s && r.eligible).length})${
                   rows.some((r) => r.strategy === s && r.tierRaw === "failed") ? " ⚠" : ""}`} />
         ))}
-        <button
-          onClick={async (e) => {
-            const b = e.currentTarget; b.disabled = true; b.textContent = "running…";
-            try {
-              // Invokes the Lambda synchronously (seconds), then re-reads the
-              // board so the Pre-Earn row reflects the fresh evaluation.
-              await api.runPreEarningsWatch();
-              await load();
-              b.textContent = "re-scan ✓";
-            } catch { b.textContent = "run failed — see logs"; }
-            finally { setTimeout(() => { b.disabled = false; b.textContent = "re-scan watch"; }, 4000); }
-          }}
-          style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 999,
-                   fontSize: 12, cursor: "pointer", border: "1px solid var(--border)",
-                   background: "var(--surface-2)", color: "var(--text)" }}>
-          re-scan watch
-        </button>
         <label style={{ fontSize: 12, cursor: "pointer", color: "var(--text)" }}>
           <input type="checkbox" checked={hideBlocked}
                  onChange={(e) => setHideBlocked(e.target.checked)}
@@ -513,65 +481,6 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         </div>
       )}
 
-      {movers && (
-        <div>
-          {/* The one-line strip stays as the DEFAULT. It answers "where is
-              today's action" in a glance and costs one row of a cockpit that
-              is meant to fit on one screen; the grid is a click away for when
-              the answer is "show me properly". */}
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12,
-                        padding: "6px 10px", border: "1px solid var(--border)",
-                        borderRadius: 8, alignItems: "baseline" }}>
-            <span style={{ color: MUTED, fontSize: 12, textTransform: "uppercase",
-                           letterSpacing: ".06em" }}>Movers</span>
-            {/* NEXT TO THE LABEL, not floated right. It was marginLeft:auto,
-                which on a wide screen parked it a thousand pixels from the
-                word "Movers" with empty space between — the owner could not
-                find it and reported the feature missing. A control nobody
-                sees is a feature nobody has. */}
-            <button
-              onClick={() => setMoversOpen((v) => !v)}
-              title="Full sortable grid: price, 52-week range, volume"
-              style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12,
-                       cursor: "pointer", background: "transparent",
-                       border: `1px solid ${moversOpen ? "var(--accent, #4ea1ff)" : "var(--border)"}`,
-                       color: moversOpen ? "var(--accent, #4ea1ff)" : "var(--fg, inherit)" }}>
-              {moversOpen ? "Hide grid ▲" : "Grid ▼"}
-            </button>
-            {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
-              <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
-                    onClick={() => setChartSym(m.symbol)}>
-                {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
-                <b style={{ color: OK }}>{m.chg_pct > 0 ? "+" : ""}{m.chg_pct}%</b>
-              </span>
-            ))}
-            <span style={{ color: MUTED }}>·</span>
-            {(movers.losers ?? []).slice(0, 6).map((m: any) => (
-              <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
-                    onClick={() => setChartSym(m.symbol)}>
-                {m.symbol}{m.status === "watch" ? "•" : ""}{" "}
-                <b style={{ color: WARN }}>{m.chg_pct}%</b>
-              </span>
-            ))}
-            <span style={{ color: MUTED, fontSize: 12 }}>
-              {String(movers.as_of_utc ?? "").slice(11, 16)}Z · universe + your list · • = watched
-            </span>
-          </div>
-          {moversOpen && (
-            <div style={{ marginTop: 8 }}>
-              <MoversGrid
-                gainers={movers.gainers ?? []}
-                losers={movers.losers ?? []}
-                asOfUtc={movers.as_of_utc}
-                scanned={movers.scanned}
-                named={movers.named}
-                namedTotal={movers.named_total}
-                onPick={(sym) => setChartSym(sym)}
-              />
-            </div>
-          )}
-        </div>
-      )}
 
       {chartSym && (
         <SymbolDetailModal
