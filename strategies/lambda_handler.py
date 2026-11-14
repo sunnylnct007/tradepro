@@ -130,13 +130,6 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # auto mode until that comparison passes and the Mac agent is unloaded.
     # Doubling a live order to save a migration step is not a trade anyone
     # chose.
-    "paper_swing_dryrun": (
-        "tradepro_strategies.cli.paper_session",
-        ["--broker", "ibkr", "--strategy", "mean_reversion_swing",
-         "--strategy-id", "mean_reversion_swing_ibkr", "--universe", "tradeable",
-         "--capital-usd", str(FUNDING_NAV_USD), "--interval", "1d",
-         "--max-open-positions", "15", "--max-position-pct-of-capital", "5",
-         "--placement-mode", "manual"]),
     # paper_equity_dryrun — RETIRED 27 Sep 2026. See RETIRED_JOBS below.
 
     # ── The 21:15-22:15 evening block, off the laptop ───────────────────
@@ -302,6 +295,10 @@ def _report_provenance(job: str) -> dict:
 #: A retired job returns ok=True and says why. When the rule is finally removed
 #: this entry goes with it.
 RETIRED_JOBS: dict[str, str] = {
+    "paper_swing_dryrun": (
+        "Swing closed 13 Nov 2026 (owner: 'if swing is of no use we close it for "
+        "now as opposed to mislead on UI'). It held nothing and placed nothing; "
+        "the strategy code remains and can be revived."),
     "paper_equity_dryrun": (
         "Ichimoku is retired on this desk and its T212 account is being handed "
         "to the momentum sleeve, which needs a book nothing else proposes into. "

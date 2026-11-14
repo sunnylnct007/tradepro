@@ -182,7 +182,6 @@ export function ActionBoard() {
     } catch (e: any) {
       problems.push(`Momentum rotation could not load — ${e?.message ?? "unknown error"}`);
     }
-    await equity(() => api.swingCandidates(), "Swing");
     await equity(() => api.momentumCandidates(), "Momentum");
 
     // ── OPTIONS, ranked by expectancy net of the spread ─────────────────

@@ -35,7 +35,7 @@ import { SHELL_BG, BAR_BG, RAIL_BG, SEP, useIsMobile } from "./shellTheme";
 import { SymbolSearch } from "./SymbolSearch";
 
 /** The in-page work-area views the rail can switch between. */
-export type DeskView = "live" | "candidates" | "portfolio" | "oms" | "harvest" | "options" | "research" | "swing" | "momentum" | "post-earnings-puts" | "strangle-decisions" | "universes" | "settings";
+export type DeskView = "live" | "candidates" | "portfolio" | "oms" | "harvest" | "options" | "research" | "momentum" | "post-earnings-puts" | "strangle-decisions" | "universes" | "settings";
 
 type NavEntry = {
   key: string;
@@ -168,10 +168,6 @@ const NAV: NavEntry[] = [
   // strategy to clear pre-registered gates". That was true when written and is
   // not true now. A tile that overstates its own evidence is the thing this
   // rail exists to prevent.
-  { key: "swing",     label: "Swing",     icon: "🎣", view: "swing",     tier: "blocked",
-    title: "Swing — WINDING DOWN. Entries graded negative against both controls "
-         + "(ENTRY_EDGE_GATES_V1, 20 Oct). Exits only; no new positions. Board kept "
-         + "so the archive keeps accruing." },
   { key: "momentum",  label: "Pullback",  icon: "🚀", view: "momentum",  tier: "blocked",
     title: "Momentum pullback (not the core engine) — WINDING DOWN. 40 closed trades, 2 wins, -7,712 replayed; "
          + "entries negative against both controls. Exits only; no new positions." },

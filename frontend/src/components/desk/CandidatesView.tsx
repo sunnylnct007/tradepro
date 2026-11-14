@@ -245,9 +245,6 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
   const [movers, setMovers] = useState<any | null>(null);
   // Collapsed by default — see the note at the strip.
   const [moversOpen, setMoversOpen] = useState(false);
-  const [swingRejects, setSwingRejects] = useState<{
-    pricedOut: any[]; nearMisses: any[]; breakevenBar: number | null;
-  }>({ pricedOut: [], nearMisses: [], breakevenBar: null });
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,31 +325,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       }
     } catch (e) { problems.push(`Puts: ${String((e as Error)?.message || e)}`); }
 
-    try {
-      const r: any = await api.swingCandidates();
-      const a: any = r?.artifact ?? {};
-      // The two lists that explain an ABSENCE. Without them a name simply is
-      // not on the screen, and "evaluated and refused" is indistinguishable
-      // from "never looked at".
-      setSwingRejects({
-        pricedOut: a.priced_out ?? [],
-        nearMisses: a.near_misses ?? [],
-        breakevenBar: a.breakeven_max_win_pct ?? null,
-      });
-      if (a.candidates_v2?.length) {
-        out.push(...fromV2(a.candidates_v2, a.as_of_utc ?? r?.asOfUtc ?? null));
-      } else
-      for (const c of (a.candidates ?? [])) {
-        out.push({
-          symbol: c.symbol, strategy: "Swing", tierRaw: "gated", tier: "trusted",
-          action: "buy", entry: c.close ?? null,
-          level: c.stop ?? null, levelLabel: "stop",
-          metric: c.sigma_from_mean ?? null, metricLabel: "σ",
-          asOf: a.as_of_utc ?? r?.asOfUtc ?? null,
-          eligible: true, why: "σ-band entry, trend filter passed",
-        });
-      }
-    } catch (e) { problems.push(`Swing: ${String((e as Error)?.message || e)}`); }
+    // Swing CLOSED 13 Nov 2026 (owner: "if swing is of no use we close it for now
+    // as opposed to mislead on UI"). No rows, no lane.
 
     try {
       const r: any = await api.momentumCandidates();
@@ -672,9 +646,6 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
           ordersLoading={false}
           fills={[]}
           verdictRows={rows}
-          pricedOut={swingRejects.pricedOut}
-          nearMisses={swingRejects.nearMisses}
-          breakevenBar={swingRejects.breakevenBar}
           onClose={() => setChartSym(null)}
         />
       )}

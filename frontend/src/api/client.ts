@@ -279,10 +279,6 @@ export const api = {
         notes: string;
       }>;
     }>("/api/pnl/by-strategy", { days }),
-  // Today's Setups scanner (tradepro-today-setups): universe ranked by entry quality.
-  /** Swing candidates — the mean-reversion bracket-order list.
-   *  Reuses the today_setups_results store (universe="swing"); the artifact
-   *  shape is different from the older setups scanner, hence its own method. */
   /** The post-earnings put screen's published artifact. Raw JSONB from the
    *  ingest endpoint, so new fields flow through without a backend change. */
   postEarningsPuts: () =>
@@ -294,7 +290,7 @@ export const api = {
     post<{ ok?: boolean; job?: string; error?: string }, Record<string, never>>(
       "/api/jobs/preearnings_watch/run", {}),
 
-  /** Today's Setups scanner artifact by universe (large_50 / high_beta). */
+  /** A published board by name (momentum_rotation, live-book-risk, …). */
   todaySetupsArtifact: (universe: string) =>
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
       `/api/today-setups/${universe}/latest`),
@@ -303,52 +299,6 @@ export const api = {
   preEarningsCandidates: () =>
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
       "/api/today-setups/preearnings/latest"),
-
-  swingCandidates: () =>
-    get<{
-      universe: string; label: string; asOfUtc: string;
-      artifact: {
-        kind: string; as_of_utc: string; count: number; signal_bar: string;
-        rule: { entry: string; target: string; stop: string; timeout: string };
-        evidence: {
-          gates_file: string; gates_commit: string; trades: number;
-          win_rate_pct: number; mean_per_trade_pct: number;
-          worst_trade_pct: number; median_hold_sessions: number; note: string;
-          median_per_trade_pct?: number; harness?: string;
-        };
-        regime_dependence?: {
-          above_200sma: { trades: number; win_pct: number; mean_pct: number };
-          below_200sma: { trades: number; win_pct: number; mean_pct: number };
-          drawdown_5_15: { trades: number; win_pct: number; mean_pct: number };
-          drawdown_over_15: { trades: number; win_pct: number; mean_pct: number };
-        };
-        limits: string[];
-        // Why there is no trade. `evaluated` proves the scan ran and over how
-        // many names; `near_misses` shows how far off the closest were and
-        // which half of the rule stopped them. A zero-candidate day has to be
-        // readable as a measurement, not as an assertion that all is well.
-        evaluated?: number | null;
-        stale_dropped?: Array<{
-          symbol: string; last_bar: string; settled: string; reason: string;
-        }>;
-        near_misses?: Array<{
-          symbol: string; bar: string; close: number;
-          sigma_from_mean: number; sigma_needed: number;
-          fires_at?: number; pct_to_fire?: number;
-          filter_note?: string; structure?: string;
-          above_trend: boolean; blocked_by: string;
-        }>;
-        quarantined?: Array<{ symbol: string; reason: string; detail: string }>;
-        candidates: Array<{
-          symbol: string; tier: string; bar: string; close: number;
-          latest?: { price: number; as_of: string; session: string; high: number; low: number } | null;
-          entry_hint: number; target: number; stop: number; target_pct: number;
-          reward_risk: number | null; sigma_below: number; atr_pct: number;
-          pct_above_200sma: number; off_52w_high_pct: number | null;
-          volume_vs_20d: number | null; volume_vs_20d_unavailable?: string | null; max_hold_sessions: number;
-        }>;
-      };
-    }>("/api/today-setups/swing/latest"),
 
   momentumCandidates: () =>
     get<{

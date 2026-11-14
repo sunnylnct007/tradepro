@@ -31,7 +31,7 @@ from tradepro_strategies.cli import desk_check as D
 
 
 def _order(days_ago, **kw):
-    base = {"strategyId": "mean_reversion_swing_ibkr", "side": "BUY",
+    base = {"strategyId": "momentum_rotation_ibkr", "side": "BUY",
             "state": "FILLED", "brokerOrderId": "ib-1",
             "createdAtUtc": (dt.datetime.now(dt.UTC)
                              - dt.timedelta(days=days_ago)).isoformat()}
@@ -56,7 +56,7 @@ def test_a_fault_outside_the_window_no_longer_counts(oms):
     old = [_order(30, brokerOrderId=None, state="REJECTED") for _ in range(34)]
     now = [_order(1) for _ in range(10)]
     oms(old + now)
-    c = _lane(D.check_execution("http://x", None), "mean_reversion_swing_ibkr")
+    c = _lane(D.check_execution("http://x", None), "momentum_rotation_ibkr")
     assert c.status == D.OK, c.detail
     assert "10 orders" in c.detail, c.detail
     assert "44" not in c.detail, "the out-of-window orders are still being counted"
@@ -66,7 +66,7 @@ def test_the_window_is_named_in_the_detail(oms):
     # A rate with no stated window is the defect itself; the reader must be able
     # to see what period it covers.
     oms([_order(1) for _ in range(5)])
-    c = _lane(D.check_execution("http://x", None), "mean_reversion_swing_ibkr")
+    c = _lane(D.check_execution("http://x", None), "momentum_rotation_ibkr")
     assert f"last {D.EXEC_WINDOW_DAYS}d" in c.detail, c.detail
 
 
@@ -74,9 +74,9 @@ def test_a_DORMANT_strategy_is_not_a_failing_one(oms):
     # ichimoku_equity_ibkr: last order 35 days ago, 19% reach rate. Reporting
     # that as an execution failure is a false alarm about a strategy that has
     # nothing to execute.
-    oms([_order(35, strategyId="ichimoku_equity_ibkr",
+    oms([_order(35, strategyId="momentum_pullback_ibkr",
                 brokerOrderId=None, state="REJECTED") for _ in range(47)])
-    c = _lane(D.check_execution("http://x", None), "ichimoku_equity_ibkr")
+    c = _lane(D.check_execution("http://x", None), "momentum_pullback_ibkr")
     assert c.status == D.OK
     assert "DORMANT" in c.detail and "35 days ago" in c.detail, c.detail
 
@@ -84,8 +84,8 @@ def test_a_DORMANT_strategy_is_not_a_failing_one(oms):
 def test_a_dormant_lane_does_not_claim_recent_health_either(oms):
     # The inverse false reading: a lane dead for a month showed a healthy
     # "69 orders · 68 reached" from old data, which reads as current.
-    oms([_order(31, strategyId="ichimoku_fx_mr") for _ in range(69)])
-    c = _lane(D.check_execution("http://x", None), "ichimoku_fx_mr")
+    oms([_order(31, strategyId="momentum_pullback_ibkr") for _ in range(69)])
+    c = _lane(D.check_execution("http://x", None), "momentum_pullback_ibkr")
     assert "no orders in the last" in c.detail
     assert "68 reached" not in c.detail
 
@@ -99,7 +99,7 @@ def test_a_BROKER_REFUSAL_counts_as_reaching_the_broker(oms):
     oms([_order(1, side="SELL", state="REJECTED", brokerOrderId=None,
                 cancelledReason=ibkr) for _ in range(10)]
         + [_order(1, side="SELL", state="FILLED") for _ in range(10)])
-    c = _lane(D.check_execution("http://x", None), "mean_reversion_swing_ibkr")
+    c = _lane(D.check_execution("http://x", None), "momentum_rotation_ibkr")
     assert "20 reached the broker" in c.detail, c.detail
     assert "10 of them REFUSED by it" in c.detail, c.detail
 
@@ -111,6 +111,6 @@ def test_OUR_OWN_failure_does_NOT_count_as_reaching_the_broker(oms):
                    "expired_no_broker_ack", "superseded by newer order", ""):
         oms([_order(1, side="SELL", state="REJECTED", brokerOrderId=None,
                     cancelledReason=reason) for _ in range(10)])
-        c = _lane(D.check_execution("http://x", None), "mean_reversion_swing_ibkr")
+        c = _lane(D.check_execution("http://x", None), "momentum_rotation_ibkr")
         assert "0 reached the broker" in c.detail, f"{reason!r} -> {c.detail}"
         assert c.status != D.OK, f"{reason!r} should not read healthy"
