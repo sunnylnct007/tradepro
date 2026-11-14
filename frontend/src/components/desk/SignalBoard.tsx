@@ -132,11 +132,11 @@ export function SignalBoard() {
       </div>
       {board.error ? (
         <div style={{ fontSize: 12.5, color: "#d29922", marginTop: 6 }}>
-          No new decision: {board.error}. Holdings below are still protected by their stops.
+          No new decision: {board.error}. Holdings below keep their 20% trailing stops.
         </div>
       ) : (
         <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.5 }}>
-          Decided on the {day(board.signal_date)} close, traded at the {day(board.order_date)} open.
+          Decided on the {day(board.signal_date)} close; paper orders at the {day(board.order_date)} open.
           Next decision {day(board.next_signal_date)}. {board.market}. {board.allocation_pct}% of capital,
           {" "}{board.per_name_pct}% a name.
         </div>

@@ -36,6 +36,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api/client";
+import { PutLimitBanner, usePutLimit } from "./PutLimit";
 import { SpreadBuilder } from "./SpreadBuilder";
 
 const TONE = {
@@ -99,6 +100,9 @@ export function ActionBoard() {
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showWhy, setShowWhy] = useState(false);
+  const [putsAgeH, setPutsAgeH] = useState<number | null>(null);
+  const putLimit = usePutLimit();
+  const [showBlockedPuts, setShowBlockedPuts] = useState(false);
 
   const load = useCallback(async () => {
     const out: Act[] = [];
@@ -159,6 +163,25 @@ export function ActionBoard() {
       }
     };
 
+    // THE CORE ENGINE FIRST (13 Nov 2026). Its board is the same one the
+    // Portfolio page shows; without it this card said "0 to buy" while the one
+    // engine that trades had ten buys queued.
+    try {
+      const r: any = await api.todaySetupsArtifact("momentum_rotation");
+      const a: any = r?.artifact ?? {};
+      if (a.error) held.push(`Momentum rotation: no new decision — ${a.error}`);
+      for (const row of (a.rows ?? [])) {
+        if (row.action !== "BUY" && row.action !== "SELL") continue;
+        out.push({
+          key: `rotation-${row.action}-${row.symbol}`, kind: "buy", verb: row.action,
+          symbol: row.symbol, notes: [], detail: `paper: ${row.paper ?? "—"}`,
+          why: row.why, strategy: "Momentum rotation (core engine)", gated: true, ev: null,
+          rank: 5000,
+        });
+      }
+    } catch (e: any) {
+      problems.push(`Momentum rotation could not load — ${e?.message ?? "unknown error"}`);
+    }
     await equity(() => api.swingCandidates(), "Swing");
     await equity(() => api.momentumCandidates(), "Momentum");
 
@@ -166,6 +189,12 @@ export function ActionBoard() {
     try {
       const r: any = await api.optionsCandidates();
       const rows: any[] = r?.candidates ?? [];
+      const gen = r?.generated_at_utc ?? r?.generatedAtUtc ?? r?.as_of_utc;
+      if (gen) setPutsAgeH((Date.now() - new Date(gen).getTime()) / 3600_000);
+      const bookNote = typeof r?.book === "string" ? r.book : (r?.book?.note ?? r?.book?.error ?? "");
+      if (/unreachable|cannot be enforced/i.test(String(bookNote))) {
+        held.push(`Options: ${bookNote}`);
+      }
       if (!rows.length) {
         held.push("Options: no rows published yet");
       } else {
@@ -285,7 +314,9 @@ export function ActionBoard() {
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 17, letterSpacing: 0.2 }}>Today — what to do</h2>
         <span style={{ color: TONE.dim, fontSize: 12 }}>
-          {loading ? "loading…" : `${buys.length} to buy · ${putsWorth.length} put(s) worth selling`}
+          {loading ? "loading…" : `${buys.filter((b) => b.verb === "BUY").length} to buy · `
+            + `${buys.filter((b) => b.verb === "SELL").length} to sell · `
+            + (putLimit.allowed ? `${putsWorth.length} put(s) worth selling` : "no new puts (limit)")}
         </span>
         <button
           onClick={() => setShowWhy((v) => !v)}
@@ -310,9 +341,7 @@ export function ActionBoard() {
         <div style={{ marginTop: 10, fontSize: 13 }}>
           <b>Nothing to do today.</b>
           <div style={{ color: TONE.dim, marginTop: 3 }}>
-            Every lane loaded and none produced an action. The swing rule fires
-            on about 31% of sessions, so a quiet day is the rule working rather
-            than a fault.
+            Every lane loaded and none produced an action today.
           </div>
         </div>
       )}
@@ -332,8 +361,20 @@ export function ActionBoard() {
           onClose={() => setBuilding(null)}
         />
       )}
-      {putsWorth.length > 0 && (
-        <div style={{ marginTop: buys.length ? 14 : 12 }}>
+      {puts.length > 0 && <PutLimitBanner limit={putLimit} />}
+      {puts.length > 0 && putsAgeH != null && putsAgeH > 20 && (
+        <div style={{ fontSize: 11.5, color: "#d29922", margin: "4px 0" }}>
+          Put prices below are {Math.round(putsAgeH)} h old.
+        </div>
+      )}
+      {puts.length > 0 && !putLimit.allowed && !putLimit.loading && (
+        <div onClick={() => setShowBlockedPuts((v) => !v)}
+          style={{ fontSize: 11.5, color: TONE.dim, cursor: "pointer", userSelect: "none" }}>
+          {showBlockedPuts ? "▲ hide the put list" : `▼ show the ${putsWorth.length} put(s) the screen found anyway — reference only, not to act on`}
+        </div>
+      )}
+      {putsWorth.length > 0 && (putLimit.allowed || showBlockedPuts) && (
+        <div style={{ marginTop: buys.length ? 14 : 12, opacity: putLimit.allowed ? 1 : 0.55 }}>
           {putsShown.map((a) => (
             <Line key={a.key} a={a} onBuild={a.build ? () => setBuilding(a.build!) : undefined} />
           ))}
@@ -354,7 +395,7 @@ export function ActionBoard() {
         </div>
       )}
 
-      {putsThin.length > 0 && (
+      {putsThin.length > 0 && (putLimit.allowed || showBlockedPuts) && (
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
           <div style={{ color: TONE.dim, fontSize: 11, marginBottom: 4 }}>
             {putsThin.length} put(s) pass every gate but their expectancy does
@@ -406,7 +447,7 @@ function Line({ a, onBuild }: { a: Act; onBuild?: () => void }) {
       padding: "6px 0", borderBottom: "1px solid var(--border-subtle, transparent)",
     }}>
       <span style={{
-        color: a.verb === "BUY" ? TONE.ok : TONE.ok, fontWeight: 700,
+        color: a.verb === "SELL" ? TONE.bad : TONE.ok, fontWeight: 700,
         fontSize: 13, minWidth: 92,
       }}>{a.verb}</span>
       <span style={{ fontWeight: 600, fontSize: 14, minWidth: 64 }}>{a.symbol}</span>

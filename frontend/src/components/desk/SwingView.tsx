@@ -55,7 +55,7 @@ export function SwingView({ onOpenSymbol }: { onOpenSymbol?: (sym: string) => vo
   return (
     <div style={{ padding: "8px 4px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>Swing candidates</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Swing — winding down</h2>
         {/* REFRESH. Owner: "why no rerun button on swing". There was nothing
             to press because the scan ran twice a day — so during a session the
             screen showed a scan from hours earlier. The job now runs every 30
@@ -85,10 +85,16 @@ export function SwingView({ onOpenSymbol }: { onOpenSymbol?: (sym: string) => vo
           )}
         </span>
       </div>
+        <div style={{ marginTop: 6, padding: "8px 10px", borderRadius: 6, fontSize: 12.5, lineHeight: 1.5,
+          border: "1px solid rgba(210,153,34,0.5)", background: "rgba(210,153,34,0.08)" }}>
+          <b style={{ color: "#d29922" }}>Winding down — exits only.</b> The swing sleeve places no new
+          entries: its entries graded negative against both controls (ENTRY_EDGE_GATES_V1, 20 Oct). Rows below are what the
+          old rule would have bought, kept for the record. They are not instructions.
+        </div>
 
       <div style={{ fontSize: 14, color: "var(--text-dim)", margin: "6px 0 12px", lineHeight: 1.6 }}>
         <b>Entry</b> {a.rule.entry} · <b>Target</b> {a.rule.target} · <b>Stop</b> {a.rule.stop} ·
-        exit by {a.rule.timeout}. Each row is placeable as one bracket order.
+        exit by {a.rule.timeout}.
       </div>
 
       {/* Evidence inline — this is the only desk surface with graded evidence,
