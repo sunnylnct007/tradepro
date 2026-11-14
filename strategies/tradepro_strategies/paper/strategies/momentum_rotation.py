@@ -210,11 +210,27 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             peak = float(since_entry.max()) if len(since_entry) else None
             fill = self._fill_price.get(sym)
             last = float(closes.iloc[-1])
-            return {"last": round(last, 2), "entry": round(fill, 2) if fill else None,
-                    "pnl_pct": round((last / fill - 1) * 100, 1) if fill else None,
-                    "stop": round(peak * (1 - self.TRAIL), 2) if peak else None,
-                    "as_of": str(closes.index[-1])[:10]}
+            stop = round(peak * (1 - self.TRAIL), 2) if peak else None
+            out = {"last": round(last, 2), "entry": round(fill, 2) if fill else None,
+                   "pnl_pct": round((last / fill - 1) * 100, 1) if fill else None,
+                   "stop": stop, "as_of": str(closes.index[-1])[:10]}
+            # INTRADAY WATCH: the rule sells on a CLOSE below the stop, so a live
+            # price below it is a warning, not a sale.
+            lv = live.get(sym)
+            if lv:
+                out["live"] = round(float(lv), 2)
+                if stop and lv <= stop:
+                    out["intraday"] = (f"trading below its stop ({float(lv):.2f} < {stop:.2f}) — "
+                                       "sells at the next open only if it CLOSES below")
+            return out
 
+        live: dict[str, float] = {}
+        if held:
+            try:
+                from ...live_quote import live_prices
+                live = live_prices(held) or {}
+            except Exception:  # noqa: BLE001 — no live quote: the settled figures stand
+                live = {}
         if self._today and self._today < since:
             waiting = f"to buy at the {since} open"
         elif self._today and since and _dt.date.fromisoformat(self._today) > \
@@ -245,7 +261,19 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             else:
                 rows.append({"action": "HOLD", "symbol": sym, **info,
                              "why": "still in the top 10; exits on the stop or at the next rebalance"})
+        today = None
+        try:
+            from ...momentum_rotation import ranking_today
+            tr = ranking_today()
+            cur = set(picks)
+            today = {"as_of": tr.get("date"), "picks": tr.get("picks", []),
+                     "scores": tr.get("scores", {}), "market_ok": tr.get("market_ok"),
+                     "entering": [x for x in tr.get("picks", []) if x not in cur],
+                     "leaving": [x for x in picks if x not in set(tr.get("picks", []))]}
+        except Exception as exc:  # noqa: BLE001 — the daily view is extra; the board stands without it
+            _log.info("no daily ranking for the board: %s", str(exc)[:100])
         return {"strategy": "Momentum rotation (core engine)", "strategy_id": self.strategy_id,
+                "today": today,
                 "signal_date": dec.get("signal_date"), "order_date": dec.get("order_date"),
                 "next_signal_date": dec.get("next_signal_date"),
                 "market": ("SPY above its 200-day average: invested" if dec.get("market_ok")

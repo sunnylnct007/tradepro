@@ -45,6 +45,7 @@ class Params:
     entry_above_sma50: bool = False      # veto a pick closing below its 50-day
     score_mode: str = "blend"            # blend | vol_adjusted (score / 126-day vol)
     score_cap_x_median: float | None = None  # winsorize: cap a score at N x the median
+    take_profit: float | None = None     # sell on a close this far above entry (0.15 = +15%)
     # proposed implementation details
     min_history: int = 252
     min_price: float = 10.0
@@ -278,6 +279,8 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
     shares: dict[str, float] = {}
     high: dict[str, float] = {}
     entry_day: dict[str, pd.Timestamp] = {}
+    entry_px: dict[str, float] = {}
+    tp_exits = 0
     peak = 1.0
     multiplier = 1.0
     pending: dict[str, float] | None = None      # target weights for next open
@@ -331,6 +334,7 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                         if shares[s] <= 1e-12:
                             shares.pop(s)
                             high.pop(s, None)
+                            entry_px.pop(s, None)
                             if s in entry_day:
                                 holds.append((t - entry_day.pop(s)).days)
                     elif phase == "buy" and diff > 0:
@@ -341,6 +345,7 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                         if s not in shares:
                             entry_day[s] = t
                             high[s] = px
+                            entry_px[s] = px
                         shares[s] = shares.get(s, 0.0) + spend / px
                         turnover += spend / nlv
                         trades += 1
@@ -370,6 +375,14 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                     pending_sells.add(s)
                     stop_exits += 1
 
+        if p.take_profit:
+            for s in list(shares):
+                px = px_of(c, s)
+                if not math.isnan(px) and s in entry_px and px >= entry_px[s] * (1 + p.take_profit) \
+                        and s not in pending_sells:
+                    pending_sells.add(s)
+                    tp_exits += 1
+
         if p.alert_cash and dd <= -p.alert_cash and multiplier > 0:
             multiplier = 0.0
             pending = {}
@@ -393,6 +406,7 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
             "activity": {"trades": trades, "turnover_per_year": round(turnover / max(1e-9, len(navs) / 252), 2),
                          "avg_holding_days": round(float(np.mean(holds)), 1) if holds else None,
                          "trailing_stop_exits": stop_exits,
+                         "take_profit_exits": tp_exits,
                          "time_in_cash_pct": round(float(np.mean(np.array(invested) < 0.01)) * 100, 1),
                          "avg_invested_pct": round(float(np.mean(invested)) * 100, 1),
                          "max_sector_weight_pct": round(float(np.max(sector_max)) * 100, 1)},
@@ -475,6 +489,18 @@ def decide(today=None, p: Params = Params()) -> dict:
     dec.pop("allocation_exact", None)
     return {**base, **dec, "params": {"vol_target": p.vol_target, "top_n": p.top_n,
                                       "trailing_stop": p.trailing_stop}}
+
+
+def ranking_today(p: Params = Params()) -> dict:
+    """What the engine WOULD pick if it rebalanced on the latest close in the
+    store. Display only (owner, 14 Nov: "I need to get signals everyday based on
+    latest data"): holdings still change on the monthly decision date, but the
+    list's daily drift is visible."""
+    P = cached_panels(p.symbols, ttl_s=900)
+    t = P.dates[-1]
+    dec = select(t, derive(P, p), P, p)
+    dec.pop("allocation_exact", None)
+    return dec
 
 
 _PANEL_CACHE: dict[tuple, tuple[float, Panels]] = {}

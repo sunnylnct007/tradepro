@@ -26,7 +26,11 @@ type Row = {
   entry?: number | null;
   pnl_pct?: number | null;
   stop?: number | null;
+  live?: number | null;
+  intraday?: string | null;
 };
+
+type Today = { as_of?: string; picks: string[]; entering: string[]; leaving: string[]; market_ok?: boolean };
 
 type Board = {
   strategy: string;
@@ -38,6 +42,7 @@ type Board = {
   per_name_pct?: number;
   error?: string | null;
   rows: Row[];
+  today?: Today | null;
   generated_at_utc?: string;
 };
 
@@ -80,7 +85,11 @@ function Column({ action, rows }: { action: Row["action"]; rows: Row[] }) {
                 <span style={{ color: r.pnl_pct >= 0 ? "#3fb950" : "#f85149" }}> ({r.pnl_pct >= 0 ? "+" : ""}{r.pnl_pct}%)</span>
               )}
               {r.stop != null && <> · stop {r.stop.toFixed(2)}</>}
+              {r.live != null && <> · live {r.live.toFixed(2)}</>}
             </div>
+          )}
+          {r.intraday && (
+            <div style={{ fontSize: 11.5, color: "#d29922", marginTop: 2 }}>⚠ {r.intraday}</div>
           )}
         </div>
       ))}
@@ -139,6 +148,25 @@ export function SignalBoard() {
           Decided on the {day(board.signal_date)} close; paper orders at the {day(board.order_date)} open.
           Next decision {day(board.next_signal_date)}. {board.market}. {board.allocation_pct}% of capital,
           {" "}{board.per_name_pct}% a name.
+        </div>
+      )}
+      {board.today && board.today.picks.length > 0 && (
+        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.025)",
+          fontSize: 12.5, lineHeight: 1.6 }}>
+          <b>If it rebalanced on the {day(board.today.as_of)} close:</b>{" "}
+          {board.today.picks.map((sym, i) => (
+            <span key={sym} style={{ fontWeight: board.today!.entering.includes(sym) ? 700 : 400,
+              color: board.today!.entering.includes(sym) ? "#3fb950" : "inherit" }}>
+              {sym}{i < board.today!.picks.length - 1 ? ", " : ""}
+            </span>
+          ))}
+          <div style={{ color: "var(--text-dim)", fontSize: 11.5 }}>
+            {board.today.entering.length || board.today.leaving.length
+              ? <>Drifting since the decision — would come in: {board.today.entering.join(", ") || "none"};
+                  would drop out: {board.today.leaving.join(", ") || "none"}. </>
+              : <>Same ten as the decision. </>}
+            Holdings change only on the next decision date ({day(board.next_signal_date)}); this updates daily.
+          </div>
         </div>
       )}
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 12 }}>
