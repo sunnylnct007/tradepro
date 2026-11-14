@@ -416,13 +416,45 @@ def check_host_power() -> list[Check]:
 
     detail = (f"running on BATTERY at {pct}%" if pct is not None
               else "running on BATTERY")
+    rem = re.search(r"(\d+:\d\d) remaining", out)
+    if rem:
+        detail += f", about {rem.group(1)} h left"
+    # READ THE SETTING, DO NOT ASSUME IT. This line used to say "sleeps after
+    # 1 minute idle (pmset `sleep 1`)" as a fixed string; on 14 Nov the owner
+    # set `pmset -b sleep 0` and the check kept reporting the old value.
+    idle = _battery_idle_sleep_minutes(subprocess)
+    if idle == 0:
+        return [Check(
+            "Host power", WARN,
+            f"{detail} — battery idle sleep is OFF (pmset -b `sleep 0`), so the "
+            f"lanes stay awake until the charge runs out or the lid is closed; "
+            f"then the Mac shuts down mid-run.",
+            "plug the Mac in before the next session — staying awake drains "
+            "the battery faster")]
+    sleep_text = (f"sleeps after {idle} minute(s) idle (pmset -b `sleep {idle}`)"
+                  if idle is not None else "may sleep when idle (battery sleep "
+                  "setting could not be read)")
     return [Check(
         "Host power", WARN,
-        f"{detail} — on battery this Mac sleeps after 1 minute idle "
-        f"(pmset `sleep 1`), and our caffeinate only prevents sleep on AC. A "
-        f"scheduled run WILL be interrupted: the 27 Oct screen took 16h48m of "
-        f"wall clock for ~3h of work and lost its publish.",
+        f"{detail} — on battery this Mac {sleep_text}, and our caffeinate only "
+        f"prevents sleep on AC. A scheduled run WILL be interrupted: the 27 Oct "
+        f"screen took 16h48m of wall clock for ~3h of work and lost its publish.",
         "plug the Mac in — no code change substitutes for this")]
+
+
+def _battery_idle_sleep_minutes(subprocess) -> int | None:
+    """The `sleep` value in pmset's Battery Power profile, or None if unread."""
+    try:
+        out = subprocess.run(["pmset", "-g", "custom"], capture_output=True,
+                             text=True, timeout=10).stdout
+    except Exception:  # noqa: BLE001
+        return None
+    section = out.split("Battery Power:", 1)
+    if len(section) < 2:
+        return None
+    body = section[1].split("AC Power:", 1)[0]
+    m = re.search(r"^\s*sleep\s+(\d+)", body, re.M)
+    return int(m.group(1)) if m else None
 
 
 def check_lane_schedules() -> list[Check]:
@@ -791,6 +823,15 @@ def check_broker_agrees(base: str, token: str | None) -> list[Check]:
             broker[sym] = broker.get(sym, 0.0) + float(
                 r.get("position") or r.get("quantity") or 0)
 
+    # Which strategies have ever filled each symbol at IBKR — a hand trade is
+    # attributed only where exactly one strategy owns the name.
+    _ibkr_owners: dict[str, set[str]] = {}
+    for o in orders:
+        if (o.get("strategyId") and str(o.get("state")) == "FILLED"
+                and str(o.get("broker") or "").startswith("IBKR")):
+            _ibkr_owners.setdefault(
+                str(o.get("symbol") or "").split("_")[0].upper(), set()).add(o["strategyId"])
+
     out = []
     for sid in LIVE_STRATEGIES:
         # ONLY IBKR LANES. ichimoku_equity routes to T212 and ichimoku_fx_mr to
@@ -809,6 +850,27 @@ def check_broker_agrees(base: str, token: str | None) -> list[Check]:
             sym = str(o.get("symbol") or "").split("_")[0].upper()
             q = float(o.get("filledQty") or 0)
             net[sym] = net.get(sym, 0.0) + (q if str(o.get("side", "")).upper() == "BUY" else -q)
+        # HAND TRADES AT THE BROKER COUNT TOO. On 9 Oct MET 30, IQV 10 and
+        # ABBV 2 were sold by hand at IBKR paper. The OMS recorded them as
+        # broker-origin fills with NO strategy, so this check kept netting
+        # only the sleeve's own buys and reported "broker +1 vs OMS +31" for
+        # five weeks: the books agreed and the check said they did not. An
+        # untagged fill on this sleeve's broker for a name ONLY this sleeve
+        # trades is applied to it; anything ambiguous is left out, so a real
+        # divergence still shows.
+        _hand: list[str] = []
+        for o in orders:
+            if o.get("strategyId") or str(o.get("state")) != "FILLED":
+                continue
+            if not str(o.get("broker") or "").startswith("IBKR"):
+                continue
+            sym = str(o.get("symbol") or "").split("_")[0].upper()
+            if sym not in net or _ibkr_owners.get(sym, set()) != {sid}:
+                continue
+            q = float(o.get("filledQty") or 0)
+            side = str(o.get("side", "")).upper()
+            net[sym] += q if side == "BUY" else -q
+            _hand.append(f"{side} {q:.0f} {sym}")
         owned = {k: v for k, v in net.items() if abs(v) > 0.5}
         if not owned:
             continue
@@ -828,7 +890,9 @@ def check_broker_agrees(base: str, token: str | None) -> list[Check]:
                 "may not exist — do not trust its board until this is flat"))
         else:
             out.append(Check(f"Broker vs OMS · {sid}", OK,
-                             f"all {len(owned)} position(s) agree with IBKR"))
+                             f"all {len(owned)} position(s) agree with IBKR"
+                             + (f" (counting {len(_hand)} hand trade(s) at the "
+                                f"broker: {', '.join(_hand[:4])})" if _hand else "")))
     if not out:
         out.append(Check("Broker vs OMS", UNKNOWN,
                          "no strategy claims a position — nothing to reconcile"))

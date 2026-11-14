@@ -55,6 +55,23 @@ public static class DataReadinessEndpoints
     {
         if (coveredNewestFirst is null || coveredNewestFirst.Count == 0) return (-1, 0);
 
+        // A RESCOPED LANE IS ITS NEW SIZE AFTER THREE RUNS, NOT AFTER FORTY-FIVE.
+        // 14 Nov 2026: the daily harvest was cut from 969 symbols to the 180
+        // the engine and screens read. The percentile below sits over a 60-row
+        // window, so it would have kept 969 as "typical" for ~45 more runs —
+        // about eleven weeks of "last FULL-LANE harvest was 109h ago" on a
+        // lane that had run every night, and a DEGRADED banner over a store
+        // whose newest SPY bar was the previous close. Three newest runs that
+        // agree (within 10%) and each cover a real universe (>= 10 symbols)
+        // are not ad-hoc fetches: they are the lane. Single-symbol fetches
+        // can never satisfy this, so the 30 Aug guard still holds.
+        if (coveredNewestFirst.Count >= 3)
+        {
+            var recent = coveredNewestFirst.Take(3).ToList();
+            if (recent.Min() >= 10 && recent.Min() >= recent.Max() * 0.9)
+                return (0, 0);
+        }
+
         // THE BASELINE IS A PERCENTILE, NOT THE MAXIMUM — and that distinction
         // is load-bearing. Using the all-time max broke bars_5m within minutes
         // of shipping: that lane's history still contains runs of 955 symbols

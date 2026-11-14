@@ -84,3 +84,33 @@ def test_on_mains_at_a_healthy_level_is_ok_even_if_idle(monkeypatch):
            "Now drawing from 'AC Power'\n -InternalBattery-0\t95%; AC attached; not charging")
     (c,) = dc.check_host_power()
     assert c.status == dc.OK
+
+
+def _pmset_two(monkeypatch, batt, custom):
+    class _R:
+        def __init__(self, t):
+            self.stdout = t
+    def run(cmd, *a, **kw):
+        return _R(custom if "custom" in cmd else batt)
+    monkeypatch.setattr(dc.subprocess, "run", run)
+
+
+_CUSTOM = "Battery Power:\n standby 1\n sleep {b}\nAC Power:\n standby 1\n sleep 0\n"
+
+
+def test_reports_the_battery_sleep_setting_it_reads_not_a_fixed_one(monkeypatch):
+    """14 Nov: owner set `pmset -b sleep 0`; the line still said `sleep 1`."""
+    batt = "Now drawing from 'Battery Power'\n -InternalBattery-0\t47%; discharging; 4:53 remaining"
+    _pmset_two(monkeypatch, batt, _CUSTOM.format(b=0))
+    (c,) = dc.check_host_power()
+    assert c.status == dc.WARN
+    assert "sleep 0" in c.detail and "sleeps after" not in c.detail
+    assert "47%" in c.detail and "4:53" in c.detail
+    assert "plug" in c.fix.lower()
+
+
+def test_battery_sleep_minutes_are_quoted_from_the_setting(monkeypatch):
+    batt = "Now drawing from 'Battery Power'\n -InternalBattery-0\t30%; discharging; 2:00 remaining"
+    _pmset_two(monkeypatch, batt, _CUSTOM.format(b=5))
+    (c,) = dc.check_host_power()
+    assert "sleeps after 5 minute" in c.detail

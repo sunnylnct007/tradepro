@@ -184,6 +184,40 @@ def test_a_non_ibkr_lane_is_not_compared_against_ibkr(monkeypatch):
     assert all(c.status != BROKEN for c in checks), [c.detail for c in checks]
 
 
+
+def _hand(sym, side, qty):
+    return dict(_filled(sym, side, qty, when="2026-10-09T21:09:00Z"),
+                strategyId=None, fillOrigin="broker", placedBy="HUMAN")
+
+
+def test_a_hand_sell_at_the_broker_counts_against_the_sleeve_that_holds_the_name(monkeypatch):
+    """9 Oct: MET 30 sold by hand at IBKR; OMS recorded it untagged. The check
+    reported 'broker +1 vs OMS +31' for five weeks while the books agreed."""
+    _wire(monkeypatch,
+          [_filled("MET", "BUY", 31), _hand("MET", "SELL", 30)],
+          [{"symbol": "MET_US_EQ", "position": 1}])
+    (c,) = dc.check_broker_agrees("http://x", None)
+    assert c.status == OK, c.detail
+    assert "hand trade" in c.detail and "SELL 30 MET" in c.detail
+
+
+def test_a_hand_trade_on_a_name_two_sleeves_hold_is_not_guessed(monkeypatch):
+    other = dict(_filled("MET", "BUY", 5), strategyId="other")
+    _wire(monkeypatch,
+          [_filled("MET", "BUY", 31), other, _hand("MET", "SELL", 30)],
+          [{"symbol": "MET_US_EQ", "position": 6}])
+    (c,) = dc.check_broker_agrees("http://x", None)
+    assert c.status == BROKEN
+
+
+def test_hand_trades_do_not_hide_a_real_divergence(monkeypatch):
+    _wire(monkeypatch,
+          [_filled("ARWR", "BUY", 61), _hand("ARWR", "SELL", 10)],
+          [{"symbol": "ARWR_US_EQ", "position": -671}])
+    (c,) = dc.check_broker_agrees("http://x", None)
+    assert c.status == BROKEN
+
+
 # ── phantom positions must not consume the open-position cap ──────────────
 def test_positions_the_broker_does_not_hold_are_dropped_at_seed_time(monkeypatch):
     """21 Sep, after the short was flattened: the OMS still claimed sixteen
