@@ -51,8 +51,27 @@ export function PutLimitBanner({ limit }: { limit: PutLimit }) {
   return (
     <div style={{ margin: "8px 0", padding: "8px 10px", borderRadius: 6, fontSize: 12.5, lineHeight: 1.5,
       border: "1px solid rgba(248,81,73,0.45)", background: "rgba(248,81,73,0.08)" }}>
-      <b style={{ color: "#f85149" }}>No new puts.</b> {limit.detail}
+      <b style={{ color: "#f85149" }}>Live account: no new puts.</b> {limit.detail}
       {limit.ageHours != null && <span style={{ color: "var(--text-muted)" }}> · checked {Math.round(limit.ageHours)} h ago</span>}
+      <div style={{ marginTop: 3 }}>Put ideas on this screen are for <b>paper trading only</b>.</div>
     </div>
   );
+}
+
+/** Hours since `iso`, counting WEEKDAY hours only (UTC). A board published
+ *  Friday evening is not stale on Sunday: nothing has traded since. Same clock
+ *  the desk check uses for its staleness lines. */
+export function weekdayHoursSince(iso?: string | null): number | null {
+  if (!iso) return null;
+  const start = new Date(iso).getTime();
+  if (Number.isNaN(start)) return null;
+  let t = start, hours = 0;
+  const end = Date.now();
+  while (t < end) {
+    const step = Math.min(3600_000, end - t);
+    const d = new Date(t).getUTCDay();
+    if (d !== 0 && d !== 6) hours += step / 3600_000;
+    t += step;
+  }
+  return hours;
 }

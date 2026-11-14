@@ -1,4 +1,4 @@
-import { PutLimitBanner, usePutLimit } from "./PutLimit";
+import { PutLimitBanner, usePutLimit, weekdayHoursSince } from "./PutLimit";
 import { useCallback, useEffect, useState } from "react";
 import { api, type OptionsPaperPosition, type RecordOptionsPositionBody } from "../../api/client";
 import { OptionsPayoff, type PayoffSeed, type PayoffPlacement } from "./OptionsPayoff";
@@ -328,6 +328,8 @@ export function OptionsDesk() {
   const open = positions.filter((p) => p.state !== "CLOSED" && !isExpired(p));
   const expiredUnsettled = positions.filter((p) => p.state !== "CLOSED" && isExpired(p));
   const putLimit = usePutLimit();
+  const candsAgeH = weekdayHoursSince(data?.generated_at_utc);
+  const candsStale = candsAgeH == null || candsAgeH > 20;
   // Names where we actually HOLD STOCK. Only ASSIGNED and COVERED_CALL_OPEN
   // qualify: an open SHORT_PUT is the obligation to buy, not the shares, and a
   // covered call written against it would be a naked call.
@@ -411,7 +413,12 @@ export function OptionsDesk() {
           2-minute morning loop doesn't require reading the full data table
           below. Never capital-gated here (project_wheel_signal_vs_paper_
           capital_split) — size-fit is informational, shown not filtered. */}
-      {!loading && !err && cands.length > 0 && putLimit.allowed && (
+      {!loading && !err && cands.length > 0 && candsStale && (
+        <div style={{ fontSize: 12.5, color: "#d29922", margin: "8px 0" }}>
+          Put candidates not shown: the screen last published {Math.round(candsAgeH ?? 0)} trading-day hours ago, so its prices are out of date. It runs weekdays at 16:00 London.
+        </div>
+      )}
+      {!loading && !err && cands.length > 0 && !candsStale && (
         <MorningCandidatesPanel candidates={cands} all={cands} onAnalyze={analyze} onRecord={recordCandidate} busy={busy} />
       )}
 

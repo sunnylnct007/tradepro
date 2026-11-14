@@ -36,7 +36,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api/client";
-import { PutLimitBanner, usePutLimit } from "./PutLimit";
+import { PutLimitBanner, usePutLimit, weekdayHoursSince } from "./PutLimit";
 import { SpreadBuilder } from "./SpreadBuilder";
 
 const TONE = {
@@ -149,7 +149,7 @@ export function ActionBoard() {
       const r: any = await api.optionsCandidates();
       const rows: any[] = r?.candidates ?? [];
       const gen = r?.generated_at_utc ?? r?.generatedAtUtc ?? r?.as_of_utc;
-      if (gen) setPutsAgeH((Date.now() - new Date(gen).getTime()) / 3600_000);
+      if (gen) setPutsAgeH(weekdayHoursSince(gen));
       const bookNote = typeof r?.book === "string" ? r.book : (r?.book?.note ?? r?.book?.error ?? "");
       if (/unreachable|cannot be enforced/i.test(String(bookNote))) {
         held.push(`Options: ${bookNote}`);
@@ -275,8 +275,8 @@ export function ActionBoard() {
         <span style={{ color: TONE.dim, fontSize: 12 }}>
           {loading ? "loading…" : `${buys.filter((b) => b.verb === "BUY").length} to buy · `
             + `${buys.filter((b) => b.verb === "SELL").length} to sell · `
-            + (!putLimit.allowed ? "no new puts (limit)"
-               : putsStale ? "put ideas out of date" : `${putsWorth.length} put(s) worth selling`)}
+            + (putsStale ? "put ideas out of date"
+               : `${putsWorth.length} put idea(s)${putLimit.allowed ? "" : " — paper only, live is over its limit"}`)}
         </span>
         <button
           onClick={() => setShowWhy((v) => !v)}
@@ -324,12 +324,12 @@ export function ActionBoard() {
       {puts.length > 0 && <PutLimitBanner limit={putLimit} />}
       {/* ONLY WHAT CAN BE TRUSTED (owner, 14 Nov). Puts are listed only when the
           limit allows new puts AND the prices are from the last 20 hours. */}
-      {puts.length > 0 && putLimit.allowed && putsStale && (
+      {puts.length > 0 && putsStale && (
         <div style={{ fontSize: 12, color: "#d29922", margin: "4px 0" }}>
-          Put ideas not shown: the put screen last published {Math.round(putsAgeH!)} h ago, so its prices are out of date.
+          Put ideas not shown: the put screen last published {putsAgeH == null ? "at an unknown time" : `${Math.round(putsAgeH)} trading-day hours ago`}, so its prices are out of date.
         </div>
       )}
-      {putsWorth.length > 0 && putLimit.allowed && !putsStale && (
+      {putsWorth.length > 0 && !putsStale && (
         <div style={{ marginTop: buys.length ? 14 : 12 }}>
           {putsShown.map((a) => (
             <Line key={a.key} a={a} onBuild={a.build ? () => setBuilding(a.build!) : undefined} />
@@ -351,7 +351,7 @@ export function ActionBoard() {
         </div>
       )}
 
-      {putsThin.length > 0 && putLimit.allowed && !putsStale && (
+      {putsThin.length > 0 && !putsStale && (
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
           <div style={{ color: TONE.dim, fontSize: 11, marginBottom: 4 }}>
             {putsThin.length} put(s) pass every gate but their expectancy does
