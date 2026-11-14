@@ -39,8 +39,9 @@ from pathlib import Path
 LANE_STALE_MINUTES = 45
 
 LANES = {
-    "swing": "/tmp/tradepro-paper-swing-ibkr.log",
-    "momentum": "/tmp/tradepro-paper-momentum-ibkr.log",
+    # swing closed 13 Nov 2026; the core engine replaces it here
+    "momentum rotation": "/tmp/tradepro-paper-momentum-rotation-ibkr.log",
+    "momentum pullback": "/tmp/tradepro-paper-momentum-ibkr.log",
 }
 
 _SEED = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*position seed:")

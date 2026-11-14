@@ -28,7 +28,6 @@ import { DeskShell, type DeskView } from "../components/desk/DeskShell";
 import { ResearchView } from "../components/desk/ResearchView";
 import { CandidatesView } from "../components/desk/CandidatesView";
 import { DeskHealthBanner } from "../components/desk/DeskHealthBanner";
-import { SwingView } from "../components/desk/SwingView";
 import { PostEarningsPutsView } from "../components/desk/PostEarningsPutsView";
 import { MomentumView } from "../components/desk/MomentumView";
 import { PaperLedgerCard } from "../components/desk/PaperLedgerCard";
@@ -74,7 +73,7 @@ function useWide(): boolean {
 // stale verdicts, and in decide's case its lane (tradepro-compare, 54 symbols
 // x 7 strategies) had been running for 23 hours to feed it. Deleted, with the
 // lane. Nothing that is not on the rail is routable.
-const DESK_VIEWS: DeskView[] = ["live", "candidates", "portfolio", "oms", "harvest", "options", "research", "swing", "momentum", "post-earnings-puts", "strangle-decisions", "universes", "settings"];
+const DESK_VIEWS: DeskView[] = ["live", "candidates", "portfolio", "oms", "harvest", "options", "research", "momentum", "post-earnings-puts", "strangle-decisions", "universes", "settings"];
 
 export function Desk() {
   const wide = useWide();
@@ -264,7 +263,6 @@ export function Desk() {
           <CandidatesView onOpenSymbol={onSearchSelectSymbol} />
         </>
       )}
-      {view === "swing"      && <SwingView onOpenSymbol={onSearchSelectSymbol} />}
       {view === "post-earnings-puts" && <PostEarningsPutsView />}
       {view === "momentum"   && <MomentumView />}
       {view === "live"       && <LiveView />}

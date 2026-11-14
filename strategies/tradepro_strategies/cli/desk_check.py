@@ -52,13 +52,12 @@ RANK = {BROKEN: 0, UNKNOWN: 1, WARN: 2, OK: 3}
 BOARDS = {
     "wheel": ("Wheel (put selling)", 30),
     "preearnings": ("Watch / pre-earnings", 30),
-    "swing": ("Swing (mean reversion)", 30),
+    "momentum_rotation": ("Momentum rotation (core engine)", 6),
     "momentum": ("Momentum pullback", 30),
 }
 
 # Live strategies whose execution we can verify against the OMS.
-LIVE_STRATEGIES = ("mean_reversion_swing_ibkr", "ichimoku_equity",
-                   "ichimoku_equity_ibkr", "ichimoku_fx_mr")
+LIVE_STRATEGIES = ("momentum_rotation_ibkr", "momentum_pullback_ibkr")
 
 # Below these, an execution lane is losing most of its orders and must not
 # read as healthy. Set from the measured split on 19 Sep: the lanes that work
@@ -101,11 +100,11 @@ DORMANT_AFTER_DAYS = 10
 # "not scheduled at all" the same evening, which is exactly its job.
 SCHEDULED_JOBS = (
     "com.tradepro.option-chain-capture",
-    "com.tradepro.swing-candidates",
     "com.tradepro.momentum-candidates",
     "com.tradepro.bar-cache-harvest-daily",
     "com.tradepro.trade-alerts",
-    "com.tradepro.paper-swing-ibkr",
+    "com.tradepro.paper-momentum-rotation-ibkr",
+    "com.tradepro.paper-momentum-ibkr",
     "com.tradepro.screener-daily",
     "com.tradepro.mac-deploy-sync",
     # This check watches itself. A dead checker is the worst failure mode in
@@ -580,7 +579,7 @@ def check_boards(base: str, token: str | None) -> list[Check]:
             continue
         art = d.get("artifact") or {}
         rows = (art.get("candidates_v2") or art.get("rows") or [])
-        n_elig = sum(1 for r in rows if r.get("eligible"))
+        n_elig = sum(1 for r in rows if r.get("eligible") or r.get("action") in ("BUY", "SELL"))
         if age > max_h:
             out.append(Check(
                 f"Board · {human}", BROKEN,
@@ -846,7 +845,9 @@ def check_round_trips(base: str, token: str | None) -> list[Check]:
     was asking whether the strategy worked.
     """
     out = []
-    for sid in ("mean_reversion_swing_ibkr",):
+    # Swing closed 13 Nov 2026 and its scorecard counted 18 "open" positions the
+    # broker did not hold. Add the core engine here once it has a scorecard.
+    for sid in ():
         try:
             d = _get(base, token, f"/api/today-setups/scorecard-{sid}/latest")
         except Exception as exc:  # noqa: BLE001
