@@ -138,6 +138,29 @@ export function LiveBookCard() {
               </b>{" "}
               <span style={{ color: TONE.muted }}>if every short put is exercised</span>
             </span>
+            {/* THE OBLIGATION NEEDS ITS LIMIT BESIDE IT. A bare $ figure says
+                nothing about whether it is too much; the owner's limit (build
+                pack, 13 Nov: strike value at most 50% of NLV) does. */}
+            {art.put_limits?.nav_usd ? (
+              <span>
+                limit{" "}
+                <b style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
+                  {usd(art.put_limits.nav_usd * (art.put_limits.limits?.total ?? 0.5))}
+                </b>{" "}
+                <span style={{ color: TONE.muted }}>
+                  ({Math.round((art.put_limits.limits?.total ?? 0.5) * 100)}% of NLV {usd(art.put_limits.nav_usd)}) —{" "}
+                </span>
+                <b style={{ color: art.put_limits.new_puts_allowed ? TONE.ok : TONE.act }}>
+                  {art.put_limits.new_puts_allowed
+                    ? "within"
+                    : `${Math.round((art.assignment_obligation_usd ?? art.put_limits.strike_value_usd) / art.put_limits.nav_usd * 100)}% of NLV, over the limit`}
+                </b>
+              </span>
+            ) : (
+              <span style={{ color: TONE.watch }}>
+                limit not checked yet — NLV arrives with the next live-risk run
+              </span>
+            )}
             <span>
               marked at{" "}
               <b style={{

@@ -31,14 +31,25 @@ function Chip({ label, value, tone, sub }: { label: string; value: string; tone?
 
 export function DeskKpiStrip() {
   const [rows, setRows] = useState<Pnl[]>([]);
+  // SAY WHEN, AND SAY IF IT IS INCOMPLETE. The strip showed P&L numbers with
+  // no time and swallowed the endpoint's own error/coverageError, so a partial
+  // computation read exactly like a complete one.
+  const [asOf, setAsOf] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       // The "NLV vs start" and "Exits overdue" chips read the Ichimoku signal
       // audit. Both were removed with that job on 12 Nov 2026: Ichimoku is
       // stopped, and a frozen artifact would show a dead book as current.
-      setRows((await api.pnlByStrategy()).rows);
-    } catch { /* strip is best-effort; panels below carry the authoritative view */ }
+      const r = await api.pnlByStrategy();
+      setRows(r.rows);
+      setAsOf(r.utc ?? null);
+      setProblem(r.error || r.coverageError || null);
+    } catch (e) {
+      setRows([]);
+      setProblem(`P&L could not be read (${String((e as Error)?.message || e).slice(0, 60)})`);
+    }
   }, []);
   useEffect(() => { void load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
 
@@ -56,8 +67,10 @@ export function DeskKpiStrip() {
   // much they have on. A sleeve that stops trading drops out on its own, and a
   // new one appears without anyone editing this file — which is the failure
   // these two hardcoded ids were.
+  // A sleeve HOLDING positions is live even if it has not traded this week —
+  // otherwise six open pullback positions read as "live sleeves: none".
   const live = rows
-    .filter((r) => (r as any).activity === "active")
+    .filter((r) => (r as any).activity === "active" || Math.abs(r.openPnl ?? 0) > 0)
     .sort((a, b) => Math.abs((b.openPnl ?? 0)) - Math.abs((a.openPnl ?? 0)))
     .slice(0, 2);
 
@@ -71,14 +84,17 @@ export function DeskKpiStrip() {
           label={r.strategyId.replace(/_ibkr$/, "").replace("mean_reversion_", "")}
           value={money(r.openPnl, r.currency ?? "GBP")}
           tone={(r.openPnl ?? 0) < 0 ? "bad" : (r.openPnl ?? 0) > 0 ? "good" : undefined}
-          sub="open" />
+          sub={`open · ${r.currency}${asOf ? ` · ${new Date(asOf).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : ""}`} />
       ))}
-      {live.length === 0 && (
+      {problem && (
+        <Chip label="P&L" value="incomplete" tone="warn" sub={problem.slice(0, 80)} />
+      )}
+      {live.length === 0 && !problem && (
         // NOT a blank space. No live sleeve is a fact worth stating — it means
         // nothing has traded in a week, which is either a quiet market or a
         // stopped lane, and the reader needs to know which question to ask.
         <Chip label="live sleeves" value="none"
-          sub="nothing traded in 7 days" tone="bad" />
+          sub="no open positions, nothing traded in 7 days" tone="warn" />
       )}
     </div>
   );

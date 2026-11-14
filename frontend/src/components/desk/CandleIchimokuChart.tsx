@@ -1182,15 +1182,22 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         </div>
       )}
 
+      {/* SAY WHAT IS DRAWN. This caption described the Ichimoku cloud on
+          every chart — with the cloud OFF by default, Ichimoku a stopped
+          strategy, and in Renko mode where no cloud is ever drawn. */}
       <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        Daily candles (green up / red down). Ichimoku Kinko Hyo at the STRATEGY's
-        params: Tenkan-sen (5, blue) · Kijun-sen (32, orange) · the cloud is the
-        band between Senkou Span A &amp; B (green when A&gt;B, red when below)
-        shifted 32 bars forward · Chikou span (close shifted 32 back, purple) —
-        so this matches the ichimoku_equity signal, not textbook 9/26/52.
-        Indicators are computed on ~{PAD_DAYS} extra leading bars so the cloud
-        spans the whole window. No data is fabricated — points without enough
-        history are omitted.
+        {renko
+          ? <>Renko bricks (green up / red down){_brickSize > 0 ? `, each worth ${_brickSize.toFixed(2)} (ATR 14)` : ""}. A brick forms only when price moves a full brick, so the x-axis is bricks, not dates; indicators and markers are hidden.</>
+          : <>{resolution === "1d" ? "Daily" : resolution} candles (green up / red down).
+              {(() => {
+                const shown = [ind.sma50 && "SMA 50", ind.sma200 && "SMA 200",
+                  ind.vwap && resolution !== "1d" && "VWAP", ind.vol && "volume",
+                  ind.rsi && "RSI 14", ind.obv && "OBV",
+                  ind.ich && "Ichimoku 5/32/50 cloud (reference only — no live strategy uses it)"]
+                  .filter(Boolean);
+                return shown.length ? ` Showing: ${shown.join(" · ")}.` : "";
+              })()}
+              {" "}Points without enough history are omitted, never filled in.</>}
       </div>
     </div>
   );
