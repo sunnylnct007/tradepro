@@ -88,3 +88,18 @@ def test_a_null_override_turns_a_rule_off_and_a_typo_is_refused():
     import pytest
     with pytest.raises(ValueError):
         M.with_overrides(trailing_stp=0.1)
+
+
+def test_the_review_variants_are_off_by_default_and_change_the_picks_when_on():
+    p = M.Params()
+    assert (p.entry_above_sma50, p.score_mode, p.score_cap_x_median) == (False, "blend", None)
+    # A has the higher score but has just broken its 50-day average.
+    dates = __import__("pandas").bdate_range("2019-01-01", periods=N)
+    a = np.exp(np.cumsum(np.full(N, 0.003)))
+    a[-30:] *= np.linspace(1.0, 0.85, 30)
+    P = _panels({"A": 0.003, "B": 0.0015, "C": 0.0012})
+    P.adj_close["A"] = 100 * a
+    P.adj_open = P.adj_close
+    assert M.backtest(_p(top_n=1), P)["rebalances"][-1]["picks"] == ["A"]
+    assert M.backtest(_p(top_n=1, entry_above_sma50=True), P)["rebalances"][-1]["picks"] == ["B"]
+    assert M.backtest(_p(top_n=1, score_mode="vol_adjusted"), P)["rebalances"][-1]["picks"]

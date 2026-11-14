@@ -41,6 +41,10 @@ class Params:
     trailing_stop: float | None = 0.20   # None = off
     alert_halve: float | None = 0.15     # account drawdown that halves the engine
     alert_cash: float | None = 0.25      # account drawdown that goes to cash
+    # review variants (14 Nov 2026), OFF in the decided design
+    entry_above_sma50: bool = False      # veto a pick closing below its 50-day
+    score_mode: str = "blend"            # blend | vol_adjusted (score / 126-day vol)
+    score_cap_x_median: float | None = None  # winsorize: cap a score at N x the median
     # proposed implementation details
     min_history: int = 252
     min_price: float = 10.0
@@ -178,6 +182,8 @@ class Derived:
     traded: pd.DataFrame
     market_ok: pd.Series
     daily_ret: pd.DataFrame
+    sma50: pd.DataFrame
+    vol126: pd.DataFrame
 
 
 def derive(P: Panels, p: Params) -> Derived:
@@ -190,7 +196,9 @@ def derive(P: Panels, p: Params) -> Derived:
         sma200=adj_f.rolling(200).mean(), history=P.adj_close.notna().cumsum(),
         traded=(P.raw_close * P.volume).rolling(p.liquidity_window, min_periods=40).median(),
         market_ok=_market_ok(P.spy.reindex(P.dates).ffill(), adj_f, p),
-        daily_ret=adj_f.pct_change(fill_method=None))
+        daily_ret=adj_f.pct_change(fill_method=None),
+        sma50=adj_f.rolling(50).mean(),
+        vol126=adj_f.pct_change(fill_method=None).rolling(126).std() * math.sqrt(252))
 
 
 def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float = 1.0) -> dict:
@@ -207,7 +215,18 @@ def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float 
             & (D.traded.loc[t] > p.min_traded_value)
         if p.stock_trend_filter:
             elig &= D.adj_f.loc[t] > D.sma200.loc[t]
-        cand = pd.DataFrame({"score": D.score.loc[t], "long": D.ret_long.loc[t]})[elig]
+        if p.entry_above_sma50:
+            elig &= D.adj_f.loc[t] > D.sma50.loc[t]
+        sc = D.score.loc[t]
+        if p.score_mode == "vol_adjusted":
+            sc = sc / D.vol126.loc[t]
+        elif p.score_mode != "blend":
+            raise ValueError(f"unknown score_mode {p.score_mode!r}")
+        if p.score_cap_x_median:
+            med = sc[elig].median()
+            if med and med > 0:
+                sc = sc.clip(upper=p.score_cap_x_median * med)
+        cand = pd.DataFrame({"score": sc, "long": D.ret_long.loc[t]})[elig]
         cand = cand.sort_values(["score", "long"], ascending=False)
         per_sector: dict[str, int] = {}
         for s in cand.index:
