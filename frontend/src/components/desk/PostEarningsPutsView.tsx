@@ -16,7 +16,7 @@
  * that states 89.5% also has to state that this is ONE regime and that the
  * worst trade was -23.4%. Verdict on record: PAPER FORWARD TEST, NOT FUNDED.
  */
-import { PutLimitBanner, usePutLimit } from "./PutLimit";
+import { PutLimitBanner, usePutLimit, weekdayHoursSince } from "./PutLimit";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { EventChips, MarketEventsStrip, type EventsWindow } from "./EventChips";
@@ -111,7 +111,11 @@ export function PostEarningsPutsView() {
         )}
       </div>
 
-      {!putLimit.allowed ? null : cands.length === 0 ? (
+      {(() => { const h = weekdayHoursSince(art.as_of_utc); return h == null || h > 20; })() ? (
+        <div style={{ fontSize: 13, color: "#d29922" }}>
+          Not shown: this screen last published more than 20 trading-day hours ago, so its prices are out of date.
+        </div>
+      ) : cands.length === 0 ? (
         <div style={{ padding: 16, border: "1px dashed var(--border)", borderRadius: 8,
                       color: "var(--text-dim)", fontSize: 15 }}>
           <b>No candidates right now.</b>{" "}
