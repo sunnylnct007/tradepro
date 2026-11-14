@@ -116,9 +116,18 @@ public class DataReadinessGradingTests
     }
 
     [Fact]
-    public void TwoSmallRuns_AreNotYetARescope()
+    public void ALaneResizedSeveralTimesInAWeek_IsStillTheLane()
     {
-        var history = new List<int> { 180, 180 };
+        // The real 14 Nov history, newest first: 180, 106, 106, 84, then 969s.
+        var history = new List<int> { 180, 106, 106, 84 };
+        history.AddRange(Enumerable.Repeat(969, 56));
+        Assert.Equal((0, 0), DataReadinessEndpoints.PickGradedRun(history));
+    }
+
+    [Fact]
+    public void TinyFetchesAheadOfTheLane_AreStillSkipped()
+    {
+        var history = new List<int> { 1, 2 };
         history.AddRange(Enumerable.Repeat(969, 58));
         var (index, ignored) = DataReadinessEndpoints.PickGradedRun(history);
         Assert.Equal(2, index);

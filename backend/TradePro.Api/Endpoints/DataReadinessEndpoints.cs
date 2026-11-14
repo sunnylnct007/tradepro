@@ -61,16 +61,14 @@ public static class DataReadinessEndpoints
         // window, so it would have kept 969 as "typical" for ~45 more runs —
         // about eleven weeks of "last FULL-LANE harvest was 109h ago" on a
         // lane that had run every night, and a DEGRADED banner over a store
-        // whose newest SPY bar was the previous close. Three newest runs that
-        // agree (within 10%) and each cover a real universe (>= 10 symbols)
-        // are not ad-hoc fetches: they are the lane. Single-symbol fetches
-        // can never satisfy this, so the 30 Aug guard still holds.
-        if (coveredNewestFirst.Count >= 3)
-        {
-            var recent = coveredNewestFirst.Take(3).ToList();
-            if (recent.Min() >= 10 && recent.Min() >= recent.Max() * 0.9)
-                return (0, 0);
-        }
+        // whose newest SPY bar was the previous close. The guard below exists
+        // for ad-hoc fetches of one or two symbols; three newest runs that
+        // each cover a real universe (>= 10 symbols) are the lane, whatever
+        // their size. NOT "three runs that agree": the first version required
+        // agreement within 10% and never fired, because that week the lane
+        // grew 84 -> 106 -> 180 as the engine's names were added.
+        if (coveredNewestFirst.Count >= 3 && coveredNewestFirst.Take(3).Min() >= 10)
+            return (0, 0);
 
         // THE BASELINE IS A PERCENTILE, NOT THE MAXIMUM — and that distinction
         // is load-bearing. Using the all-time max broke bars_5m within minutes
