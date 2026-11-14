@@ -45,7 +45,7 @@ public static class JobsEndpoints
         "index_strangle_alert",
         "post_earnings_puts",
         "index_strangle_close",
-        "preearnings_watch",
+        // preearnings_watch removed 14 Nov 2026 with the watch list (owner: "Remove it").
     };
 
     public static IEndpointRouteBuilder MapJobsEndpoints(this IEndpointRouteBuilder app)

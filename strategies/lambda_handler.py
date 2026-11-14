@@ -101,7 +101,6 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # this one can overlap without double-alerting — the fired-key store is
     # shared. Daily bars come from the BarStore via S3 read-through (same as
     # post_earnings_puts); intraday 15m from yfinance, labelled.
-    "preearnings_watch":    ("tradepro_strategies.cli.preearnings_watch", []),
     # DID THE DESK ACTUALLY WORK TODAY? Runs after the bell and says so, in a
     # subject line that differs on a bad day. Every failure in the first week —
     # a job that never ran, a close that left four legs overnight, placements
@@ -295,6 +294,10 @@ def _report_provenance(job: str) -> dict:
 #: A retired job returns ok=True and says why. When the rule is finally removed
 #: this entry goes with it.
 RETIRED_JOBS: dict[str, str] = {
+    "preearnings_watch": (
+        "The watch list (Watchlist / Pre-Earn) was removed 14 Nov 2026: hand-picked "
+        "names scored by rules never backtested, on a desk that shows only what "
+        "can be trusted (owner: 'Remove it'). Any schedule still firing returns here."),
     "paper_swing_dryrun": (
         "Swing closed 13 Nov 2026 (owner: 'if swing is of no use we close it for "
         "now as opposed to mislead on UI'). It held nothing and placed nothing; "
