@@ -187,7 +187,13 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
   // both yield and delta rank the worst trade first.
   const [sort, setSort] = useState<SortKey>("ev");
   const [desc, setDesc] = useState(true);
-  const [onlyEligible, setOnlyEligible] = useState(false);
+  // ONLY ELIGIBLE ROWS ARE SHOWN — no "hide blocked" toggle (owner, 14-15 Nov
+  // 2026: "only show what we can trust", "no more hanging of unreliable
+  // screens"). On 15 Nov this table showed ~60 rows reading "no bars, spot,
+  // premium, IV, OI … could not check events": names screened while the
+  // network was down, rendered as if they were a market verdict. Rejected and
+  // unscreened names are COUNTED in one line instead.
+  const onlyEligible = true;
   const [open, setOpen] = useState<string | null>(null);
 
   const view = useMemo(() => {
@@ -255,12 +261,17 @@ export function WheelBoardTable<T extends WheelRow>({ rows, onAnalyze, onRecord,
                   </span></>;
           })()}
         </span>
-        <label style={{ fontSize: 12, color: "var(--text)", cursor: "pointer", marginLeft: "auto" }}>
-          <input type="checkbox" checked={onlyEligible}
-                 onChange={(e) => setOnlyEligible(e.target.checked)}
-                 style={{ marginRight: 5, verticalAlign: "middle" }} />
-          hide blocked
-        </label>
+        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
+          {(() => {
+            const notShown = rows.filter((r) => !r.eligible);
+            const unscreened = notShown.filter((r) => /unavailable|could not|stale or invalid|unreachable/i
+              .test(((r as any).data_blocks || []).join(" "))).length;
+            return notShown.length
+              ? <>{notShown.length} not shown: {notShown.length - unscreened} failed a rule
+                  {unscreened ? <>, {unscreened} could not be screened (data missing)</> : null}</>
+              : null;
+          })()}
+        </span>
       </div>
 
       <div style={{ overflowX: "auto" }}>

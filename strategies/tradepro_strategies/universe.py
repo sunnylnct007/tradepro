@@ -309,6 +309,17 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
         if ok:
             out.setdefault(sym.upper(), None)
 
+    # A SCREEN'S UNIVERSE MUST BE HARVESTED (15 Nov 2026). The options screen
+    # reads WHEEL_SLEEVE; 26 of its 100 names (CRWD, AMAT, LRCX, KLAC, ...) had
+    # their harvest switch off, so their bars were days old and the screen
+    # priced puts off stale spots or could not screen them at all. Union it
+    # here, the one definition of the harvest, rather than flipping 26 flags by
+    # hand and waiting for the two lists to drift apart again.
+    for sym in WHEEL_SLEEVE:
+        ok, _ = _instrument_ok(sym)
+        if ok:
+            out.setdefault(sym.upper(), None)
+
     _store_extra: list[str] = []
     if store_dir is not None:
         p = Path(store_dir)
