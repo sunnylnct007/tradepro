@@ -72,9 +72,13 @@ def test_events_between_carries_the_sell_off_as_a_high_event():
             return {"catalysts": [{"symbol": "MARKET", "kind": "fomc", "occurs_on": "2026-12-09",
                                    "title": "FOMC", "source": "market_calendar", "severity": "high"}]}
         if path == f"/api/today-setups/{ss.ARTIFACT_UNIVERSE}/latest":
-            return {"artifact": _art({"XLK"})}
+            # Stamped TODAY by the real clock: events_between judges the
+            # artifact's freshness against the real date, so a fixed date made
+            # this test fail on its own five days after it was written.
+            return {"artifact": _art({"XLK"}, as_of=date.today())}
         raise AssertionError(path)
-    w = ev.events_between("NVDA", TODAY, TODAY + timedelta(days=20), api_base="http://x", fetch=fetch)
+    w = ev.events_between("NVDA", date.today(), date.today() + timedelta(days=20),
+                          api_base="http://x", fetch=fetch)
     assert w.verified
     assert [e.kind for e in w.events] == ["sector_selloff"]
     assert w.events[0].scope == "XLK" and w.events[0].severity == "high"

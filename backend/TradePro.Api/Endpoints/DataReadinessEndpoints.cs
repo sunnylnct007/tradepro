@@ -144,7 +144,10 @@ public static class DataReadinessEndpoints
 
             // Earnings calendar — the wheel's event gate depends on it.
             var earn = await StoreStateAsync("earnings_calendar", "uploaded_at", "symbol");
-            var earnUsable = earn.newest is not null && (now - earn.newest.Value).TotalHours <= 48;
+            // WEEKDAY HOURS, like the bar lanes. The earnings harvest runs on
+            // weekday evenings; graded on wall-clock hours it went STALE every
+            // Sunday evening ("last harvest 49h ago") with nothing wrong.
+            var earnUsable = earn.newest is not null && ExpectedRunHours(earn.newest.Value, now) <= 48;
             Add("earnings_calendar", "Earnings dates",
                 "blocks selling premium across a print",
                 earnUsable, earn.newest,
@@ -418,8 +421,12 @@ public static class DataReadinessEndpoints
             await AddLaneAsync("bars_1d", "Daily bars (1d)",
                 "every regime, Ichimoku, HV and backtest figure", "bar-cache-harvest", "1d", 30,
                 weekdayOnly: true);
+            // weekdayOnly: no 5m bars exist on a weekend, so weekend hours must
+            // not age the lane. Sunday 15 Nov it read "has not run for 3h" while
+            // the Mac slept between runs on a closed market.
             await AddLaneAsync("bars_5m", "Intraday bars (5m)",
-                "intraday strategies + microstructure", "bar-cache-harvest", "5m", 3);
+                "intraday strategies + microstructure", "bar-cache-harvest", "5m", 3,
+                weekdayOnly: true);
             // bars_1m RETIRED 20 Sep 2026 — owner's call, recorded here rather
             // than deleted quietly. The dataset had NO producer and NO consumer:
             // no 1-minute harvest job is loaded in launchd, and the only lane

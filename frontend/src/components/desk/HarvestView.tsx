@@ -238,6 +238,21 @@ export function HarvestView() {
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
+  // THE SCOPE IS WHAT THE NIGHTLY LANE HARVESTS (owner, 15 Nov 2026: "data
+  // screen needs sorting to hide symbols we not using"). The store holds ~1,000
+  // symbols; ~800 are no longer harvested and read "STALE" — true of the files,
+  // irrelevant to anything we use. The harvest publishes tonight's exact list.
+  const [scope, setScope] = useState<{ symbols: string[]; asOf?: string } | null>(null);
+  const [scopeErr, setScopeErr] = useState<string | null>(null);
+  useEffect(() => {
+    api.todaySetupsArtifact("harvest-scope")
+      .then((r) => {
+        const a: any = r?.artifact ?? {};
+        if (Array.isArray(a.symbols) && a.symbols.length) setScope({ symbols: a.symbols, asOf: a.as_of_utc });
+        else setScopeErr("the harvest has not published its symbol list yet");
+      })
+      .catch(() => setScopeErr("the harvest has not published its symbol list yet"));
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -306,8 +321,22 @@ export function HarvestView() {
         byCanonical.set(r.canonical, r);
       }
     }
-    return [...byCanonical.values()];
-  }, [rows]);
+    const all = [...byCanonical.values()];
+    if (!scope) return all;
+    const want = new Set(scope.symbols.map((x) => x.toUpperCase()));
+    return all.filter((r) => want.has(r.canonical.toUpperCase()));
+  }, [rows, scope]);
+
+  // What the scope hides, and — the part that must never be silent — any
+  // harvested symbol with NO health row at all.
+  const scopeNote = useMemo(() => {
+    if (!scope) return null;
+    const stored = new Set(rows.map((r) => r.canonical.toUpperCase()));
+    const want = scope.symbols.map((x) => x.toUpperCase());
+    const missing = want.filter((x) => !stored.has(x));
+    const hidden = [...stored].filter((x) => !want.includes(x)).length;
+    return { count: want.length, hidden, missing };
+  }, [rows, scope]);
 
   const summary = useMemo(() => {
     const s = { total: dedupedRows.length, healthy: 0, warn: 0, bad: 0, none: 0, missing: 0 };
@@ -352,6 +381,26 @@ export function HarvestView() {
       </div>
 
       <DataReadinessBanner />
+
+      <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "6px 0 10px", lineHeight: 1.5 }}>
+        {scopeNote ? (
+          <>
+            Showing the <b>{scopeNote.count}</b> symbols the nightly harvest fetches
+            {scope?.asOf ? ` (list from ${new Date(scope.asOf).toLocaleString()})` : ""}.
+            {" "}{scopeNote.hidden} other stored symbols are not harvested and are hidden.
+            {scopeNote.missing.length > 0 && (
+              <span style={{ color: "var(--down)" }}>
+                {" "}Harvested but with no health record: {scopeNote.missing.join(", ")}.
+              </span>
+            )}
+          </>
+        ) : (
+          <span style={{ color: "var(--warn)" }}>
+            Showing every stored symbol: {scopeErr ?? "loading the harvest list…"}. Rows marked STALE
+            may simply be names we no longer harvest.
+          </span>
+        )}
+      </div>
 
       {/* Full run-log stream — moved here from the main dashboard (owner,
           22 Aug 2026): the dashboard keeps a one-line indicator; the detail

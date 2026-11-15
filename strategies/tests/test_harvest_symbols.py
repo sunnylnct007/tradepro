@@ -35,6 +35,10 @@ def universe_of(tmp_path, monkeypatch):
             "excluded": [],
         }))
         monkeypatch.setenv("TRADEPRO_UNIVERSE_PATH", str(p))
+        # Isolate the harvest logic from the options screen's universe, which
+        # harvest_symbols also unions in (tested in test_harvest_scope.py).
+        import tradepro_strategies.universe as _u
+        monkeypatch.setattr(_u, "WHEEL_SLEEVE", ())
         return p
     return _make
 

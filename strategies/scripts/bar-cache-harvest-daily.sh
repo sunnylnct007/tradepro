@@ -109,6 +109,16 @@ fi
 # it, including sector stress.
 log "harvest complete — golden store updated (no second store to push)"
 
+# ── Harvest scope (15 Nov 2026) ─────────────────────────────────────────────
+# Publish the exact list harvested tonight; the Data screen shows these symbols
+# and hides the ~800 the store holds but nothing uses. Must not fail the harvest.
+log "publishing harvest scope ($N symbols)"
+if "$UV" run tradepro-harvest-scope --symbols "$SYMS" --push >>"$LOG" 2>&1; then
+    log "harvest scope published"
+else
+    log "WARNING: harvest scope publish FAILED (exit $?) — the Data screen will say its scope is unknown. See $LOG"
+fi
+
 # ── Sector stress (SELLOFF_PLAYBOOK_GATES_V1 §S2, 10 Nov 2026) ──────────────
 # With tonight's bars settled, publish which sector ETFs (and SPY/QQQ) sit ≥ 8%
 # below their 20-day high. Every events window (options screen, puts board,
