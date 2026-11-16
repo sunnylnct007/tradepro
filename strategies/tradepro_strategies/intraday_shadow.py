@@ -46,6 +46,9 @@ import pandas as pd
 RECORD_START = "2026-11-16"          # first forward session; never moved
 NOTIONAL, COST = 10_000.0, 0.0006
 R7_VOLUME_X = 2.0
+#: RULE7_BREAKOUT_VOLUME_GATES_V1: a breakout bar at >= 1.5x the usual volume
+#: for that time of day is "high". Fixed before any result; never re-tuned.
+R7_BREAKOUT_HIGH_X = 1.5
 R2_GAP, R2_STOP, R2_TGT, R2_MAX_A_DAY = -0.02, 0.015, 0.015, 2
 
 #: What the two-year backtest said, for the side-by-side (per trade, after cost).
@@ -79,6 +82,18 @@ def _vwap(g: pd.DataFrame) -> pd.Series:
     return (tp * g.volume).cumsum() / g.volume.cumsum().replace(0, np.nan)
 
 
+def breakout_volume_x(ss: list[tuple[date, pd.DataFrame]], i: int, t) -> float | None:
+    """The bar at time-of-day t on session i, against that same bar's average
+    volume over the prior 20 sessions that have it."""
+    hhmm = t.strftime("%H:%M")
+    hist = [float(g.volume[g.index.strftime("%H:%M") == hhmm].iloc[0])
+            for _, g in ss[max(0, i - 20):i] if (g.index.strftime("%H:%M") == hhmm).any()]
+    if not hist or np.mean(hist) <= 0:
+        return None
+    today = ss[i][1]
+    return round(float(today.loc[t].volume) / float(np.mean(hist)), 2)
+
+
 def rule7_trades(sym: str, ss: list[tuple[date, pd.DataFrame]], start: date) -> list[dict]:
     first_vol = [float(g.iloc[0].volume) for _, g in ss]
     rows = []
@@ -109,8 +124,11 @@ def rule7_trades(sym: str, ss: list[tuple[date, pd.DataFrame]], start: date) -> 
                 exit_px, why = float(b.open if b.open > stop else stop), "stop"
                 break
         pct = side * (exit_px / entry - 1) - COST
+        bvx = breakout_volume_x(ss, i, et)
         rows.append({"rule": "rule7", "date": str(d), "symbol": sym, "side": "long" if side == 1 else "short",
                      "volume_x": round(float(f.volume / avg), 1), "entry_time": et.strftime("%H:%M"),
+                     "breakout_volume_x": bvx,
+                     "breakout_volume": (None if bvx is None else "high" if bvx >= R7_BREAKOUT_HIGH_X else "low"),
                      "entry": round(entry, 2), "stop": round(float(stop), 2), "exit": round(exit_px, 2),
                      "exit_why": why, "pct": round(pct * 100, 3), "usd": round(NOTIONAL * pct, 2)})
     return rows
@@ -207,7 +225,7 @@ def build(start: str = RECORD_START, symbols: list[str] | None = None) -> dict:
     complete = {str(d) for d, g in qss if g.index[-1].strftime("%H:%M") == "15:55"}
     for r in r7 + r2:
         r["day"] = tags.get(r["date"])
-        r["final"] = r["date"] in complete
+        r["final"] = r["date"] in complete or r["exit_why"] in ("stop", "target")
         if not r["final"]:
             r["exit_why"] = "in progress (session not over)"
     sessions = sorted(str(d) for d, _ in qss if d >= start_d and str(d) in complete)
@@ -218,6 +236,8 @@ def build(start: str = RECORD_START, symbols: list[str] | None = None) -> dict:
         done = [r for r in rows if r["final"]]
         rules[key] = {"name": name, "record": summarise(done), "backtest": BACKTEST[key],
                       "by_day": {t: summarise([r for r in done if r["day"] == t]) for t in ("Up", "Flat", "Down")},
+                      "by_breakout_volume": ({v: summarise([r for r in done if r.get("breakout_volume") == v])
+                                              for v in ("high", "low")} if key == "rule7" else None),
                       "latest_session": [r for r in rows if r["date"] == latest]}
     return {"as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "record_start": start, "sessions": len(sessions), "latest_session": latest,
