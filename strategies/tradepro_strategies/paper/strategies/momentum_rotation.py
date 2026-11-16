@@ -264,6 +264,39 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                     out["pnl_usd"] = round(qty * (now - fill), 2)
             elif fill:
                 out["pnl_note"] = "no price since the buy yet"
+            # TREND, from the same settled closes (owner, 16 Nov: the old
+            # positions table showed whether each stock's trend was green).
+            # 30 closes for the sparkline, the 30-session change, and where the
+            # price sits against its 50-day average. Settled bars only, so the
+            # trend never mixes in an intraday print; `now` stays separate.
+            tail = [round(float(x), 2) for x in closes.tail(30).tolist()]
+            if len(tail) >= 2:
+                out["spark"] = tail
+                out["trend_30d_pct"] = round((tail[-1] / tail[0] - 1) * 100, 1)
+            if len(closes) >= 50:
+                sma50 = float(closes.tail(50).mean())
+                out["sma50"] = round(sma50, 2)
+                out["vs_sma50_pct"] = round((last / sma50 - 1) * 100, 1)
+            # TODAY, from the harvested 5-minute bars (owner, 16 Nov: "the trend
+            # can be refreshed with 5 min candle"). DISPLAY ONLY — the strategy
+            # decides on daily closes and never reads this. The latest session
+            # in the 5m store, its closes for a sparkline, and the move against
+            # the previous settled daily close; stamped with the last bar's time
+            # so an old intraday line can never pass for a current one.
+            try:
+                m5 = load_bars(sym, "5m", lookback_days=5)
+                if m5 is not None and len(m5):
+                    et = m5.index.tz_convert("America/New_York")
+                    session = et[-1].date()
+                    today_bars = m5[[d == session for d in et.date]]
+                    prior = closes[[str(t)[:10] < str(session) for t in closes.index]]
+                    if len(today_bars) >= 2 and len(prior):
+                        tc = [round(float(x), 2) for x in today_bars["close"].tolist()]
+                        out["spark_today"] = tc
+                        out["today_pct"] = round((tc[-1] / float(prior.iloc[-1]) - 1) * 100, 2)
+                        out["today_as_of"] = today_bars.index[-1].isoformat()
+            except Exception:  # noqa: BLE001 — the intraday line is extra; the row stands without it
+                pass
             # INTRADAY WATCH: the rule sells on a CLOSE below the stop, so a live
             # price below it is a warning, not a sale.
             if lv:

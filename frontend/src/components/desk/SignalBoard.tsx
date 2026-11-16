@@ -15,6 +15,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
+import { Sparkline } from "./Sparkline";
 
 type Row = {
   action: "BUY" | "SELL" | "HOLD";
@@ -35,6 +36,13 @@ type Row = {
   value_usd?: number | null;
   pnl_usd?: number | null;
   pnl_note?: string | null;
+  spark?: number[] | null;
+  trend_30d_pct?: number | null;
+  sma50?: number | null;
+  vs_sma50_pct?: number | null;
+  spark_today?: number[] | null;
+  today_pct?: number | null;
+  today_as_of?: string | null;
 };
 
 type Book = {
@@ -77,6 +85,102 @@ function ago(iso?: string): string {
   if (!iso) return "unknown age";
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   return m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+}
+
+const TH: React.CSSProperties = { textAlign: "right", padding: "6px 8px", fontSize: 11, fontWeight: 600,
+  color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap",
+  borderBottom: "1px solid var(--border)" };
+const TD: React.CSSProperties = { textAlign: "right", padding: "7px 8px", fontSize: 13, whiteSpace: "nowrap",
+  fontVariantNumeric: "tabular-nums", borderBottom: "1px solid var(--border)" };
+
+function pct(v: number | null | undefined, digits = 1): string {
+  if (v == null) return "—";
+  return `${v > 0 ? "+" : v < 0 ? "\u2212" : ""}${Math.abs(v).toFixed(digits)}%`;
+}
+
+function Holdings({ rows }: { rows: Row[] }) {
+  const sorted = [...rows].sort((a, b) => (b.pnl_usd ?? -1e12) - (a.pnl_usd ?? -1e12));
+  return (
+    <div style={{ overflowX: "auto", marginTop: 12 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+        <thead>
+          <tr>
+            <th style={{ ...TH, textAlign: "left" }}>Stock</th>
+            <th style={TH}>Shares</th>
+            <th style={TH}>Paid</th>
+            <th style={TH}>Now</th>
+            <th style={TH}>P&amp;L</th>
+            <th style={TH}>P&amp;L %</th>
+            <th style={{ ...TH, textAlign: "center" }}>Today (5-min)</th>
+            <th style={{ ...TH, textAlign: "center" }}>30-day trend</th>
+            <th style={TH}>vs 50-day avg</th>
+            <th style={TH}>Stop</th>
+            <th style={{ ...TH, textAlign: "left" }}>Signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => {
+            const toStop = r.stop != null && r.now != null ? (r.now / r.stop - 1) * 100 : null;
+            return (
+              <tr key={r.symbol}>
+                <td style={{ ...TD, textAlign: "left", fontWeight: 700 }}>{r.symbol}</td>
+                <td style={TD}>{r.qty ?? "—"}</td>
+                <td style={TD}>{r.entry != null ? r.entry.toFixed(2) : "—"}</td>
+                <td style={TD} title={r.now_source ? `price source: ${r.now_source}` : undefined}>
+                  {r.now != null ? r.now.toFixed(2) : <span style={{ color: "var(--text-muted)" }}>{r.pnl_note ?? "—"}</span>}
+                </td>
+                <td style={{ ...TD, fontWeight: 600, color: r.pnl_usd != null ? pnlColor(r.pnl_usd) : undefined }}>
+                  {r.pnl_usd != null ? `${sign(r.pnl_usd)}${usd(r.pnl_usd)}` : "—"}
+                </td>
+                <td style={{ ...TD, color: r.pnl_pct != null ? pnlColor(r.pnl_pct) : undefined }}>{pct(r.pnl_pct, 2)}</td>
+                <td style={{ ...TD, textAlign: "center" }}
+                    title={r.today_as_of ? `5-minute bars to ${new Date(r.today_as_of).toLocaleTimeString()}` : "no 5-minute bars for today"}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Sparkline data={r.spark_today} width={72} height={20} />
+                    <span style={{ fontSize: 12, color: r.today_pct != null ? pnlColor(r.today_pct) : "var(--text-muted)" }}>
+                      {pct(r.today_pct, 2)}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ ...TD, textAlign: "center" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Sparkline data={r.spark} width={72} height={20} />
+                    <span style={{ fontSize: 12, color: r.trend_30d_pct != null ? pnlColor(r.trend_30d_pct) : "var(--text-muted)" }}>
+                      {pct(r.trend_30d_pct)}
+                    </span>
+                  </div>
+                </td>
+                <td style={TD}>
+                  {r.vs_sma50_pct != null ? (
+                    <span style={{ padding: "1px 7px", borderRadius: 10, fontSize: 11.5, fontWeight: 600,
+                      color: r.vs_sma50_pct >= 0 ? "#3fb950" : "#f85149",
+                      background: r.vs_sma50_pct >= 0 ? "rgba(63,185,80,0.12)" : "rgba(248,81,73,0.12)" }}>
+                      {r.vs_sma50_pct >= 0 ? "above" : "below"} {pct(r.vs_sma50_pct)}
+                    </span>
+                  ) : "—"}
+                </td>
+                <td style={TD} title={toStop != null ? `${toStop.toFixed(1)}% above the stop` : undefined}>
+                  {r.stop != null ? r.stop.toFixed(2) : "—"}
+                  {toStop != null && <span style={{ color: "var(--text-muted)", fontSize: 11.5 }}> ({toStop.toFixed(0)}% away)</span>}
+                </td>
+                <td style={{ ...TD, textAlign: "left" }}>
+                  <span style={{ fontWeight: 700, fontSize: 12, color: TONE[r.action] }}>{r.action}</span>
+                  {r.action === "SELL" && <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}> · {r.paper ?? r.why}</span>}
+                  {r.intraday && <div style={{ fontSize: 11, color: "#d29922", whiteSpace: "normal" }}>⚠ {r.intraday}</div>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+        HOLD = still in the top 10; a holding is sold on a close below its stop (20% under its highest close since the buy)
+        or at the next decision. 30-day trend and 50-day average use settled daily closes (what the strategy trades on);
+        Today uses the harvested 5-minute bars against yesterday's close — display only, hover for the last bar's time.
+        Now is the live quote while the market is open.
+      </div>
+    </div>
+  );
 }
 
 function Column({ action, rows }: { action: Row["action"]; rows: Row[] }) {
@@ -217,11 +321,21 @@ export function SignalBoard() {
           </div>
         </div>
       )}
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 12 }}>
-        <Column action="BUY" rows={by("BUY")} />
-        <Column action="SELL" rows={by("SELL")} />
-        <Column action="HOLD" rows={by("HOLD")} />
-      </div>
+      {by("BUY").length > 0 && (
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 12 }}>
+          <Column action="BUY" rows={by("BUY")} />
+        </div>
+      )}
+      {(by("HOLD").length + by("SELL").length) > 0 ? (
+        <Holdings rows={[...by("SELL"), ...by("HOLD")]} />
+      ) : (
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 12 }}>No holdings.</div>
+      )}
+      {by("BUY").length === 0 && by("SELL").length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 8 }}>
+          No trades due. Next decision {day(board.next_signal_date)}.
+        </div>
+      )}
     </div>
   );
 }
