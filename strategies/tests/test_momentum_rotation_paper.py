@@ -257,3 +257,13 @@ def test_no_live_price_and_no_close_since_the_buy_means_no_pnl(monkeypatch):
 def test_the_stop_is_set_on_the_day_of_the_buy(monkeypatch):
     row, _ = _held_board(monkeypatch, {})
     assert row["stop"] == round(720.84 * 0.8, 2)   # was blank: no close since entry
+def test_rebalance_schedules_for_the_v2_study():
+    import pandas as pd
+
+    from tradepro_strategies import momentum_rotation as M
+    d = pd.bdate_range("2026-01-01", "2026-03-31")
+    assert len(M.rebalance_dates(d, M.with_overrides())) == 3          # default stays monthly
+    assert len(M.rebalance_dates(d, M.with_overrides(rebalance_every="weekly"))) == 14
+    assert len(M.rebalance_dates(d, M.with_overrides(rebalance_every="biweekly"))) == 7
+    with pytest.raises(ValueError):
+        M.rebalance_dates(d, M.with_overrides(rebalance_every="daily"))

@@ -46,6 +46,10 @@ class Params:
     score_mode: str = "blend"            # blend | vol_adjusted (score / 126-day vol)
     score_cap_x_median: float | None = None  # winsorize: cap a score at N x the median
     take_profit: float | None = None     # sell on a close this far above entry (0.15 = +15%)
+    # GATES_V2_REBALANCE_EXITS (16 Nov 2026). Defaults = the decided design.
+    rebalance_every: str = "monthly"     # monthly | biweekly | weekly
+    trail_tight_after: float | None = None  # once this far above entry (0.40 = +40%) ...
+    trail_tight: float = 0.10            # ... the trailing stop tightens to this
     # proposed implementation details
     min_history: int = 252
     min_price: float = 10.0
@@ -130,7 +134,17 @@ def load_panels(symbols: list[str], sectors: dict[str, str]) -> Panels:
 
 def rebalance_dates(dates: pd.DatetimeIndex, p: Params) -> list[pd.Timestamp]:
     """The signal date each month: the last session on or before the
-    rebalance day (or the month's last session), shifted by the offset."""
+    rebalance day (or the month's last session), shifted by the offset.
+    `rebalance_every` weekly / biweekly: the last session of each week, or of
+    every second week (GATES_V2_REBALANCE_EXITS)."""
+    if p.rebalance_every in ("weekly", "biweekly"):
+        s = pd.Series(dates, index=dates)
+        iso = dates.isocalendar()
+        weeks = [g.iloc[-1] for _, g in s.groupby([iso.year.values, iso.week.values])]
+        weeks = sorted(weeks)
+        return weeks if p.rebalance_every == "weekly" else weeks[::2]
+    if p.rebalance_every != "monthly":
+        raise ValueError(f"rebalance_every must be monthly, biweekly or weekly, not {p.rebalance_every!r}")
     out = []
     s = pd.Series(dates, index=dates)
     for _, month in s.groupby([dates.year, dates.month]):
@@ -371,7 +385,11 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                 if math.isnan(px):
                     continue
                 high[s] = max(high.get(s, px), px)
-                if px <= high[s] * (1 - p.trailing_stop) and s not in pending_sells:
+                trail = p.trailing_stop
+                if p.trail_tight_after and s in entry_px and \
+                        high[s] >= entry_px[s] * (1 + p.trail_tight_after):
+                    trail = min(trail, p.trail_tight)
+                if px <= high[s] * (1 - trail) and s not in pending_sells:
                     pending_sells.add(s)
                     stop_exits += 1
 
