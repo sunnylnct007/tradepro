@@ -28,6 +28,18 @@ type Row = {
   stop?: number | null;
   live?: number | null;
   intraday?: string | null;
+  qty?: number | null;
+  now?: number | null;
+  now_source?: string | null;
+  cost_usd?: number | null;
+  value_usd?: number | null;
+  pnl_usd?: number | null;
+  pnl_note?: string | null;
+};
+
+type Book = {
+  names_held: number; names_priced: number; cost_usd: number; value_usd: number;
+  pnl_usd: number; pnl_pct: number | null; up: number; down: number;
 };
 
 type Today = { as_of?: string; picks: string[]; entering: string[]; leaving: string[]; market_ok?: boolean };
@@ -47,7 +59,12 @@ type Board = {
   universe_n?: number | null;
   eligible_n?: number | null;
   capital?: number | null;
+  book?: Book | null;
 };
+
+const usd = (v: number) => `$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const sign = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "");
+const pnlColor = (v: number) => (v > 0 ? "#3fb950" : v < 0 ? "#f85149" : "var(--text-dim)");
 
 const TONE: Record<Row["action"], string> = { BUY: "#3fb950", SELL: "#f85149", HOLD: "#8b949e" };
 
@@ -80,15 +97,19 @@ function Column({ action, rows }: { action: Row["action"]; rows: Row[] }) {
             )}
           </div>
           <div style={{ fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.4 }}>{r.why}</div>
-          {(r.last != null || r.stop != null) && (
+          {(r.entry != null || r.stop != null) && (
             <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-              {r.entry != null && <>bought {r.entry.toFixed(2)} · </>}
-              {r.last != null && <>now {r.last.toFixed(2)}</>}
-              {r.pnl_pct != null && (
-                <span style={{ color: r.pnl_pct >= 0 ? "#3fb950" : "#f85149" }}> ({r.pnl_pct >= 0 ? "+" : ""}{r.pnl_pct}%)</span>
-              )}
+              {r.qty ? <>{r.qty} sh · </> : null}
+              {r.entry != null && <>bought {r.entry.toFixed(2)}</>}
+              {r.now != null && <> · now {r.now.toFixed(2)} <span style={{ color: "var(--text-muted)" }}>({r.now_source})</span></>}
+              {r.pnl_note && <> · {r.pnl_note}</>}
               {r.stop != null && <> · stop {r.stop.toFixed(2)}</>}
-              {r.live != null && <> · live {r.live.toFixed(2)}</>}
+            </div>
+          )}
+          {r.pnl_usd != null && r.pnl_pct != null && (
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: pnlColor(r.pnl_usd), fontVariantNumeric: "tabular-nums" }}>
+              {sign(r.pnl_usd)}{usd(r.pnl_usd)} ({sign(r.pnl_pct)}{Math.abs(r.pnl_pct).toFixed(2)}%)
+              {r.value_usd != null && <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · worth {usd(r.value_usd)}</span>}
             </div>
           )}
           {r.intraday && (
@@ -176,6 +197,23 @@ export function SignalBoard() {
                   would drop out: {board.today.leaving.join(", ") || "none"}. </>
               : <>Same ten as the decision. </>}
             Holdings change only on the next decision date ({day(board.next_signal_date)}); this updates daily.
+          </div>
+        </div>
+      )}
+      {board.book && (
+        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.025)",
+          fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+          <b>Paper book:</b> {board.book.names_priced} names, {usd(board.book.cost_usd)} paid, worth {usd(board.book.value_usd)} now —{" "}
+          <b style={{ color: pnlColor(board.book.pnl_usd) }}>
+            {sign(board.book.pnl_usd)}{usd(board.book.pnl_usd)}
+            {board.book.pnl_pct != null && <> ({sign(board.book.pnl_pct)}{Math.abs(board.book.pnl_pct).toFixed(2)}%)</>}
+          </b>
+          <span style={{ color: "var(--text-dim)" }}> · {board.book.up} up, {board.book.down} down</span>
+          {board.book.names_priced < board.book.names_held && (
+            <span style={{ color: "#d29922" }}> · {board.book.names_held - board.book.names_priced} held name(s) have no price since the buy and are not in this total</span>
+          )}
+          <div style={{ color: "var(--text-muted)", fontSize: 11.5 }}>
+            Paid = our fill prices. Now = the live quote while the market is open, else the latest close after the buy.
           </div>
         </div>
       )}

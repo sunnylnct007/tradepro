@@ -232,16 +232,40 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             entry = self._entry_bar.get(sym)
             closes = df["close"].astype(float)
             since_entry = closes[[str(t)[:10] >= (entry or "9999") for t in closes.index]]
-            peak = float(since_entry.max()) if len(since_entry) else None
             fill = self._fill_price.get(sym)
+            # The peak includes the BUY PRICE: on the day of the buy there is no
+            # close since entry yet, and the stop read blank on all ten names.
+            highs = [float(x) for x in since_entry.tolist()] + ([float(fill)] if fill else [])
+            peak = max(highs) if highs else None
             last = float(closes.iloc[-1])
+            last_day = str(closes.index[-1])[:10]
             stop = round(peak * (1 - self.TRAIL), 2) if peak else None
+            qty = float(self.position_for(sym).quantity or 0)
             out = {"last": round(last, 2), "entry": round(fill, 2) if fill else None,
-                   "pnl_pct": round((last / fill - 1) * 100, 1) if fill else None,
-                   "stop": stop, "as_of": str(closes.index[-1])[:10]}
+                   "qty": qty or None, "stop": stop, "as_of": last_day}
+            # P&L = shares x (price NOW - the price we were filled at) (16 Nov
+            # 2026). It used to be the last SETTLED close against the fill, and
+            # on the day of the buy that close is the one BEFORE we bought: MU
+            # read +8.0% while it was +0.5%, DELL +5.8% while it was -1.6%. A
+            # settled close predating the fill is never a P&L price.
+            lv = live.get(sym)
+            now, now_src = None, None
+            if lv:
+                now, now_src = float(lv), "live"
+            elif entry and last_day >= str(entry)[:10]:
+                now, now_src = last, f"close {last_day}"
+            if fill and now:
+                out["now"] = round(now, 2)
+                out["now_source"] = now_src
+                out["pnl_pct"] = round((now / fill - 1) * 100, 2)
+                if qty:
+                    out["cost_usd"] = round(qty * fill, 2)
+                    out["value_usd"] = round(qty * now, 2)
+                    out["pnl_usd"] = round(qty * (now - fill), 2)
+            elif fill:
+                out["pnl_note"] = "no price since the buy yet"
             # INTRADAY WATCH: the rule sells on a CLOSE below the stop, so a live
             # price below it is a warning, not a sale.
-            lv = live.get(sym)
             if lv:
                 out["live"] = round(float(lv), 2)
                 if stop and lv <= stop:
@@ -286,6 +310,20 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             else:
                 rows.append({"action": "HOLD", "symbol": sym, **info,
                              "why": "still in the top 10; exits on the stop or at the next rebalance"})
+        # THE BOOK IN DOLLARS: what we paid, what it is worth now, and the
+        # difference — only over names that HAVE a current price, and the count
+        # of those that do not, so a partial total is never shown as the whole.
+        priced = [r for r in rows if r.get("pnl_usd") is not None]
+        book = None
+        if held:
+            cost = sum(r["cost_usd"] for r in priced)
+            book = {"names_held": len(held), "names_priced": len(priced),
+                    "cost_usd": round(cost, 2),
+                    "value_usd": round(sum(r["value_usd"] for r in priced), 2),
+                    "pnl_usd": round(sum(r["pnl_usd"] for r in priced), 2),
+                    "pnl_pct": round(sum(r["pnl_usd"] for r in priced) / cost * 100, 2) if cost else None,
+                    "up": sum(1 for r in priced if r["pnl_usd"] > 0),
+                    "down": sum(1 for r in priced if r["pnl_usd"] < 0)}
         today = None
         try:
             from ...momentum_rotation import ranking_today
@@ -316,7 +354,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                            else "SPY below its 200-day average: cash"),
                 "allocation_pct": round(float(dec.get("allocation") or 0) * 100, 1),
                 "per_name_pct": round(float(dec.get("weight_each") or 0) * 100, 2),
-                "error": dec.get("error"), "rows": rows,
+                "error": dec.get("error"), "rows": rows, "book": book,
                 "generated_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
 
     def _board_decision(self) -> dict:
