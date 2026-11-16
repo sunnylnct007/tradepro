@@ -267,3 +267,26 @@ def test_rebalance_schedules_for_the_v2_study():
     assert len(M.rebalance_dates(d, M.with_overrides(rebalance_every="biweekly"))) == 7
     with pytest.raises(ValueError):
         M.rebalance_dates(d, M.with_overrides(rebalance_every="daily"))
+
+
+def test_each_holding_carries_its_trend(monkeypatch):
+    """Owner 16 Nov: the old positions table showed whether each stock's trend
+    was green. 30 closes for the sparkline, the 30-session change, and the
+    price against its 50-day average — from settled closes."""
+    import pandas as pd
+
+    import tradepro_strategies.daily_bars as db
+    s = _s(sym="MU")
+    s._orders_cache = []
+    s._fill_price = {"MU": 100.0}
+    s._entry_bar = {"MU": "2026-11-16"}
+    s.seed_positions({"MU": 5}, {})
+    closes = [float(x) for x in range(61, 121)]          # 60 rising closes, last 120
+    idx = pd.bdate_range(end="2026-11-13", periods=60)
+    monkeypatch.setattr(db, "load_bars", lambda sym, res, lookback_days=None: pd.DataFrame(
+        {"close": closes}, index=idx))
+    monkeypatch.setattr(s, "_board_decision", lambda: {**DEC, "picks": ["MU"]})
+    row = next(r for r in s.board()["rows"] if r["symbol"] == "MU")
+    assert len(row["spark"]) == 30 and row["spark"][-1] == 120.0
+    assert row["trend_30d_pct"] == round((120 / 91 - 1) * 100, 1)
+    assert row["vs_sma50_pct"] == round((120 / 95.5 - 1) * 100, 1)   # mean of 71..120
