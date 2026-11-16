@@ -290,3 +290,29 @@ def test_each_holding_carries_its_trend(monkeypatch):
     assert len(row["spark"]) == 30 and row["spark"][-1] == 120.0
     assert row["trend_30d_pct"] == round((120 / 91 - 1) * 100, 1)
     assert row["vs_sma50_pct"] == round((120 / 95.5 - 1) * 100, 1)   # mean of 71..120
+
+
+def test_the_board_carries_market_and_sector_gauges(monkeypatch):
+    import pandas as pd
+
+    import tradepro_strategies.daily_bars as db
+    import tradepro_strategies.universe as U
+    s = _s()
+    s._orders_cache = []
+    monkeypatch.setattr(U, "MARKET_GAUGES", ("QQQ", "SMH"))
+    idx = pd.bdate_range(end="2026-11-13", periods=260)
+
+    def bars(sym, res, lookback_days=None):
+        if sym == "SMH" or res == "5m":
+            return None
+        return pd.DataFrame({"close": [100.0] * 259 + [90.0]}, index=idx)
+    monkeypatch.setattr(db, "load_bars", bars)
+    monkeypatch.setattr(s, "_board_decision", lambda: DEC)
+    g = {x["symbol"]: x for x in s.board()["gauges"]}
+    assert g["QQQ"]["vs_sma200_pct"] < 0 and g["QQQ"]["from_high_pct"] == -10.0
+    assert g["SMH"]["error"] == "no daily bars yet"
+
+
+def test_market_gauges_are_harvested():
+    from tradepro_strategies.universe import MARKET_GAUGES, harvest_symbols
+    assert "SMH" in MARKET_GAUGES and set(MARKET_GAUGES) <= set(harvest_symbols())

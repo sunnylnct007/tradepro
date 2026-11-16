@@ -39,6 +39,7 @@ def universe_of(tmp_path, monkeypatch):
         # harvest_symbols also unions in (tested in test_harvest_scope.py).
         import tradepro_strategies.universe as _u
         monkeypatch.setattr(_u, "WHEEL_SLEEVE", ())
+        monkeypatch.setattr(_u, "MARKET_GAUGES", ())
         return p
     return _make
 

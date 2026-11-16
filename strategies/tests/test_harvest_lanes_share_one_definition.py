@@ -103,6 +103,7 @@ def test_the_bound_actually_binds(tmp_path, monkeypatch):
     monkeypatch.setenv("TRADEPRO_HARVEST_MAX_EXTRA", "60")
     import tradepro_strategies.universe as _u
     monkeypatch.setattr(_u, "WHEEL_SLEEVE", ())   # options union tested elsewhere
+    monkeypatch.setattr(_u, "MARKET_GAUGES", ())
 
     root = tmp_path / "us_etf"
     root.mkdir()
