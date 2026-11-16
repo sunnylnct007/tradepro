@@ -39,6 +39,17 @@ def _closes(sym: str, lookback_days: int = 420) -> pd.Series | None:
     return c[~c.index.duplicated(keep="last")].sort_index()
 
 
+def _opens(sym: str, lookback_days: int = 60) -> pd.Series | None:
+    from .daily_bars import load_bars
+    df = load_bars(sym, "1d", lookback_days=lookback_days, fetched_by="daily-evaluation")
+    if df is None or not len(df):
+        return None
+    f = df["adj_factor"].fillna(1.0).astype(float) if "adj_factor" in df.columns else 1.0
+    o = (df["open"].astype(float) * f)
+    o.index = pd.to_datetime([str(t)[:10] for t in o.index])
+    return o[~o.index.duplicated(keep="last")].sort_index()
+
+
 def _ret(c: pd.Series, n: int) -> float | None:
     return float(c.iloc[-1] / c.iloc[-1 - n] - 1) if len(c) > n else None
 
@@ -144,14 +155,18 @@ def rotation(session: date, conds: dict, base: str, token: str) -> dict:
                                                                        if r["symbol"] == s))) < 1e-6})
     cost = sum(r["cost_usd"] for r in rows)
     first_buy = min((r["bought_on"] for r in rows), default=None)
+    # BENCHMARKS FROM THE SAME OPEN WE BOUGHT AT (16 Nov 2026). The first
+    # version measured SPY/QQQ from the close BEFORE the first buy, so they
+    # carried the opening gap the book never took: on a gap-down day the book
+    # "beat" SPY by 1.3 points it had not earned. Same rule as every other
+    # figure here: the starting price must come from AFTER the trade.
     bench = {}
     for b_ in ("SPY", "QQQ"):
+        o_ = _opens(b_, 60)
         c = _closes(b_, 60)
-        if c is not None and first_buy:
+        if c is not None and o_ is not None and first_buy and pd.Timestamp(first_buy) in o_.index:
             c = c[c.index <= pd.Timestamp(session)]
-            before = c[c.index < pd.Timestamp(first_buy)]
-            if len(before):
-                bench[b_] = round((float(c.iloc[-1]) / float(before.iloc[-1]) - 1) * 100, 2)
+            bench[b_] = round((float(c.iloc[-1]) / float(o_.loc[pd.Timestamp(first_buy)]) - 1) * 100, 2)
     return {
         "strategy": "Momentum rotation (paper, IBKR)", "strategy_id": ROTATION_SID,
         "holdings": rows, "problems": problems,
@@ -161,6 +176,7 @@ def rotation(session: date, conds: dict, base: str, token: str) -> dict:
                  "pnl_usd": round(sum(r["pnl_usd"] for r in rows), 2),
                  "pnl_pct": round(sum(r["pnl_usd"] for r in rows) / cost * 100, 2) if cost else None,
                  "since": first_buy, "benchmarks_since_pct": bench,
+                 "benchmark_basis": "SPY/QQQ from the open of the first buy day to the session close",
                  "in_sector_selloff": [r["symbol"] for r in rows if r["in_sector_selloff"]]},
         "orders_today": [{"symbol": o["symbol"].split("_")[0], "side": o["side"], "qty": o["qty"],
                           "type": o.get("orderType"), "state": o["state"], "fill": o.get("avgFillPrice")}

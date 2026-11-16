@@ -77,3 +77,10 @@ def test_the_module_cannot_place_orders():
     assert not any(x in m for m in names | mods for x in ("router", "broker", "place", "ibkr_gateway"))
     src = open(E.__file__).read()
     assert "requests.post" not in src and ".post(" not in src
+
+
+def test_benchmarks_start_at_the_open_of_the_first_buy_day():
+    src = open(E.__file__).read()
+    # the rule, stated where it is applied — and never the close before the buy
+    assert "o_.loc[pd.Timestamp(first_buy)]" in src
+    assert "before = c[c.index < pd.Timestamp(first_buy)]" not in src
