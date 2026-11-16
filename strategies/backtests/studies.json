@@ -646,6 +646,26 @@
      "pass": null
     }
    ]
+  },
+  {
+   "id": "momentum_rotation_rebalance_exits_v2",
+   "date": "2026-11-16",
+   "title": "Momentum rotation — rebalance more often? add a profit target? other stop widths?",
+   "gatesFile": "strategies/MOMENTUM_ROTATION_GATES_V2_REBALANCE_EXITS.md",
+   "gatesCommit": "eab66253",
+   "question": "Does weekly or every-two-weeks rebalancing, a +25%/+50% profit target, or a tighter trail after +40% beat the monthly 20%-trail design in BOTH halves (2008-17, 2018-now)?",
+   "prediction": "Pass mark set before the run: Sharpe >= control + 0.05 AND CAGR >= control in both halves; full-period drawdown within 2pp.",
+   "headline": "Control 9.7%/yr, -14.4% DD. Two-weekly 7.3%, weekly 8.6%, +25% target 7.9%, +50% target 9.0%, tight trail 9.3%. Stops 10/15/25/30% and none: none passes.",
+   "verdict": "FAIL — the monthly 20%-trail design stays",
+   "why": "Rebalancing more often doubled or tripled trades and lowered return: the 3/6/12-month ranking barely moves inside a month, so extra rebalances churn names near the cut-off. A +25% profit target cut 2018-now return from 12.5% to 8.2% a year by selling the winners that carry the strategy. The +50% target, the tight trail after +40% and a 25% stop came close (slightly smaller drawdown or slightly higher return) but did not clear the bar in both halves.",
+   "gates": [
+    {
+     "id": "G-both-halves",
+     "test": "Sharpe >= control+0.05 and CAGR >= control in 2008-17 AND 2018-now",
+     "result": "0 of 10 variants",
+     "pass": false
+    }
+   ]
   }
  ]
 }

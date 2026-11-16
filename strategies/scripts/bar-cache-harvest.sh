@@ -292,3 +292,18 @@ else
     done
     run_with_deadline "$UV" run tradepro-bar-cache-harvest "${FILTERED_ARGS[@]}" ${WINDOW_ARGS[@]+"${WINDOW_ARGS[@]}"} ${SYMBOL_ARGS[@]+"${SYMBOL_ARGS[@]}"} >>"$LOG_FILE" 2>&1
 fi
+
+# INTRADAY SHADOW RECORD (16 Nov 2026). After a 5m harvest, replay the two
+# intraday rules on the bars just written and publish their forward record —
+# no orders, ever (tradepro_strategies/intraday_shadow.py). Recomputed from the
+# record's start each time, so a missed run leaves no gap. A failure here must
+# not fail the harvest.
+case " $* " in
+    *" --resolution 5m "*)
+        if "$UV" run tradepro-intraday-shadow --push >>"$LOG_FILE" 2>&1; then
+            log "intraday shadow record published"
+        else
+            log "intraday shadow record FAILED (harvest unaffected)"
+        fi
+        ;;
+esac

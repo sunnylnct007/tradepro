@@ -18,6 +18,7 @@
  */
 import { useState } from "react";
 import studies from "../../data/studies.json";
+import { IntradayShadowCard } from "./IntradayShadowCard";
 
 type Gate = { id: string; test: string; result: string; pass: boolean };
 type Study = {
@@ -54,6 +55,8 @@ export function ResearchView() {
         <span style={{ color: TONE.bad }}>{failed} fail</span> ·{" "}
         <span style={{ color: TONE.warn }}>{list.length - passed - failed} partial</span>
       </div>
+
+      <IntradayShadowCard />
 
       {[...list].reverse().map((s) => {
         const isOpen = open === s.id;
