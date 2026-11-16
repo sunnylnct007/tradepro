@@ -66,6 +66,14 @@ def load_credentials() -> tuple[str, str]:
             file=sys.stderr,
         )
         sys.exit(2)
+    # Look the API host up NOW, while DNS works, so a DNS outage later in a
+    # long run cannot cost the publish (16 Nov 2026: a computed options board
+    # lost to twelve minutes of failed lookups). See api_address.py.
+    try:
+        from ..api_address import remember
+        remember(base)
+    except Exception:  # noqa: BLE001 — a convenience, never a new failure
+        pass
     return base.rstrip("/"), token
 
 
