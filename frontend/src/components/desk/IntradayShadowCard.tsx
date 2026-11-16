@@ -17,8 +17,10 @@ type Rec = { trades: number; win_pct?: number; avg_pct?: number; total_usd?: num
 type Trade = {
   rule: string; date: string; symbol: string; side: string; entry_time: string; entry: number;
   exit: number; exit_why: string; pct: number; usd: number; day?: string | null; final?: boolean;
+  breakout_volume_x?: number | null; breakout_volume?: string | null;
 };
-type Rule = { name: string; record: Rec; backtest: { avg_pct: number; note: string }; by_day: Record<string, Rec>; latest_session: Trade[] };
+type Rule = { name: string; record: Rec; backtest: { avg_pct: number; note: string }; by_day: Record<string, Rec>;
+  by_breakout_volume?: Record<string, Rec> | null; latest_session: Trade[] };
 type Art = {
   as_of_utc: string; record_start: string; sessions: number; latest_session: string | null;
   latest_session_final: boolean | null; latest_day: string | null; universe_n: number;
@@ -94,6 +96,14 @@ export function IntradayShadowCard() {
               ))}
             </div>
           )}
+          {r.by_breakout_volume && r.record.trades > 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+              Breakout volume (fixed line 1.5x the usual for that time of day):
+              {(["high", "low"] as const).map((v) => (
+                <span key={v}> {v} {r.by_breakout_volume?.[v]?.trades ? <>{r.by_breakout_volume[v].trades} · {sgn(r.by_breakout_volume[v].avg_pct ?? 0, 2)}%</> : "—"} ·</span>
+              ))}
+            </div>
+          )}
           <div style={{ fontSize: 12, marginTop: 4 }}>
             <span style={{ color: "var(--text-dim)" }}>
               {a.latest_session} {a.latest_session_final ? `(finished${a.latest_day ? `, QQQ ${a.latest_day}` : ""})` : "(in progress)"}:
@@ -102,6 +112,7 @@ export function IntradayShadowCard() {
               r.latest_session.map((t) => (
                 <div key={`${t.symbol}-${t.entry_time}`} style={{ fontVariantNumeric: "tabular-nums", paddingLeft: 10 }}>
                   <b>{t.symbol}</b> {t.side} at {t.entry.toFixed(2)} ({t.entry_time} ET) → {t.exit.toFixed(2)} · {t.exit_why}
+                  {t.breakout_volume_x != null && <span style={{ color: "var(--text-muted)" }}> · breakout volume {t.breakout_volume_x}x ({t.breakout_volume})</span>}
                   {t.final !== false && <> · <span style={{ color: col(t.pct) }}>{sgn(t.pct)}% ({sgn(t.usd, 0)} $)</span></>}
                 </div>
               ))

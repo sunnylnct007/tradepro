@@ -89,3 +89,24 @@ def test_the_module_cannot_place_orders():
     imported = {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
                 for a in n.names} | {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     assert not any(x in m for m in imported for x in ("requests", "router", "oms", "broker", "ibkr", "t212"))
+
+
+def test_rule7_records_breakout_bar_volume_against_the_same_time_of_day():
+    hist = _history()                     # every bar 1000 shares
+    d, g = _session("2026-11-16", [100.5, 101.5, 102.0], vol0=3000, first=(100.0, 101.0, 99.5, 100.8))
+    g.iloc[1, g.columns.get_loc("volume")] = 2000       # the 09:35 breakout bar: 2x usual
+    r = S.rule7_trades("X", hist + [(d, g)], date(2026, 11, 16))[0]
+    assert r["entry_time"] == "09:35" and r["breakout_volume_x"] == 2.0 and r["breakout_volume"] == "high"
+
+
+def test_a_trade_that_hit_its_target_is_settled_before_the_close(monkeypatch):
+    prev = _session("2026-11-13", [100.0])
+    d, g = _session("2026-11-16", [97.0] * 6 + [96.0, 95.0, 94.0], end="12:00")
+    qhist = _session("2026-11-13", [500.0])
+    qd, qg = _session("2026-11-16", [499.0] * 6 + [495.0] * 80, end="12:00")
+    data = {"QQQ": [qhist, (qd, qg)], "X": [prev, (d, g)]}
+    monkeypatch.setattr(S, "_sessions", lambda sym, lb: data[sym])
+    a = S.build(start="2026-11-16", symbols=["X"])
+    t = a["trades"][0]
+    assert t["exit_why"] == "target" and t["final"] is True
+    assert a["rules"]["rule2"]["record"]["trades"] == 1
