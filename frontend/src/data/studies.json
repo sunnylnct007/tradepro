@@ -666,6 +666,26 @@
      "pass": false
     }
    ]
+  },
+  {
+   "id": "momentum_rotation_sector_correlation_v3",
+   "date": "2026-11-16",
+   "title": "Momentum rotation — sector sell-offs, correlations, per-stock scaling",
+   "gatesFile": "strategies/MOMENTUM_ROTATION_GATES_V3_SECTOR_CORRELATION.md",
+   "gatesCommit": "bcbfb681",
+   "question": "Do sector-ETF trend filters, sector-aware or relative stops, a correlation cap, volatility-scaled stops or score, or recent-momentum filters beat the decided design in both halves?",
+   "prediction": "Pass mark set before the run (as V2): Sharpe >= control + 0.05 AND CAGR >= control in 2008-17 and 2018-now; drawdown within 2pp. A pass earns a forward paper comparison, not a switch.",
+   "headline": "Control 9.7%/yr, -14.4% DD. Nearest: correlation cap 0.7 — 10.4%, better in both halves, misses the 2018-now Sharpe margin (+0.03 vs +0.05). Sector 50-day filter helps 2008-17 only.",
+   "verdict": "FAIL — control stays; correlation cap is the one candidate for forward evidence",
+   "why": "Sector sell-offs in 2018-now were mostly bought back quickly, so excluding or tightening on them cost return. A correlation cap (no two picks that move together above 0.7) improved both halves without deepening drawdown but did not clear the margin; nine variants were run, so that near-pass is weak evidence until a forward record supports it.",
+   "gates": [
+    {
+     "id": "G-both-halves",
+     "test": "Sharpe >= control+0.05 and CAGR >= control in both halves",
+     "result": "0 of 9",
+     "pass": false
+    }
+   ]
   }
  ]
 }
