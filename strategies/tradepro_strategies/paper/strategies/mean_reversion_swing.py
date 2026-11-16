@@ -684,6 +684,19 @@ class MeanReversionSwingStrategy(Strategy):
         # can be 2% of upside against the same 8% of risk. Reward:risk asks the
         # question the position actually faces.
         rank = self._ranked_today(bar)
+        # A SLOT GOES TO THE BEST NAME NOT ALREADY TAKEN (16 Nov 2026). The
+        # ranking lists every name firing today, including the ones this
+        # sleeve already holds or has just ordered, and `free` has already
+        # paid for those. Slicing the raw ranking counted them twice: on the
+        # first rotation day MRNA, MU, MPC, VLO, PSX and MTD were bought, 4
+        # slots were free, and rank[:4] was four names already owned, so
+        # DELL, AMD, TGT and MRK were refused "a better signal has the slot"
+        # with nothing left to buy. Swing's own ranking had the same flaw
+        # whenever an order went out earlier in the same run.
+        if rank is not None:
+            taken = (set(self._entry_bar) | set(getattr(self, "_in_flight_symbols", ()) or ())
+                     | set(self._decided_today)) - {sym}
+            rank = [s for s in rank if s not in taken]
         if rank is not None and sym not in rank[:free]:
             place = rank.index(sym) + 1 if sym in rank else len(rank)
             self.log_decision(
