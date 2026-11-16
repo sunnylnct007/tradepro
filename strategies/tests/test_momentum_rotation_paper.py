@@ -218,3 +218,42 @@ def test_a_full_sleeve_still_refuses(monkeypatch):
     bar = Bar(symbol="K", timestamp=datetime(2026, 11, 16, 15, tzinfo=timezone.utc),
               open=100, high=100, low=100, close=100, volume=1, timeframe_seconds=86400)
     assert s.on_bar(bar) == []
+
+
+def _held_board(monkeypatch, live):
+    """MU bought 16 Nov at 720.84; the store's last close is 13 Nov (778.31),
+    from BEFORE the buy — the exact state the board was in on 16 Nov."""
+    import pandas as pd
+
+    import tradepro_strategies.daily_bars as db
+    import tradepro_strategies.live_quote as lq
+    s = _s(sym="MU")
+    s._orders_cache = []
+    s._fill_price = {"MU": 720.84}
+    s._entry_bar = {"MU": "2026-11-16"}
+    s.seed_positions({"MU": 5}, {})
+    monkeypatch.setattr(db, "load_bars", lambda sym, res, lookback_days=None: pd.DataFrame(
+        {"close": [760.0, 778.31]}, index=pd.to_datetime(["2026-11-12", "2026-11-13"])))
+    monkeypatch.setattr(lq, "live_prices", lambda syms: live)
+    monkeypatch.setattr(s, "_board_decision", lambda: {**DEC, "picks": ["MU"]})
+    b = s.board()
+    return next(r for r in b["rows"] if r["symbol"] == "MU"), b["book"]
+
+
+def test_pnl_is_against_the_live_price_not_a_close_from_before_the_buy(monkeypatch):
+    row, book = _held_board(monkeypatch, {"MU": 724.47})
+    assert row["pnl_pct"] == 0.5                 # was +8.0 against Friday's close
+    assert row["pnl_usd"] == round(5 * (724.47 - 720.84), 2)
+    assert row["now_source"] == "live"
+    assert book["names_priced"] == 1 and book["pnl_usd"] == row["pnl_usd"] and book["up"] == 1
+
+
+def test_no_live_price_and_no_close_since_the_buy_means_no_pnl(monkeypatch):
+    row, book = _held_board(monkeypatch, {})
+    assert "pnl_pct" not in row and row["pnl_note"] == "no price since the buy yet"
+    assert book["names_priced"] == 0 and book["names_held"] == 1
+
+
+def test_the_stop_is_set_on_the_day_of_the_buy(monkeypatch):
+    row, _ = _held_board(monkeypatch, {})
+    assert row["stop"] == round(720.84 * 0.8, 2)   # was blank: no close since entry
