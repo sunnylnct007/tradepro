@@ -187,3 +187,34 @@ def test_exits_are_left_as_they_are():
     sell = Order(strategy_id="x", symbol="A", side=OrderSide.SELL, quantity=1,
                  type=OrderType.MARKET, tag="t")
     assert MomentumRotationStrategy._at_market(sell) is sell
+
+
+def test_a_free_slot_goes_to_the_best_name_not_already_bought(monkeypatch):
+    """16 Nov: six of ten picks bought, four slots free, and rank[:4] was four
+    names already owned, so the 5th-10th picks were refused with slots open."""
+    picks = ["MRNA", "MU", "MPC", "VLO", "DELL", "PSX", "AMD", "TGT", "MTD", "MRK"]
+    dec = dict(DEC, picks=picks, weight_each=0.0264)
+    s = _s(sym="MRK", dec=dec)
+    s.seed_positions({}, {})
+    for x in ("MRNA", "MU", "MPC", "VLO", "PSX", "MTD"):
+        s._entry_bar[x] = "2026-11-16"
+    monkeypatch.setattr(s, "_history", lambda sym, bar: ([100.0] * 40, None))
+    monkeypatch.setattr(s, "_broker_positions", lambda: {})
+    monkeypatch.setattr(s, "remember", lambda *a, **k: None)
+    bar = Bar(symbol="MRK", timestamp=datetime(2026, 11, 16, 15, tzinfo=timezone.utc),
+              open=100, high=100, low=100, close=100, volume=1, timeframe_seconds=86400)
+    orders = s.on_bar(bar)
+    assert len(orders) == 1 and orders[0].side == OrderSide.BUY and orders[0].symbol == "MRK"
+
+
+def test_a_full_sleeve_still_refuses(monkeypatch):
+    picks = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"]
+    s = _s(sym="K", dec=dict(DEC, picks=picks))
+    s.seed_positions({}, {})
+    for x in picks[:10]:
+        s._entry_bar[x] = "2026-11-16"
+    monkeypatch.setattr(s, "_history", lambda sym, bar: ([100.0] * 40, None))
+    monkeypatch.setattr(s, "_broker_positions", lambda: {})
+    bar = Bar(symbol="K", timestamp=datetime(2026, 11, 16, 15, tzinfo=timezone.utc),
+              open=100, high=100, low=100, close=100, volume=1, timeframe_seconds=86400)
+    assert s.on_bar(bar) == []
