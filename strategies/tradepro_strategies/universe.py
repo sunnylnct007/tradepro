@@ -320,6 +320,13 @@ def harvest_symbols(store_dir: "str | os.PathLike | None" = None) -> list[str]:
         if ok:
             out.setdefault(sym.upper(), None)
 
+    # MARKET AND SECTOR GAUGES (16 Nov 2026). Owner, on a tech sell-off with
+    # AMD still in the rotation: "can u also harvest SMH and monitor that".
+    # The rotation board shows these beside the holdings; they are watched,
+    # never traded by the engine.
+    for sym in MARKET_GAUGES:
+        out.setdefault(sym, None)
+
     _store_extra: list[str] = []
     if store_dir is not None:
         p = Path(store_dir)
@@ -596,6 +603,11 @@ def _load_wheel_sleeve() -> tuple[str, ...]:
 
 
 WHEEL_SLEEVE: tuple[str, ...] = _load_wheel_sleeve()
+
+#: Market and sector ETFs the desk watches (harvested daily; shown on the
+#: rotation board). SMH = semiconductors, added 16 Nov 2026 at the owner's
+#: request after a tech sell-off.
+MARKET_GAUGES: tuple[str, ...] = ("SPY", "QQQ", "SMH")
 
 
 def universe_by_tag(tag: str, *, strict: bool = False) -> list[str]:

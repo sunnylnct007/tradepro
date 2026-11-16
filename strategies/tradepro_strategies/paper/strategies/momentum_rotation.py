@@ -357,6 +357,43 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                     "pnl_pct": round(sum(r["pnl_usd"] for r in priced) / cost * 100, 2) if cost else None,
                     "up": sum(1 for r in priced if r["pnl_usd"] > 0),
                     "down": sum(1 for r in priced if r["pnl_usd"] < 0)}
+        # MARKET AND SECTOR GAUGES (owner, 16 Nov 2026, on a tech sell-off with
+        # AMD still held: "harvest SMH and monitor that"). Watched, not traded:
+        # the engine's only market rule is SPY vs its 200-day at a decision.
+        # Settled daily closes, plus today's move from 5-minute bars when the
+        # store has them; a gauge with no bars says so.
+        gauges = []
+        try:
+            from ...universe import MARKET_GAUGES
+            for g in MARKET_GAUGES:
+                gd = load_bars(g, "1d", lookback_days=400)
+                if gd is None or len(gd) < 30:
+                    gauges.append({"symbol": g, "error": "no daily bars yet"})
+                    continue
+                gc = gd["close"].astype(float)
+                gl = float(gc.iloc[-1])
+                row = {"symbol": g, "last": round(gl, 2), "as_of": str(gc.index[-1])[:10],
+                       "chg_1m_pct": round((gl / float(gc.iloc[-22]) - 1) * 100, 1) if len(gc) > 22 else None,
+                       "chg_3m_pct": round((gl / float(gc.iloc[-64]) - 1) * 100, 1) if len(gc) > 64 else None,
+                       "from_high_pct": round((gl / float(gc.tail(252).max()) - 1) * 100, 1)}
+                for n in (50, 200):
+                    if len(gc) >= n:
+                        row[f"vs_sma{n}_pct"] = round((gl / float(gc.tail(n).mean()) - 1) * 100, 1)
+                try:
+                    m5 = load_bars(g, "5m", lookback_days=5)
+                    if m5 is not None and len(m5):
+                        et = m5.index.tz_convert("America/New_York")
+                        sess = et[-1].date()
+                        tb = m5[[d == sess for d in et.date]]
+                        prior = gc[[str(t)[:10] < str(sess) for t in gc.index]]
+                        if len(tb) and len(prior):
+                            row["today_pct"] = round((float(tb["close"].iloc[-1]) / float(prior.iloc[-1]) - 1) * 100, 2)
+                            row["today_as_of"] = tb.index[-1].isoformat()
+                except Exception:  # noqa: BLE001 — today's move is extra
+                    pass
+                gauges.append(row)
+        except Exception as exc:  # noqa: BLE001 — the gauges are extra; the board stands without them
+            _log.info("no market gauges for the board: %s", str(exc)[:100])
         today = None
         try:
             from ...momentum_rotation import ranking_today
@@ -387,7 +424,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                            else "SPY below its 200-day average: cash"),
                 "allocation_pct": round(float(dec.get("allocation") or 0) * 100, 1),
                 "per_name_pct": round(float(dec.get("weight_each") or 0) * 100, 2),
-                "error": dec.get("error"), "rows": rows, "book": book,
+                "error": dec.get("error"), "rows": rows, "book": book, "gauges": gauges,
                 "generated_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
 
     def _board_decision(self) -> dict:

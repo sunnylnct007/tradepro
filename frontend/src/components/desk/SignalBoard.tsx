@@ -68,7 +68,52 @@ type Board = {
   eligible_n?: number | null;
   capital?: number | null;
   book?: Book | null;
+  gauges?: Gauge[] | null;
 };
+
+type Gauge = {
+  symbol: string; error?: string; last?: number; as_of?: string; chg_1m_pct?: number | null;
+  chg_3m_pct?: number | null; from_high_pct?: number; vs_sma50_pct?: number; vs_sma200_pct?: number;
+  today_pct?: number; today_as_of?: string;
+};
+
+const GAUGE_NAME: Record<string, string> = { SPY: "S&P 500", QQQ: "Nasdaq 100", SMH: "Semiconductors" };
+
+function Gauges({ gauges }: { gauges: Gauge[] }) {
+  const chip = (label: string, v: number | null | undefined) => v == null ? null : (
+    <span style={{ color: pnlColor(v) }}>{label} {sign(v)}{Math.abs(v).toFixed(1)}%</span>
+  );
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+      {gauges.map((g) => {
+        const below50 = g.vs_sma50_pct != null && g.vs_sma50_pct < 0;
+        const below200 = g.vs_sma200_pct != null && g.vs_sma200_pct < 0;
+        return (
+          <div key={g.symbol} style={{ flex: "1 1 220px", padding: "7px 10px", borderRadius: 6, fontSize: 12,
+            border: `1px solid ${below200 ? "#f85149" : below50 ? "#d29922" : "var(--border)"}`,
+            fontVariantNumeric: "tabular-nums", lineHeight: 1.6 }}>
+            <b>{g.symbol}</b> <span style={{ color: "var(--text-muted)" }}>{GAUGE_NAME[g.symbol] ?? ""}</span>
+            {g.error ? <div style={{ color: "#d29922" }}>{g.error}</div> : (
+              <>
+                <div>
+                  {g.last?.toFixed(2)} <span style={{ color: "var(--text-muted)" }}>close {g.as_of}</span>
+                  {g.today_pct != null && <> · today {chip("", g.today_pct)}</>}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {chip("1m", g.chg_1m_pct)}{chip("3m", g.chg_3m_pct)}{chip("from high", g.from_high_pct)}
+                </div>
+                <div style={{ color: below200 ? "#f85149" : below50 ? "#d29922" : "#3fb950" }}>
+                  {g.vs_sma50_pct != null && <>{below50 ? "below" : "above"} 50-day ({sign(g.vs_sma50_pct)}{Math.abs(g.vs_sma50_pct).toFixed(1)}%)</>}
+                  {g.vs_sma200_pct != null && <> · {below200 ? "below" : "above"} 200-day ({sign(g.vs_sma200_pct)}{Math.abs(g.vs_sma200_pct).toFixed(1)}%)</>}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const usd = (v: number) => `$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 const sign = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "");
@@ -304,6 +349,7 @@ export function SignalBoard() {
           </div>
         </div>
       )}
+      {board.gauges && board.gauges.length > 0 && <Gauges gauges={board.gauges} />}
       {board.book && (
         <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.025)",
           fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
