@@ -284,6 +284,10 @@ export const api = {
   postEarningsPuts: () =>
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
       "/api/today-setups/post_earnings_puts/latest"),
+  /** One archived artifact per day (signal_archive), newest first. */
+  todaySetupsHistory: (universe: string, limit = 30) =>
+    get<{ days: number; entries: Array<{ date: string; asOfUtc: string; artifact: any }> }>(
+      `/api/today-setups/${universe}/history`, { limit, full: "true" }),
   todaySetupsArtifact: (universe: string) =>
     get<{ universe: string; label: string; asOfUtc: string; artifact: any }>(
       `/api/today-setups/${universe}/latest`),

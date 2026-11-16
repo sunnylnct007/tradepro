@@ -119,6 +119,18 @@ else
     log "WARNING: harvest scope publish FAILED (exit $?) — the Data screen will say its scope is unknown. See $LOG"
 fi
 
+# ── Daily evaluation (16 Nov 2026) ──────────────────────────────────────────
+# With tonight's closes settled, record every strategy's day — rotation P&L per
+# name vs SPY/QQQ, the intraday forward record — tagged with the conditions
+# fixed in EVALUATION_CONDITIONS_V1.md, archived one row per day, and mailed.
+# Owner: "i just need every day evaluation". Must not fail the harvest.
+log "daily evaluation"
+if "$UV" run tradepro-daily-evaluation --push --email >>"$LOG" 2>&1; then
+    log "daily evaluation published and mailed"
+else
+    log "WARNING: daily evaluation FAILED or incomplete (exit $?) — see $LOG"
+fi
+
 # ── Sector stress (SELLOFF_PLAYBOOK_GATES_V1 §S2, 10 Nov 2026) ──────────────
 # With tonight's bars settled, publish which sector ETFs (and SPY/QQQ) sit ≥ 8%
 # below their 20-day high. Every events window (options screen, puts board,
