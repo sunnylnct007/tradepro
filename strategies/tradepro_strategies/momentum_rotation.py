@@ -50,6 +50,13 @@ class Params:
     rebalance_every: str = "monthly"     # monthly | biweekly | weekly
     trail_tight_after: float | None = None  # once this far above entry (0.40 = +40%) ...
     trail_tight: float = 0.10            # ... the trailing stop tightens to this
+    # GATES_V3_SECTOR_CORRELATION (16 Nov 2026). Defaults = the decided design.
+    sector_etf_filter: str | None = None  # None | sma50 | sma200: sector ETF must be above it
+    sector_tight_stop: float | None = None  # trail tightens to this while the sector ETF < its 50-day
+    relative_stop: float | None = None    # exit when price/sector-ETF falls this far below its best since entry
+    corr_cap: float | None = None         # skip a pick whose 63-day return corr with a chosen pick exceeds this
+    vol_stop: bool = False                # trail = clip(2 x 63d daily vol x sqrt(21), 10%, 30%), set at entry
+    min_ret_3m: float | None = None       # a pick needs a 3-month return above this
     # proposed implementation details
     min_history: int = 252
     min_price: float = 10.0
@@ -129,6 +136,37 @@ def load_panels(symbols: list[str], sectors: dict[str, str]) -> Panels:
                   spy=spy_adj, sectors=sectors, missing=missing)
 
 
+#: Sector label -> SPDR sector ETF (GATES_V3). XLC from 2018-06, XLRE from 2015-10:
+#: before that a sector rule does not apply to those names.
+SECTOR_ETF: dict[str, str] = {
+    "Industrials": "XLI", "Health Care": "XLV", "Information Technology": "XLK",
+    "Financials": "XLF", "Communication Services": "XLC", "Consumer Discretionary": "XLY",
+    "Consumer Staples": "XLP", "Energy": "XLE", "Real Estate": "XLRE", "Materials": "XLB",
+    "Utilities": "XLU",
+}
+_SECTOR_PX_CACHE: dict[tuple, pd.DataFrame] = {}
+
+
+def load_sector_px(dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Adjusted closes of the sector ETFs, one column per SECTOR label."""
+    key = (dates[0], dates[-1], len(dates))
+    if key in _SECTOR_PX_CACHE:
+        return _SECTOR_PX_CACHE[key]
+    from .daily_bars import load_daily
+    cols = {}
+    for sec, etf in SECTOR_ETF.items():
+        df = load_daily(etf, fetched_by="momentum_rotation")
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df.index = pd.to_datetime([str(t)[:10] for t in df.index])
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+        cols[sec] = df["close"].astype(float) * df["adj_factor"].fillna(1.0).astype(float)
+    out = pd.DataFrame(cols).reindex(dates).ffill(limit=5)
+    _SECTOR_PX_CACHE[key] = out
+    return out
+
+
 # ── signals ─────────────────────────────────────────────────────────────
 
 
@@ -199,6 +237,10 @@ class Derived:
     daily_ret: pd.DataFrame
     sma50: pd.DataFrame
     vol126: pd.DataFrame
+    ret63: pd.DataFrame | None = None
+    sector_px: pd.DataFrame | None = None
+    sector_sma50: pd.DataFrame | None = None
+    sector_sma200: pd.DataFrame | None = None
 
 
 def derive(P: Panels, p: Params) -> Derived:
@@ -213,7 +255,23 @@ def derive(P: Panels, p: Params) -> Derived:
         market_ok=_market_ok(P.spy.reindex(P.dates).ffill(), adj_f, p),
         daily_ret=adj_f.pct_change(fill_method=None),
         sma50=adj_f.rolling(50).mean(),
-        vol126=adj_f.pct_change(fill_method=None).rolling(126).std() * math.sqrt(252))
+        vol126=adj_f.pct_change(fill_method=None).rolling(126).std() * math.sqrt(252),
+        ret63=adj_f / adj_f.shift(63) - 1,
+        **_sector_fields(P, p))
+
+
+def _sector_fields(P: Panels, p: Params) -> dict:
+    if not (p.sector_etf_filter or p.sector_tight_stop or p.relative_stop):
+        return {}
+    sp = load_sector_px(P.dates)
+    return {"sector_px": sp, "sector_sma50": sp.rolling(50).mean(), "sector_sma200": sp.rolling(200).mean()}
+
+
+def _sector_val(frame: pd.DataFrame | None, t, sector: str) -> float:
+    if frame is None or sector not in frame.columns:
+        return float("nan")
+    v = frame.at[t, sector]
+    return float(v) if v is not None else float("nan")
 
 
 def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float = 1.0) -> dict:
@@ -232,6 +290,15 @@ def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float 
             elig &= D.adj_f.loc[t] > D.sma200.loc[t]
         if p.entry_above_sma50:
             elig &= D.adj_f.loc[t] > D.sma50.loc[t]
+        if p.min_ret_3m is not None:
+            elig &= D.ret63.loc[t] > p.min_ret_3m
+        if p.sector_etf_filter:
+            ref = {"sma50": D.sector_sma50, "sma200": D.sector_sma200}[p.sector_etf_filter]
+            for s_ in elig.index[elig]:
+                sec = P.sectors.get(s_, "?")
+                px, ma = _sector_val(D.sector_px, t, sec), _sector_val(ref, t, sec)
+                if not (math.isnan(px) or math.isnan(ma)) and px < ma:
+                    elig[s_] = False
         sc = D.score.loc[t]
         if p.score_mode == "vol_adjusted":
             sc = sc / D.vol126.loc[t]
@@ -244,10 +311,15 @@ def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float 
         cand = pd.DataFrame({"score": sc, "long": D.ret_long.loc[t]})[elig]
         cand = cand.sort_values(["score", "long"], ascending=False)
         per_sector: dict[str, int] = {}
+        rwin = D.daily_ret.loc[:t].tail(63) if p.corr_cap else None
         for s in cand.index:
             sec = P.sectors.get(s, "?")
             if p.sector_cap and per_sector.get(sec, 0) >= p.sector_cap:
                 continue
+            if p.corr_cap and picks:
+                cs = rwin[picks].corrwith(rwin[s])
+                if (cs > p.corr_cap).any():
+                    continue
             picks.append(s)
             scores[s] = round(float(cand.at[s, "score"]), 4)
             per_sector[sec] = per_sector.get(sec, 0) + 1
@@ -295,6 +367,8 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
     entry_day: dict[str, pd.Timestamp] = {}
     entry_px: dict[str, float] = {}
     tp_exits = 0
+    entry_trail: dict[str, float] = {}
+    rel_high: dict[str, float] = {}
     peak = 1.0
     multiplier = 1.0
     pending: dict[str, float] | None = None      # target weights for next open
@@ -349,6 +423,8 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                             shares.pop(s)
                             high.pop(s, None)
                             entry_px.pop(s, None)
+                            entry_trail.pop(s, None)
+                            rel_high.pop(s, None)
                             if s in entry_day:
                                 holds.append((t - entry_day.pop(s)).days)
                     elif phase == "buy" and diff > 0:
@@ -360,6 +436,10 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                             entry_day[s] = t
                             high[s] = px
                             entry_px[s] = px
+                            if p.vol_stop:
+                                sd = D.daily_ret[s].loc[:t].iloc[:-1].tail(63).std()
+                                entry_trail[s] = (min(0.30, max(0.10, 2 * float(sd) * math.sqrt(21)))
+                                                  if sd == sd and sd > 0 else (p.trailing_stop or 0.20))
                         shares[s] = shares.get(s, 0.0) + spend / px
                         turnover += spend / nlv
                         trades += 1
@@ -385,7 +465,21 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                 if math.isnan(px):
                     continue
                 high[s] = max(high.get(s, px), px)
-                trail = p.trailing_stop
+                trail = entry_trail.get(s, p.trailing_stop)
+                sec = P.sectors.get(s, "?")
+                if p.sector_tight_stop:
+                    spx, sma = _sector_val(D.sector_px, t, sec), _sector_val(D.sector_sma50, t, sec)
+                    if not (math.isnan(spx) or math.isnan(sma)) and spx < sma:
+                        trail = min(trail, p.sector_tight_stop)
+                if p.relative_stop and s not in pending_sells:
+                    spx = _sector_val(D.sector_px, t, sec)
+                    if not math.isnan(spx) and spx > 0:
+                        ratio = px / spx
+                        rel_high[s] = max(rel_high.get(s, ratio), ratio)
+                        if ratio <= rel_high[s] * (1 - p.relative_stop):
+                            pending_sells.add(s)
+                            stop_exits += 1
+                            continue
                 if p.trail_tight_after and s in entry_px and \
                         high[s] >= entry_px[s] * (1 + p.trail_tight_after):
                     trail = min(trail, p.trail_tight)
