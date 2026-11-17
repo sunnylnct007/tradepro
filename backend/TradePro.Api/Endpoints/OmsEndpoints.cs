@@ -15,7 +15,7 @@ public static class OmsEndpoints
 
         // List orders. ?state=PENDING_APPROVAL,SUBMITTED filters; absent
         // = all states. Newest first.
-        orders.MapGet("/", async (string? states, int? limit, string? symbol, bool? includeDeleted, IOmsService oms) =>
+        orders.MapGet("/", async (string? states, int? limit, string? symbol, bool? includeDeleted, string? strategyId, IOmsService oms) =>
         {
             var stateList = string.IsNullOrWhiteSpace(states)
                 ? null
@@ -26,7 +26,8 @@ public static class OmsEndpoints
                 // so the symbol detail view isn't limited to the recent LIMIT window.
                 // ?includeDeleted=true = the "show archived" view (soft-deleted rows
                 // kept for execution-stats analytics).
-                orders = await oms.ListAsync(stateList, limit ?? 100, symbol, includeDeleted ?? false),
+                // ?strategyId= filters to one strategy's orders SQL-side, for the same reason.
+                orders = await oms.ListAsync(stateList, limit ?? 100, symbol, includeDeleted ?? false, strategyId),
             });
         });
 

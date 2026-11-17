@@ -1854,7 +1854,7 @@ def _fetch_oms_ledger_fills(strategy_id: str, broker_label: str, log):
     if not base:
         return []
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    r = requests.get(f"{base}/api/oms/orders", params={"states": "FILLED", "limit": 200},
+    r = requests.get(f"{base}/api/oms/orders", params={"states": "FILLED", "limit": 500, "strategyId": strategy_id},  # SQL-side (17 Nov): not the newest fills of EVERY strategy
                       headers=headers, timeout=20)
     r.raise_for_status()
     j = r.json()

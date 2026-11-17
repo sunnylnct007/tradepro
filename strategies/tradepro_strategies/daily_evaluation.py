@@ -109,7 +109,7 @@ def rotation(session: date, conds: dict, base: str, token: str) -> dict:
     from .momentum_rotation import load_universe
     h = {"Authorization": f"Bearer {token}"} if token else {}
     board = requests.get(f"{base}/api/today-setups/momentum_rotation/latest", headers=h, timeout=60).json()["artifact"]
-    orders = requests.get(f"{base}/api/oms/orders", params={"strategyId": ROTATION_SID}, headers=h, timeout=60).json()
+    orders = requests.get(f"{base}/api/oms/orders", params={"strategyId": ROTATION_SID, "limit": 500}, headers=h, timeout=60).json()
     orders = orders if isinstance(orders, list) else orders.get("orders", [])
     acc = [a for a in requests.get(f"{base}/api/integrations/account-state", headers=h, timeout=60).json()["accounts"]
            if a.get("broker") == "IBKR_PAPER"]
