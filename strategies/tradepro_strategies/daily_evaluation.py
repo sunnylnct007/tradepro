@@ -188,6 +188,42 @@ def rotation(session: date, conds: dict, base: str, token: str) -> dict:
 # ── the intraday forward record ────────────────────────────────────────
 
 
+#: The decision the live book bought at the 16 Nov 2026 open. Every schedule
+#: starts from it, so the three differ ONLY in how often they rebalance.
+SCHEDULE_START = "2026-11-13"
+SCHEDULES = ("monthly", "biweekly", "weekly")
+
+
+def rotation_schedules(session: date) -> dict:
+    """The rotation at three rebalance schedules, as paper books with NO orders
+    (owner, 17 Nov 2026: "rebalancing per month seems extreme"). Monthly lost
+    to neither in the 2008-now study (GATES_V2); this asks whether live markets
+    agree. Each is the backtest engine itself (same select(), 20% trailing
+    stop, 0.1% a trade) from SCHEDULE_START to the evaluated session, on
+    settled closes; returns are on the whole sleeve, cash included."""
+    from . import momentum_rotation as M
+    panels = M.cached_panels(None)
+    out = {}
+    for every in SCHEDULES:
+        r = M.backtest(M.with_overrides(rebalance_every=every, start=SCHEDULE_START, end=str(session)), panels)
+        nav = r["nav"]
+        if nav.empty or nav.index[-1].date() != session:
+            raise RuntimeError(f"the store has no {session} close for the rotation universe")
+        last = r["rebalances"][-1] if r["rebalances"] else {}
+        out[every] = {
+            "since_start_pct": round((float(nav.iloc[-1]) - 1) * 100, 2),
+            "day_pct": round((float(nav.iloc[-1]) / float(nav.iloc[-2]) - 1) * 100, 2) if len(nav) > 1 else None,
+            "decisions": len(r["rebalances"]),
+            "latest_decision": str(last.get("date", ""))[:10] or None,
+            "latest_picks": list(last.get("picks") or []),
+            "trades": r["activity"]["trades"],
+            "stop_exits": r["activity"]["trailing_stop_exits"],
+        }
+    return {"start": SCHEDULE_START, "first_buy": "the 16 Nov 2026 open, same as the live book",
+            "basis": "whole sleeve incl. cash, settled closes, 0.1% a trade; no orders",
+            "schedules": out}
+
+
 def intraday(session: date) -> dict:
     from . import intraday_shadow as S
     a = S.build()
@@ -226,6 +262,7 @@ def build(base: str, token: str, session: date | None = None) -> dict:
     out = {"as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "session": str(session), "conditions": conds, "strategies": {}, "errors": {}}
     for key, fn in (("momentum_rotation", lambda: rotation(session, conds, base, token)),
+                    ("rotation_schedules", lambda: rotation_schedules(session)),
                     ("intraday_rules", lambda: intraday(session))):
         try:
             out["strategies"][key] = fn()
@@ -255,6 +292,15 @@ def text_summary(e: dict) -> str:
         for p in r["problems"]:
             lines.append(f"  ! {p}")
         lines.append(f"  orders today: {len(r['orders_today'])}; next decision {r['next_decision']}")
+        lines.append("")
+    rs = e["strategies"].get("rotation_schedules")
+    if rs:
+        lines.append(f"ROTATION BY REBALANCE SCHEDULE (paper models, no orders; from {rs['start']} decision, {rs['basis']})")
+        for k, v in rs["schedules"].items():
+            lines.append(f"  {k:9s} since start {v['since_start_pct']:+.2f}%  day "
+                         + (f"{v['day_pct']:+.2f}%" if v["day_pct"] is not None else "—")
+                         + f"  decisions {v['decisions']}  trades {v['trades']}  stop exits {v['stop_exits']}"
+                         + f"  latest {v['latest_decision']}: {', '.join(v['latest_picks'])}")
         lines.append("")
     i = e["strategies"].get("intraday_rules")
     if i:

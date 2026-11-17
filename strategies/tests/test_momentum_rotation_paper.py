@@ -263,7 +263,8 @@ def test_rebalance_schedules_for_the_v2_study():
     from tradepro_strategies import momentum_rotation as M
     d = pd.bdate_range("2026-01-01", "2026-03-31")
     assert len(M.rebalance_dates(d, M.with_overrides())) == 3          # default stays monthly
-    assert len(M.rebalance_dates(d, M.with_overrides(rebalance_every="weekly"))) == 14
+    # 31 Mar 2026 is a Tuesday: that week is still in progress, so it is not a week-end
+    assert len(M.rebalance_dates(d, M.with_overrides(rebalance_every="weekly"))) == 13
     assert len(M.rebalance_dates(d, M.with_overrides(rebalance_every="biweekly"))) == 7
     with pytest.raises(ValueError):
         M.rebalance_dates(d, M.with_overrides(rebalance_every="daily"))
@@ -362,3 +363,18 @@ def test_a_stop_never_sells_more_than_the_broker_holds(monkeypatch):
     closes = [500.0] * 35 + [100.0, 130.0, 110.0, 103.0]
     dates = ["2026-10-01"] * 35 + ["2026-11-16", "2026-11-20", "2026-11-27", "2026-12-01"]
     assert _stop_bar_run(monkeypatch, closes, dates, held=0.0) == []
+
+def test_a_week_in_progress_is_not_a_rebalance():
+    """17 Nov 2026: with data to a Monday, that Monday was read as the end of
+    its week, a weekly rebalance that vanished on Tuesday's run."""
+    import pandas as pd
+
+    from tradepro_strategies import momentum_rotation as M
+    p = M.with_overrides(rebalance_every="weekly")
+    to_mon = M.rebalance_dates(pd.bdate_range("2026-11-02", "2026-11-16"), p)
+    assert [str(x.date()) for x in to_mon] == ["2026-11-06", "2026-11-13"]
+    to_fri = M.rebalance_dates(pd.bdate_range("2026-11-02", "2026-11-20"), p)
+    assert str(to_fri[-1].date()) == "2026-11-20"
+    # a holiday-short week counts once the next week has begun
+    short = pd.DatetimeIndex([x for x in pd.bdate_range("2026-11-23", "2026-11-30") if x.day != 27])
+    assert "2026-11-26" in [str(x.date()) for x in M.rebalance_dates(short, p)]

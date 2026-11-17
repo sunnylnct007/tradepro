@@ -84,3 +84,30 @@ def test_benchmarks_start_at_the_open_of_the_first_buy_day():
     # the rule, stated where it is applied — and never the close before the buy
     assert "o_.loc[pd.Timestamp(first_buy)]" in src
     assert "before = c[c.index < pd.Timestamp(first_buy)]" not in src
+
+
+def test_every_schedule_starts_from_the_live_books_decision_and_is_named(monkeypatch):
+    import tradepro_strategies.momentum_rotation as M
+    seen = []
+
+    def bt(p, panels):
+        seen.append((p.rebalance_every, p.start, p.end))
+        nav = _series([1.0, 0.99, 0.985], end="2026-11-17")
+        return {"nav": nav, "rebalances": [{"date": "2026-11-13", "picks": ["MU", "AMD"]}],
+                "activity": {"trades": 10, "trailing_stop_exits": 0}}
+    monkeypatch.setattr(M, "cached_panels", lambda s: None)
+    monkeypatch.setattr(M, "backtest", bt)
+    r = E.rotation_schedules(date(2026, 11, 17))
+    assert [x[0] for x in seen] == ["monthly", "biweekly", "weekly"]
+    assert all(x[1] == "2026-11-13" and x[2] == "2026-11-17" for x in seen)
+    w = r["schedules"]["weekly"]
+    assert w["since_start_pct"] == -1.5 and w["day_pct"] == -0.51 and w["latest_picks"] == ["MU", "AMD"]
+
+
+def test_a_schedule_without_the_sessions_close_is_refused(monkeypatch):
+    import tradepro_strategies.momentum_rotation as M
+    monkeypatch.setattr(M, "cached_panels", lambda s: None)
+    monkeypatch.setattr(M, "backtest", lambda p, panels: {
+        "nav": _series([1.0, 0.99], end="2026-11-16"), "rebalances": [], "activity": {}})
+    with pytest.raises(RuntimeError, match="no 2026-11-17 close"):
+        E.rotation_schedules(date(2026, 11, 17))

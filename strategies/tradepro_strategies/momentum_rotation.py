@@ -180,6 +180,13 @@ def rebalance_dates(dates: pd.DatetimeIndex, p: Params) -> list[pd.Timestamp]:
         iso = dates.isocalendar()
         weeks = [g.iloc[-1] for _, g in s.groupby([iso.year.values, iso.week.values])]
         weeks = sorted(weeks)
+        # A WEEK STILL IN PROGRESS IS NOT A WEEK-END (17 Nov 2026). With data
+        # to a Monday, that Monday was the "last session of its week" and
+        # became a rebalance — then vanished on Tuesday's run, rewriting the
+        # forward record every day. A week counts once its Friday is in, or a
+        # later session is (a holiday-short week).
+        if weeks and weeks[-1] == dates[-1] and pd.Timestamp(weeks[-1]).weekday() < 4:
+            weeks = weeks[:-1]
         return weeks if p.rebalance_every == "weekly" else weeks[::2]
     if p.rebalance_every != "monthly":
         raise ValueError(f"rebalance_every must be monthly, biweekly or weekly, not {p.rebalance_every!r}")
