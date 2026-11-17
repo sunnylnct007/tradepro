@@ -51,3 +51,10 @@ def test_the_module_cannot_place_orders():
     mods = {(n.module or "") for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | \
            {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     assert not any(x in m for m in mods for x in ("router", "broker", "ibkr_gateway", "requests"))
+
+
+def test_mixed_bar_times_are_shown_as_a_range(monkeypatch):
+    data = {"A": _m5("2026-11-17", [100.0] * 3), "B": _m5("2026-11-17", [100.0] * 5)}
+    monkeypatch.setattr(MM, "_five_min", lambda s: data[s])
+    monkeypatch.setattr(MM, "_daily", lambda s: _daily([99.0] * 70, end="2026-11-16"))
+    assert MM.build(["A", "B"])["bar_time_ny"] == "09:40–09:50"

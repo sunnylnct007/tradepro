@@ -120,7 +120,10 @@ def build(symbols: list[str] | None = None, held: set[str] | None = None) -> dic
     return {
         "as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "session": latest,
-        "bar_time_ny": max((r["bar_time"] for r in ranked), default=None),
+        # A RANGE, not the newest: mid-harvest some names are a bar or more
+        # ahead of others, and "to 14:10" over a list mostly at 13:20 overstates it.
+        "bar_time_ny": (lambda ts: None if not ts else (ts[0] if ts[0] == ts[-1] else f"{ts[0]}–{ts[-1]}"))(
+            sorted({r["bar_time"] for r in ranked})),
         "scanned": len(symbols), "ranked": len(ranked),
         "no_bars": sorted(no_bars), "behind": behind,
         "gainers": [r for r in ranked if r["chg_pct"] > 0][:ROWS_EACH_SIDE],
