@@ -296,6 +296,18 @@ class BarStore:
 
         t0 = time.perf_counter()
 
+        # NO HISTORY BEFORE A LISTING (17 Nov 2026). SKHY began trading in July
+        # 2026; the rotation lane reads ~14 months, so every run asked IBKR
+        # for each month BEFORE the listing. Each was a cache miss, each was
+        # refused ("Chart data unavailable", which the provider rightly treats
+        # as a warm-up and re-asks twice), and the next run asked again:
+        # measured 21:06–21:11Z, five minutes and ~40 history calls for one
+        # name, enough to trip IBKR pacing for the names behind it. Once the
+        # whole chain has refused a missing month OLDER than the first month
+        # the store holds, the months between are not asked for in this read.
+        # Nothing is written: a month refused today is asked again tomorrow.
+        pre_history_until: str | None = None
+
         for partition in partitions:
             partition_path = self._partition_path(
                 canonical, asset_class, resolution, partition,
@@ -306,7 +318,13 @@ class BarStore:
 
             need_fetch = force_refresh
             delta_from: _date_cls | None = None
-            if self._ensure_local(manifest_path):  # read-through: shared S3 store
+            _had_manifest = self._ensure_local(manifest_path)
+            if (not _had_manifest and not force_refresh
+                    and pre_history_until is not None
+                    and partition < pre_history_until):
+                chain_log.append("pre_history_skip")
+                continue
+            if _had_manifest:  # read-through: shared S3 store
                 try:
                     manifest = Manifest.read(manifest_path)
                 except Exception as exc:  # noqa: BLE001
@@ -562,6 +580,20 @@ class BarStore:
                     # demanded completeness.
                     fetch_error = exc
                     chain_log.append("fetch_failed_serving_cache")
+                    if not _had_manifest and not force_refresh:
+                        stored = self.stored_partitions(
+                            canonical, asset_class, resolution)
+                        if stored and partition < stored[0]:
+                            pre_history_until = stored[0]
+                            n_skip = sum(1 for q in partitions
+                                         if partition < q < stored[0])
+                            if n_skip:
+                                _log.warning(
+                                    "%s %s: no provider holds %s and the store's "
+                                    "history starts %s — not asking for the %d "
+                                    "month(s) between in this read",
+                                    canonical, resolution, partition,
+                                    stored[0], n_skip)
                     continue
                 provider_used = chain_log[-1].split(":", 1)[0] \
                     if ":" in chain_log[-1] else chain_log[-1]
