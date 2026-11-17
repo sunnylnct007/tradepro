@@ -17,6 +17,30 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { Sparkline } from "./Sparkline";
 
+/**
+ * Is a 5-minute "today" figure really TODAY's? (17 Nov 2026: half an hour after
+ * the open the column still showed Monday's -5.6% under "Today", because the
+ * first 5-minute harvest of the session had not landed.) Bars from today's New
+ * York date are current. Once a weekday session has opened, older bars are
+ * NOT shown as today. Before the open or at a weekend the last session is
+ * shown, named by its day.
+ */
+const NY = "America/New_York";
+const nyDate = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: NY });
+export function todayFigure(asOf: string | null | undefined, now: Date = new Date()):
+  { show: boolean; label: string | null; title: string } {
+  if (!asOf) return { show: false, label: null, title: "no 5-minute bars yet" };
+  const bar = new Date(asOf);
+  const t = bar.toLocaleTimeString("en-GB", { timeZone: NY, hour: "2-digit", minute: "2-digit" });
+  const day = bar.toLocaleDateString("en-GB", { timeZone: NY, weekday: "short" });
+  if (nyDate(bar) === nyDate(now)) return { show: true, label: null, title: `5-minute bars to ${t} New York` };
+  const wd = now.toLocaleDateString("en-US", { timeZone: NY, weekday: "short" });
+  const hm = Number(now.toLocaleTimeString("en-GB", { timeZone: NY, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).replace(":", ""));
+  const sessionOpen = !["Sat", "Sun"].includes(wd) && hm >= 930;
+  if (sessionOpen) return { show: false, label: null, title: `today's 5-minute bars are not in yet (last bar ${day} ${t} New York)` };
+  return { show: true, label: day, title: `last session: 5-minute bars to ${day} ${t} New York` };
+}
+
 type Row = {
   action: "BUY" | "SELL" | "HOLD";
   symbol: string;
@@ -97,7 +121,7 @@ function Gauges({ gauges }: { gauges: Gauge[] }) {
               <>
                 <div>
                   {g.last?.toFixed(2)} <span style={{ color: "var(--text-muted)" }}>close {g.as_of}</span>
-                  {g.today_pct != null && <> · today {chip("", g.today_pct)}</>}
+                  {g.today_pct != null && todayFigure(g.today_as_of).show && <> · {todayFigure(g.today_as_of).label ?? "today"} {chip("", g.today_pct)}</>}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {chip("1m", g.chg_1m_pct)}{chip("3m", g.chg_3m_pct)}{chip("from high", g.from_high_pct)}
@@ -178,15 +202,21 @@ function Holdings({ rows }: { rows: Row[] }) {
                   {r.pnl_usd != null ? `${sign(r.pnl_usd)}${usd(r.pnl_usd)}` : "—"}
                 </td>
                 <td style={{ ...TD, color: r.pnl_pct != null ? pnlColor(r.pnl_pct) : undefined }}>{pct(r.pnl_pct, 2)}</td>
-                <td style={{ ...TD, textAlign: "center" }}
-                    title={r.today_as_of ? `5-minute bars to ${new Date(r.today_as_of).toLocaleTimeString()}` : "no 5-minute bars for today"}>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <Sparkline data={r.spark_today} width={72} height={20} />
-                    <span style={{ fontSize: 12, color: r.today_pct != null ? pnlColor(r.today_pct) : "var(--text-muted)" }}>
-                      {pct(r.today_pct, 2)}
-                    </span>
-                  </div>
-                </td>
+                {(() => {
+                  const f = todayFigure(r.today_as_of);
+                  return (
+                    <td style={{ ...TD, textAlign: "center" }} title={f.title}>
+                      {f.show ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <Sparkline data={r.spark_today} width={72} height={20} />
+                          <span style={{ fontSize: 12, color: r.today_pct != null ? pnlColor(r.today_pct) : "var(--text-muted)" }}>
+                            {pct(r.today_pct, 2)}{f.label && <span style={{ color: "var(--text-muted)" }}> {f.label}</span>}
+                          </span>
+                        </div>
+                      ) : <span style={{ fontSize: 12, color: "var(--text-muted)" }}>not in yet</span>}
+                    </td>
+                  );
+                })()}
                 <td style={{ ...TD, textAlign: "center" }}>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <Sparkline data={r.spark} width={72} height={20} />
@@ -221,7 +251,7 @@ function Holdings({ rows }: { rows: Row[] }) {
       <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
         HOLD = still in the top 10; a holding is sold on a close below its stop (20% under its highest close since the buy)
         or at the next decision. 30-day trend and 50-day average use settled daily closes (what the strategy trades on);
-        Today uses the harvested 5-minute bars against yesterday's close — display only, hover for the last bar's time.
+        Today uses the harvested 5-minute bars against yesterday's close — display only, hover for the last bar's time; it reads “not in yet” until the session's first bars are harvested, and is never the previous session shown as today.
         Now is the live quote while the market is open.
       </div>
     </div>
