@@ -138,7 +138,7 @@ def test_the_board_shows_the_next_decision_once_its_close_is_in(monkeypatch):
     s = _s(today="2026-11-13", dec={**DEC, "signal_date": "2026-10-15", "order_date": "2026-10-16",
                                      "picks": ["OLD"]})
     nov = {**DEC, "picks": ["NEW"]}
-    monkeypatch.setattr(M, "decide", lambda d: nov)
+    monkeypatch.setattr(M, "decide", lambda d, p=None: nov)
     assert s._board_decision()["picks"] == ["NEW"]
     s._orders_cache = []
     monkeypatch.setattr(s, "_board_decision", lambda: nov)
@@ -378,3 +378,62 @@ def test_a_week_in_progress_is_not_a_rebalance():
     # a holiday-short week counts once the next week has begun
     short = pd.DatetimeIndex([x for x in pd.bdate_range("2026-11-23", "2026-11-30") if x.day != 27])
     assert "2026-11-26" in [str(x.date()) for x in M.rebalance_dates(short, p)]
+
+
+# ── a second book on another schedule (owner 17 Nov: "capture many executions") ──
+def _weekly(today, sym="NVDA"):
+    wk = {**DEC, "next_signal_date": "2026-11-20"}
+    s = MomentumRotationStrategy(strategy_id="momentum_rotation_weekly_t212",
+                                 params={"capital": 90_000, "rebalance_every": "weekly"})
+    s._today, s._cur = today, sym
+    s._dec_cache[today] = wk
+    s._orders_cache = []
+    return s
+
+
+def test_the_weekly_book_publishes_its_own_board_and_the_monthly_keeps_its_name():
+    assert _s().board_name == "momentum_rotation"
+    assert _weekly("2026-11-16").board_name == "momentum_rotation_weekly"
+
+
+def test_a_weekly_book_started_mid_week_waits_for_the_next_decision():
+    assert _weekly("2026-11-16")._wants_entry()              # the order day
+    assert _weekly("2026-11-17")._wants_entry()              # one retry day
+    assert not _weekly("2026-11-18")._wants_entry()          # last week's list: wait
+    assert _s(today="2026-11-19")._wants_entry()             # monthly window unchanged
+
+
+def test_the_weekly_book_asks_for_the_weekly_decision(monkeypatch):
+    import tradepro_strategies.momentum_rotation as M
+    seen = []
+    monkeypatch.setattr(M, "decide", lambda d, p=None: seen.append(p.rebalance_every) or {**DEC})
+    s = MomentumRotationStrategy(strategy_id="momentum_rotation_weekly_t212",
+                                 params={"capital": 90_000, "rebalance_every": "weekly"})
+    s._today = "2026-11-23"
+    s._decision()
+    assert seen == ["weekly"]
+
+
+def test_the_calendar_decides_weekly_and_every_second_week_from_the_anchor():
+    from datetime import date
+
+    from tradepro_strategies.momentum_rotation import signal_dates_around as S
+    w = S(date(2026, 11, 23), "weekly")
+    assert (str(w["signal_date"]), str(w["order_date"]), str(w["next_signal_date"])) == \
+        ("2026-11-20", "2026-11-23", "2026-11-27")
+    b = S(date(2026, 11, 23), "biweekly")
+    assert (str(b["signal_date"]), str(b["next_signal_date"])) == ("2026-11-13", "2026-11-27")
+    m = S(date(2026, 11, 23))
+    assert (str(m["signal_date"]), str(m["next_signal_date"])) == ("2026-11-13", "2026-12-15")
+    with pytest.raises(ValueError):
+        S(date(2026, 11, 23), "daily")
+
+
+def test_the_lane_passes_its_schedule_to_the_strategy():
+    from tradepro_strategies.cli.paper_session import _build_strategy, _parse_args
+    argv = ["--broker", "t212", "--strategy", "momentum_rotation",
+            "--strategy-id", "momentum_rotation_weekly_t212", "--capital-usd", "90000"]
+    weekly = _build_strategy(_parse_args(argv + ["--rebalance-every", "weekly"]), ["MU"])
+    monthly = _build_strategy(_parse_args(argv), ["MU"])
+    assert weekly._every() == "weekly" and weekly.board_name == "momentum_rotation_weekly"
+    assert monthly._every() == "monthly" and monthly.board_name == "momentum_rotation"

@@ -43,3 +43,22 @@ neither faster schedule beat monthly. This record asks whether live markets agre
   book's own P&L, from IBKR fills, is reported separately.
 - The weekly model trades about 4 times as often as monthly. If the 0.1% cost
   understates real costs, the faster schedules are flattered, not penalised.
+
+## Addendum, 17 Nov 2026 — the weekly book also trades (pass mark unchanged)
+
+Owner: "we need to capture many executions". The weekly schedule now also runs
+as a real paper book, `momentum_rotation_weekly_t212`, on T212 demo — the same
+engine with `--rebalance-every weekly`, sized on 90,000 (the demo holds ~48k
+and the engine invests up to 50%). Its first decision is the 20 Nov close,
+bought at the 23 Nov open; it does not buy the 13 Nov list late.
+
+Why T212: IBKR reports one quantity per stock per account, so two rotation
+books on one IBKR account cannot tell whose shares are whose. Known
+differences from the IBKR monthly book, stated before any result: a different
+broker's fills and fees; 90,000 not 150,000, so whole-share rounding is
+coarser on expensive names; ECHO, VMRK and BRK-B are not on T212.
+
+The decision rule above is NOT changed by this. The models (all three from the
+same data, same costs) remain the comparison the pass mark is judged on. The
+weekly book answers a second question the model cannot: what weekly turnover
+really costs in fills.
