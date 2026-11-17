@@ -292,6 +292,24 @@ public sealed class OmsServiceTest
     }
 
     [Fact]
+    public async Task List_filters_by_strategy_in_sql_not_inside_the_limit_window()
+    {
+        // 17 Nov 2026: the paper chassis rebuilds entry dates (the trailing
+        // stop's anchor) from this list. Unfiltered, a strategy's old buy falls
+        // out of the newest-N window once other strategies trade enough.
+        var oms = NewService();
+        var mine = await oms.EnqueueAsync(SampleIntent("AAPL") with { StrategyId = "rotation_under_test" }, "test");
+        for (var i = 0; i < 3; i++)
+            await oms.EnqueueAsync(SampleIntent("MSFT"), "test");
+
+        var newestOne = await oms.ListAsync(null, 1);
+        Assert.DoesNotContain(newestOne, o => o.Id == mine.Id);
+        var ours = await oms.ListAsync(null, 1, strategyId: "rotation_under_test");
+        Assert.Single(ours);
+        Assert.Equal(mine.Id, ours[0].Id);
+    }
+
+    [Fact]
     public async Task ModeService_AutoToManual_cancels_open_orders()
     {
         var oms = NewService();

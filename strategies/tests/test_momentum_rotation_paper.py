@@ -316,3 +316,49 @@ def test_the_board_carries_market_and_sector_gauges(monkeypatch):
 def test_market_gauges_are_harvested():
     from tradepro_strategies.universe import MARKET_GAUGES, harvest_symbols
     assert "SMH" in MARKET_GAUGES and set(MARKET_GAUGES) <= set(harvest_symbols())
+
+
+def _stop_bar_run(monkeypatch, closes, dates, held=10.0):
+    """The trailing stop, end to end through on_bar: the chassis's own history
+    read sets the session dates the stop measures from, the broker is asked
+    first, and the order that comes out is what the router would receive."""
+    s = _s(sym="NVDA")                    # a current pick: only the stop can sell it
+    s.seed_positions({"NVDA": 10}, {})
+    s._fill_price["NVDA"] = 100.0
+    s._entry_bar["NVDA"] = "2026-11-16"
+
+    def hist(sym, bar):
+        s._dates = list(dates)
+        return list(closes), None
+    monkeypatch.setattr(s, "_history", hist)
+    monkeypatch.setattr(s, "_broker_positions", lambda: {"NVDA": held})
+    s._today = "2026-12-02"
+    s._dec_cache["2026-12-02"] = DEC
+    bar = Bar(symbol="NVDA", timestamp=datetime(2026, 12, 2, 15, tzinfo=timezone.utc),
+              open=90, high=90, low=90, close=90, volume=1, timeframe_seconds=86400)
+    return s.on_bar(bar)
+
+
+def test_a_close_20pct_below_the_peak_since_entry_sells_the_whole_holding_at_market(monkeypatch):
+    from tradepro_strategies.paper.strategy import OrderType
+    # 500 before the buy must never count as the peak; since the buy the peak
+    # is 130, so the stop is 104 and a 103 close sells.
+    closes = [500.0] * 35 + [100.0, 130.0, 110.0, 103.0]
+    dates = ["2026-10-01"] * 35 + ["2026-11-16", "2026-11-20", "2026-11-27", "2026-12-01"]
+    orders = _stop_bar_run(monkeypatch, closes, dates)
+    assert len(orders) == 1
+    o = orders[0]
+    assert o.side == OrderSide.SELL and o.type == OrderType.MARKET and o.quantity == 10
+    assert o.strategy_id == "momentum_rotation_ibkr"
+
+
+def test_a_close_just_above_the_stop_holds(monkeypatch):
+    closes = [500.0] * 35 + [100.0, 130.0, 110.0, 105.0]  # 105 > 104
+    dates = ["2026-10-01"] * 35 + ["2026-11-16", "2026-11-20", "2026-11-27", "2026-12-01"]
+    assert _stop_bar_run(monkeypatch, closes, dates) == []
+
+
+def test_a_stop_never_sells_more_than_the_broker_holds(monkeypatch):
+    closes = [500.0] * 35 + [100.0, 130.0, 110.0, 103.0]
+    dates = ["2026-10-01"] * 35 + ["2026-11-16", "2026-11-20", "2026-11-27", "2026-12-01"]
+    assert _stop_bar_run(monkeypatch, closes, dates, held=0.0) == []

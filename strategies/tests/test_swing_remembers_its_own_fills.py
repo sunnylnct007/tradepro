@@ -131,3 +131,29 @@ def test_an_unreachable_oms_manages_NOTHING_rather_than_guessing(monkeypatch):
     s = _Bare()
     MeanReversionSwingStrategy._seed_from_oms(s)
     assert s._fill_price == {}
+
+
+def test_it_asks_the_oms_for_its_own_orders_only(monkeypatch):
+    """17 Nov 2026: the read was the newest 500 orders of EVERY strategy. A
+    holding kept for months (the momentum rotation holds names across
+    rebalances) would fall out of that window, lose its entry date, and with
+    it its trailing stop. The filter is now in SQL; the loop still checks."""
+    seen = []
+
+    class _R:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    def _get(url, *a, **k):
+        seen.append((str(url), k.get("params") or {}))
+        return _R()
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(
+        "tradepro_strategies.cli.push_to_api.load_credentials",
+        lambda: ("https://example.invalid", "tok"))
+    MeanReversionSwingStrategy._seed_from_oms(_Bare())
+    oms = [p for u, p in seen if u.endswith("/api/oms/orders")]
+    assert oms and oms[0].get("strategyId") == SID

@@ -293,7 +293,8 @@ public sealed class PostgresOmsService : IOmsService
     }
 
     public async Task<IReadOnlyList<OmsOrder>> ListAsync(
-        IReadOnlyCollection<string>? states, int limit, string? symbol = null, bool includeDeleted = false)
+        IReadOnlyCollection<string>? states, int limit, string? symbol = null, bool includeDeleted = false,
+        string? strategyId = null)
     {
         await using var conn = await _db.OpenConnectionAsync();
         var conds = new List<string>();
@@ -315,6 +316,17 @@ public sealed class PostgresOmsService : IOmsService
             // recent LIMIT window — the reason old entries looked "missing".
             conds.Add("upper(split_part(symbol, '_', 1)) = upper(@sym)");
             args.Add("sym", symbol.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(strategyId))
+        {
+            // ?strategyId= filters in SQL, so a strategy's own history is not
+            // limited to the newest LIMIT orders of EVERY strategy. 17 Nov 2026:
+            // the paper chassis rebuilds each holding's entry date (which the
+            // trailing stop measures from) from /oms/orders?limit=500 across all
+            // strategies; a rotation name held for months would have dropped
+            // out of that window and silently lost its stop.
+            conds.Add("o.strategy_id = @strategyId");
+            args.Add("strategyId", strategyId.Trim());
         }
         var whereSql = conds.Count > 0 ? "WHERE " + string.Join(" AND ", conds) : "";
         var sql = $@"

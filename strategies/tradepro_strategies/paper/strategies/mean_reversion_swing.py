@@ -432,7 +432,12 @@ class MeanReversionSwingStrategy(Strategy):
             base, token = load_credentials()
             if not base:
                 raise RuntimeError("no API base configured")
-            r = requests.get(f"{base.rstrip('/')}/api/oms/orders?limit=500",
+            # strategyId is filtered in SQL (17 Nov 2026). Without it this read
+            # was the newest 500 orders of EVERY strategy, so a holding kept
+            # for months would fall out of the window, lose its entry date and
+            # with it its stop. The loop below still checks strategyId.
+            r = requests.get(f"{base.rstrip('/')}/api/oms/orders",
+                             params={"strategyId": self.strategy_id, "limit": 500},
                              headers={"Authorization": f"Bearer {token}"} if token else {},
                              timeout=20)
             if r.status_code != 200:
