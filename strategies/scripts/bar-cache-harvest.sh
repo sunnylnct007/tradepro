@@ -305,5 +305,12 @@ case " $* " in
         else
             log "intraday shadow record FAILED (harvest unaffected)"
         fi
+        # MARKET MOVERS (17 Nov 2026): today's gainers/losers across every
+        # harvested stock, from the bars just written. Display only.
+        if "$UV" run tradepro-market-movers --push >>"$LOG_FILE" 2>&1; then
+            log "market movers published"
+        else
+            log "market movers FAILED (harvest unaffected)"
+        fi
         ;;
 esac

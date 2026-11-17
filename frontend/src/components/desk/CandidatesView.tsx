@@ -223,6 +223,7 @@ function ageHours(asOf: string | null): number | null {
 }
 
 import { SymbolDetailModal } from "./SymbolDetailModal";
+import { MoversGrid } from "./MoversGrid";
 
 // The per-view tone palette every other desk component declares locally
 // (MomentumView, OptionsDesk, OptionsPayoff all carry the same three). This
@@ -239,6 +240,20 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
   // position yet, so empty position/order data is correct, and the chart
   // card fetches its own bars by symbol.
   const [chartSym, setChartSym] = useState<string | null>(null);
+  // MARKET MOVERS (back 17 Nov 2026, owner: "that was across all stocks").
+  // Today's gainers and losers across every harvested stock, from our own
+  // 5-minute bars (today-setups/market-movers, after each 5-minute harvest).
+  // The market's list, not a signal; refreshed every two minutes.
+  const [movers, setMovers] = useState<any | null>(null);
+  const [moversOpen, setMoversOpen] = useState(false);
+  useEffect(() => {
+    const load = () => api.todaySetupsArtifact("market-movers")
+      .then((r) => setMovers(r.artifact ?? null))
+      .catch(() => { /* not published yet: the strip is simply absent */ });
+    void load();
+    const t = setInterval(load, 120_000);
+    return () => clearInterval(t);
+  }, []);
   const [rows, setRows] = useState<Row[]>([]);
   const [errs, setErrs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -276,7 +291,7 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
 
     // Watchlist / Pre-Earn REMOVED 14 Nov 2026 (owner: "Remove it"): a hand-
     // picked list scored by rules never backtested does not belong on a screen
-    // that shows only what can be trusted. Its movers strip went with it.
+    // that shows only what can be trusted. (Its movers strip came back 17 Nov from our own bars.)
 
     // SETUPS LANE REMOVED (26 Sep 2026). It IS the Ichimoku scanner over
     // large_50 + high_beta, and Ichimoku is retired on this desk — the live
@@ -481,6 +496,59 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
         </div>
       )}
 
+
+      {movers && (
+        <div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12,
+                        padding: "6px 10px", border: "1px solid var(--border)",
+                        borderRadius: 8, alignItems: "baseline" }}>
+            <span style={{ color: MUTED, fontSize: 12, textTransform: "uppercase",
+                           letterSpacing: ".06em" }}>Movers</span>
+            <button
+              onClick={() => setMoversOpen((v) => !v)}
+              title="Full sortable grid: price, 52-week range, volume"
+              style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12,
+                       cursor: "pointer", background: "transparent",
+                       border: `1px solid ${moversOpen ? "var(--accent, #4ea1ff)" : "var(--border)"}`,
+                       color: moversOpen ? "var(--accent, #4ea1ff)" : "var(--fg, inherit)" }}>
+              {moversOpen ? "Hide grid ▲" : "Grid ▼"}
+            </button>
+            {(movers.gainers ?? []).slice(0, 6).map((m: any) => (
+              <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+                    onClick={() => setChartSym(m.symbol)}>
+                {m.symbol}{m.status === "held" ? "•" : ""}{" "}
+                <b style={{ color: OK }}>+{m.chg_pct}%</b>
+              </span>
+            ))}
+            <span style={{ color: MUTED }}>·</span>
+            {(movers.losers ?? []).slice(0, 6).map((m: any) => (
+              <span key={m.symbol} style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+                    onClick={() => setChartSym(m.symbol)}>
+                {m.symbol}{m.status === "held" ? "•" : ""}{" "}
+                <b style={{ color: WARN }}>{m.chg_pct}%</b>
+              </span>
+            ))}
+            <span style={{ color: MUTED, fontSize: 12 }}>
+              {movers.session} to {movers.bar_time_ny} New York · {movers.ranked} of {movers.scanned} stocks · • = held
+            </span>
+          </div>
+          {moversOpen && (
+            <div style={{ marginTop: 8 }}>
+              <MoversGrid
+                gainers={movers.gainers ?? []}
+                losers={movers.losers ?? []}
+                asOfUtc={movers.as_of_utc}
+                scanned={movers.scanned}
+                ranked={movers.ranked}
+                session={movers.session}
+                barTime={movers.bar_time_ny}
+                notRanked={(movers.no_bars?.length ?? 0) + (movers.behind?.length ?? 0)}
+                onPick={(sym) => setChartSym(sym)}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {chartSym && (
         <SymbolDetailModal
