@@ -46,6 +46,27 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
     #: placement that fails on the day is retried, but a sleeve started
     #: mid-cycle waits for the next decision instead of buying a stale list.
     ENTRY_WINDOW_DAYS = 7    # calendar days, about five sessions
+    #: A weekly or two-week book trades a list that is replaced within days, so
+    #: its retry window is the order day and the day after: a lane started
+    #: mid-week waits for the next decision rather than buying last week's.
+    SHORT_CYCLE_ENTRY_WINDOW_DAYS = 1
+
+    def _every(self) -> str:
+        """monthly (the live rule) | biweekly | weekly — the lane's
+        --rebalance-every. The decision, the entry window and the board's name
+        follow it; every other rule is the same engine."""
+        return str(self._p().get("rebalance_every") or "monthly")
+
+    def _rot_params(self):
+        from ...momentum_rotation import with_overrides
+        return with_overrides(rebalance_every=self._every())
+
+    @property
+    def board_name(self) -> str:
+        """The monthly board keeps its name; another schedule publishes its own,
+        so two books never overwrite one board."""
+        e = self._every()
+        return "momentum_rotation" if e == "monthly" else f"momentum_rotation_{e}"
 
     def __init__(self, *a, **kw) -> None:
         super().__init__(*a, **kw)
@@ -68,7 +89,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                 import datetime as _dt
 
                 from ...momentum_rotation import decide
-                dec = decide(_dt.date.fromisoformat(day))
+                dec = decide(_dt.date.fromisoformat(day), self._rot_params())
             except Exception as exc:  # noqa: BLE001 — no decision: no entries, no rebalance exits
                 dec = {"error": f"decision failed: {str(exc)[:160]}", "picks": []}
             _log.info("momentum rotation decision for %s: %s", day,
@@ -131,7 +152,9 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
         if not self._in_window(dec) or self._cur not in dec.get("picks", []):
             return False
         opened = _dt.date.fromisoformat(str(dec["order_date"]))
-        if _dt.date.fromisoformat(self._today) > opened + _dt.timedelta(days=self.ENTRY_WINDOW_DAYS):
+        window = (self.ENTRY_WINDOW_DAYS if self._every() == "monthly"
+                  else self.SHORT_CYCLE_ENTRY_WINDOW_DAYS)
+        if _dt.date.fromisoformat(self._today) > opened + _dt.timedelta(days=window):
             return False
         sold = self._sold_this_cycle(dec)
         return sold is not None and self._cur not in sold
@@ -439,7 +462,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             today = _dt.date.fromisoformat(self._today)
             nxt = [d for d in _sessions(today, today + _dt.timedelta(days=10)) if d > today]
             if nxt:
-                upcoming = decide(nxt[0])
+                upcoming = decide(nxt[0], self._rot_params())
                 if not upcoming.get("error") and upcoming.get("signal_date") != active.get("signal_date"):
                     return upcoming
         except Exception as exc:  # noqa: BLE001 — the board falls back to the active decision
@@ -456,7 +479,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             from ...cli import push_to_api as _pta
             base, token = _pta.load_credentials()
             if base:
-                _pta.push("today-setups", {"universe": "momentum_rotation", "label": "latest",
+                _pta.push("today-setups", {"universe": self.board_name, "label": "latest",
                                            "uploaded_by": os.uname().nodename,
                                            "artifact": self.board()},
                           base.rstrip("/"), token)   # default retries ~63 s: outlasts an API redeploy

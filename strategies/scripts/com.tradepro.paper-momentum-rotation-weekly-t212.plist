@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Momentum rotation REBALANCED WEEKLY, on T212 demo (owner 17 Nov 2026:
+     "capture many executions"). The same engine as paper-momentum-rotation-ibkr
+     with one change, rebalance_every=weekly, so the weekly-vs-monthly question in
+     ROTATION_SCHEDULE_FORWARD_V1 gets real fills, not only a model.
+     WHY T212: IBKR reports one quantity per stock per account; two rotation books
+     on one account cannot tell whose shares are whose. T212 demo is its own account.
+     WHY 90,000: the demo holds ~48k and the engine invests up to 50% of capital;
+     sized as a share of capital, results are compared in percent with the monthly.
+     TEMPLATE: the installed copy adds the machine's EnvironmentVariables block,
+     which never belongs in this public repo. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.tradepro.paper-momentum-rotation-weekly-t212</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>/Users/skumar/tradepro-deploy/strategies/scripts/mac-deploy-sync.sh &gt;/dev/null 2&gt;&amp;1; cd /Users/skumar/tradepro-deploy/strategies &amp;&amp; uv run --extra ibkr tradepro-paper --broker t212 --strategy momentum_rotation --strategy-id momentum_rotation_weekly_t212 --rebalance-every weekly --universe tradeable --capital-usd 90000 --interval 1d --max-open-positions 10 --max-position-pct-of-capital 5.5 --placement-mode auto --push 2&gt;&amp;1</string>
+  </array>
+  <key>StartInterval</key><integer>900</integer>
+  <key>SoftResourceLimits</key>
+  <dict><key>NumberOfFiles</key><integer>8192</integer></dict>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/tmp/tradepro-paper-momentum-rotation-weekly-t212.log</string>
+  <key>StandardErrorPath</key><string>/tmp/tradepro-paper-momentum-rotation-weekly-t212.log</string>
+</dict>
+</plist>

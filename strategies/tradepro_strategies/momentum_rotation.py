@@ -569,14 +569,36 @@ def _sessions(start, end) -> list:
         datetime(end.year, end.month, end.day, tzinfo=timezone.utc))
 
 
-def signal_dates_around(today) -> dict:
-    """Which monthly signal is ACTIVE on `today`, from the exchange calendar
-    (not from the bars we happen to have): the last session on or before the
-    15th whose NEXT session is on or before today."""
+#: The week the forward schedules record starts from (the decision the live
+#: book bought). A two-week book decides on this week's end and every second
+#: one after it, so the paper lane and the forward model share one calendar.
+BIWEEKLY_ANCHOR = "2026-11-13"
+
+
+def signal_dates_around(today, every: str = "monthly") -> dict:
+    """Which signal is ACTIVE on `today`, from the exchange calendar (not from
+    the bars we happen to have).
+
+    monthly: the last session on or before the 15th. weekly: the last session
+    of each week, as `rebalance_dates` takes it in the backtest. biweekly:
+    every second week-end, counted from BIWEEKLY_ANCHOR. Active = the newest
+    signal whose NEXT session is on or before today."""
     import datetime as _dt
     sess = _sessions(today - _dt.timedelta(days=75), today + _dt.timedelta(days=45))
     sigs = []
-    for (y, m) in sorted({(d.year, d.month) for d in sess}):
+    if every in ("weekly", "biweekly"):
+        last_of_week: dict = {}
+        for d in sess:                       # ascending, so the week's last session wins
+            last_of_week[tuple(d.isocalendar()[:2])] = d
+        sigs = sorted(last_of_week.values())
+        if every == "biweekly":
+            anchor = _dt.date.fromisoformat(BIWEEKLY_ANCHOR)
+            a_monday = anchor - _dt.timedelta(days=anchor.weekday())
+            sigs = [d for d in sigs
+                    if ((d - _dt.timedelta(days=d.weekday())) - a_monday).days // 7 % 2 == 0]
+    elif every != "monthly":
+        raise ValueError(f"every must be monthly, biweekly or weekly, not {every!r}")
+    for (y, m) in ([] if sigs else sorted({(d.year, d.month) for d in sess})):
         month = [d for d in sess if d.year == y and d.month == m and d.day <= 15]
         if month:
             sigs.append(month[-1])
@@ -596,7 +618,7 @@ def decide(today=None, p: Params = Params()) -> dict:
     and the sleeve does nothing rather than trading last month's list."""
     import datetime as _dt
     today = today or _dt.datetime.now(_dt.timezone.utc).date()
-    cal = signal_dates_around(today)
+    cal = signal_dates_around(today, p.rebalance_every)
     P = cached_panels(p.symbols, ttl_s=900)
     t = pd.Timestamp(cal["signal_date"])
     base = {k: str(v) if v else None for k, v in cal.items()}
@@ -607,7 +629,8 @@ def decide(today=None, p: Params = Params()) -> dict:
     dec = select(t, derive(P, p), P, p)
     dec.pop("allocation_exact", None)
     return {**base, **dec, "params": {"vol_target": p.vol_target, "top_n": p.top_n,
-                                      "trailing_stop": p.trailing_stop}}
+                                      "trailing_stop": p.trailing_stop,
+                                      "rebalance_every": p.rebalance_every}}
 
 
 def ranking_today(p: Params = Params()) -> dict:

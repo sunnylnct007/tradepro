@@ -260,6 +260,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                         "as-fast-as-possible.")
     # ── T212 knobs ───────────────────────────────────────────────────────
     p.add_argument("--t212-mode", choices=["demo", "live"], default="demo")
+    p.add_argument(
+        "--rebalance-every", choices=["monthly", "biweekly", "weekly"], default="monthly",
+        help="momentum_rotation only: how often the book re-decides. monthly is the "
+             "live rule; biweekly/weekly run the same engine as a separate paper book "
+             "(ROTATION_SCHEDULE_FORWARD_V1).")
     p.add_argument("--allow-real-orders", action="store_true",
                    help="Live trading opt-in (must also set the corresponding env var).")
     p.add_argument("--placement-mode", choices=["auto", "manual"], default=None,
@@ -803,6 +808,7 @@ def _build_strategy(args: argparse.Namespace, symbols: list[str]):
                 # August; this branch never did.
                 "broker": args.broker,
                 "capital": args.capital_usd,
+                "rebalance_every": getattr(args, "rebalance_every", None) or "monthly",
                 # Fraction of capital per position. The screen fires ~7 times a
                 # week across 244 names, so positions accumulate quickly; the
                 # binding constraint is max_open_positions below, not this.
