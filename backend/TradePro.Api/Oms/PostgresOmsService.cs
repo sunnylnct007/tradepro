@@ -1002,6 +1002,25 @@ public sealed class PostgresOmsService : IOmsService
     private const string AssumedFillPredicate =
         "(broker_fill_id LIKE 'assumed_via_%' OR broker_fill_id LIKE 'standing_reconcile%')";
 
+    public async Task<IReadOnlyList<(Guid Id, string BrokerOrderId)>> ListAssumedFillOrdersAsync(
+        IReadOnlyCollection<string> brokers, int withinDays, int limit)
+    {
+        await using var conn = await _db.OpenConnectionAsync();
+        var rows = await conn.QueryAsync<(Guid Id, string BrokerOrderId)>($@"
+            SELECT o.id AS Id, o.broker_order_id AS BrokerOrderId
+            FROM oms_orders o
+            WHERE o.broker = ANY(@brokers)
+              AND o.state IN ('FILLED', 'PARTIALLY_FILLED')
+              AND o.broker_order_id IS NOT NULL
+              AND o.created_at_utc > NOW() - make_interval(days => @withinDays)
+              AND EXISTS (SELECT 1 FROM oms_fills f
+                           WHERE f.order_id = o.id AND {AssumedFillPredicate})
+            ORDER BY o.created_at_utc DESC
+            LIMIT @limit;",
+            new { brokers = brokers.ToArray(), withinDays, limit });
+        return rows.ToList();
+    }
+
     public async Task<bool> ConfirmAssumedFillAsync(Guid orderId, decimal price, string brokerFillId, string actor)
     {
         if (price <= 0)

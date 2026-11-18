@@ -98,6 +98,13 @@ public interface IOmsService
     /// overwritten.</summary>
     Task<bool> ConfirmAssumedFillAsync(Guid orderId, decimal price, string brokerFillId, string actor);
 
+    /// <summary>FILLED / PARTIALLY_FILLED orders for <paramref name="brokers"/>
+    /// created within <paramref name="withinDays"/> whose fill was written by a
+    /// reconciler (no execution price yet) — the candidates for
+    /// <see cref="ConfirmAssumedFillAsync"/>. Newest first.</summary>
+    Task<IReadOnlyList<(Guid Id, string BrokerOrderId)>> ListAssumedFillOrdersAsync(
+        IReadOnlyCollection<string> brokers, int withinDays, int limit);
+
     /// <summary>Event trail for an order, oldest first.</summary>
     Task<IReadOnlyList<OmsOrderEvent>> ListEventsAsync(Guid orderId);
 

@@ -491,6 +491,32 @@ public sealed class OmsServiceTest
     }
 
     [Fact]
+    public async Task ListAssumed_returns_only_reconciler_priced_fills_for_the_named_broker()
+    {
+        // 18 Nov 2026: 12 of 22 IBKR exits sat FILLED at price 0. The IBKR
+        // confirmation pass lists exactly these and prices them from executions.
+        var oms = NewService();
+        async Task<Guid> Filled(string broker, string bid, string fillId)
+        {
+            var row = await oms.EnqueueAsync(SampleIntent() with { Broker = broker }, "test");
+            await oms.ApproveAsync(row.Id, "operator");
+            using (var conn = _fx.Db.OpenConnection())
+                conn.Execute("UPDATE oms_orders SET broker_order_id = @bid WHERE id = @id;", new { bid, id = row.Id });
+            await oms.RecordFillAsync(row.Id, 10m, fillId.StartsWith("assumed") ? 0.01m : 100m, 0m, "USD", fillId, "test");
+            return row.Id;
+        }
+        var assumedIbkr = await Filled("IBKR_PAPER", "111", "assumed_via_position_reconcile:111");
+        await Filled("IBKR_PAPER", "222", "exec-222");                               // a real execution
+        await Filled("T212_DEMO", "333", "assumed_via_position_reconcile:333");      // another broker
+
+        var got = await oms.ListAssumedFillOrdersAsync(new[] { "IBKR_PAPER", "IBKR_LIVE" }, 7, 50);
+
+        var one = Assert.Single(got);
+        Assert.Equal(assumedIbkr, one.Id);
+        Assert.Equal("111", one.BrokerOrderId);
+    }
+
+    [Fact]
     public async Task Confirm_never_touches_a_fill_the_broker_reported()
     {
         var oms = NewService();
