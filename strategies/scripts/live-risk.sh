@@ -25,5 +25,10 @@ if "$PY" --push --email --nav-usd "${TRADEPRO_LIVE_NAV_USD:-245000}" 2>&1 | tee 
 else
   rc=${PIPESTATUS[0]}
   log "live-risk FAILED rc=$rc — the Live card is NOT refreshed; if the log says 'Unable to locate credentials', run: aws sso login --profile ${AWS_PROFILE:-<your profile>}"
+  # SAY IT WHERE THE OWNER LOOKS. Until 18 Nov 2026 this line was the only
+  # record: the 17 Nov run failed and the card sat two sessions old with
+  # nothing on the desk saying so. The desk check grades the live card from
+  # this log and publishes the banner now, not at 21:45 tomorrow (no extra mail).
+  "$PROJECT_DIR/.venv/bin/tradepro-desk-check" --push --no-mail >>"$LOG" 2>&1 || true
   exit "$rc"
 fi

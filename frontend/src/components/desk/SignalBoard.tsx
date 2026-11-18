@@ -74,7 +74,7 @@ type Book = {
   pnl_usd: number; pnl_pct: number | null; up: number; down: number;
 };
 
-type Today = { as_of?: string; picks: string[]; entering: string[]; leaving: string[]; market_ok?: boolean };
+type Today = { as_of?: string; picks: string[]; entering: string[]; leaving: string[]; market_ok?: boolean; scores?: Record<string, number> };
 
 type Board = {
   strategy: string;
@@ -360,25 +360,41 @@ export function SignalBoard() {
           ) : null}
         </div>
       )}
-      {board.today && board.today.picks.length > 0 && (
-        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.025)",
-          fontSize: 12.5, lineHeight: 1.6 }}>
-          <b>If it rebalanced on the {day(board.today.as_of)} close:</b>{" "}
-          {board.today.picks.map((sym, i) => (
-            <span key={sym} style={{ fontWeight: board.today!.entering.includes(sym) ? 700 : 400,
-              color: board.today!.entering.includes(sym) ? "#3fb950" : "inherit" }}>
-              {sym}{i < board.today!.picks.length - 1 ? ", " : ""}
-            </span>
-          ))}
-          <div style={{ color: "var(--text-dim)", fontSize: 11.5 }}>
-            {board.today.entering.length || board.today.leaving.length
-              ? <>Drifting since the decision — would come in: {board.today.entering.join(", ") || "none"};
-                  would drop out: {board.today.leaving.join(", ") || "none"}. </>
-              : <>Same ten as the decision. </>}
-            Holdings change only on the next decision date ({day(board.next_signal_date)}); this updates daily.
+      {/* TODAY'S RANKING, ITS OWN BLOCK. Owner, 18 Nov 2026: "i didnt see
+          anywhere the new ranking" — it was one grey sentence under the
+          decision. It is rebuilt on every lane run from the latest close. */}
+      {board.today && board.today.picks.length > 0 && (() => {
+        const T = board.today!;
+        const stays = T.picks.filter((x) => !T.entering.includes(x));
+        const sc = (x: string) => (T.scores && T.scores[x] != null ? ` ${T.scores[x].toFixed(2)}` : "");
+        const group = (label: string, names: string[], color: string, score: boolean) => (
+          <div style={{ minWidth: 150 }}>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)" }}>
+              {label} ({names.length})
+            </div>
+            <div style={{ color, fontWeight: 600 }}>
+              {names.length ? names.map((x) => `${x}${score ? sc(x) : ""}`).join(", ") : "none"}
+            </div>
           </div>
-        </div>
-      )}
+        );
+        return (
+          <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 6, border: "1px solid var(--border)", fontSize: 12.5, lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>
+              Today's ranking — if it rebalanced on the {day(T.as_of)} close
+            </div>
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
+              {group("Would come in", T.entering, "#3fb950", true)}
+              {group("Would drop out", T.leaving, "#f85149", false)}
+              {group("Stays", stays, "inherit", false)}
+            </div>
+            <div style={{ color: "var(--text-dim)", fontSize: 11.5, marginTop: 6 }}>
+              Not an order. This book changes holdings only on its decision date ({day(board.next_signal_date)});
+              the ranking is rebuilt from the latest close on every run so the drift is visible.
+              {T.market_ok === false ? " SPY is below its 200-day average: the rule would hold cash." : ""}
+            </div>
+          </div>
+        );
+      })()}
       {board.gauges && board.gauges.length > 0 && <Gauges gauges={board.gauges} />}
       {board.book && (
         <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.025)",
