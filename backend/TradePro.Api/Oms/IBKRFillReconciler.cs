@@ -141,6 +141,38 @@ public sealed class IBKRFillReconciler
                 applied.Add(new { o.Symbol, o.BrokerOrderId, action = $"reconcile error: {ex.Message}" });
             }
         }
+        // CONFIRMATION PASS (18 Nov 2026). The loop above only sees OPEN
+        // orders. GoldenSourceReconciler marks a SELL FILLED the moment the
+        // broker shows the position gone, often before this pass runs, and
+        // stamps the fill with no price — 12 of 22 rule-driven IBKR exits
+        // between 20 Oct and 6 Nov sat in the OMS at price 0, so their round
+        // trips could not be scored. IBKR's own execution for each was in
+        // /iserver/account/trades all along. T212 had this sweep since 11 Nov
+        // (OmsFillPoller step 5); IBKR never did.
+        var assumed = await oms.ListAssumedFillOrdersAsync(new[] { "IBKR_PAPER", "IBKR_LIVE" }, 7, 50);
+        var confirmedFromExec = 0;
+        foreach (var (orderId, brokerOrderId, price, execId) in ConfirmationsFor(assumed, fillsByOrder))
+        {
+            try
+            {
+                if (await oms.ConfirmAssumedFillAsync(orderId, price, execId, "broker:executions:confirm"))
+                {
+                    confirmedFromExec++;
+                    applied.Add(new { BrokerOrderId = brokerOrderId,
+                                      action = "CONFIRMED price from executions", price });
+                }
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "confirm failed for OMS {Id} / broker {Bid}", orderId, brokerOrderId);
+            }
+        }
+        var stillAssumed = assumed.Count - confirmedFromExec;
+        if (stillAssumed > 0)
+            log.LogWarning(
+                "IBKR reconcile: {N} FILLED order(s) from the last 7 days still carry a reconciler-written "
+                + "fill with no execution price — IBKR's execution list did not include them", stillAssumed);
+
         // appliedCount USED TO READ LIKE SUCCESS while nothing was
         // confirmed: seven orders "applied", every one of them the
         // no-match branch, against an empty blotter. Report what actually
@@ -163,6 +195,8 @@ public sealed class IBKRFillReconciler
             brokerExecutions = execs.Trades.Count,
             executionsWithOrderId = fillsByOrder.Count,
             omsOpen = open.Count,
+            assumedFills = assumed.Count,
+            confirmedFromExecutions = confirmedFromExec,
             confirmed,
             unresolved = applied.Count - confirmed,
             blind,
@@ -178,5 +212,22 @@ public sealed class IBKRFillReconciler
             executionsHttpStatus = execs.HttpStatus,
             applied,
         });
+    }
+
+    /// <summary>Which reconciler-written fills IBKR's executions can price:
+    /// the order's broker id must match an execution's order id, and the
+    /// volume-weighted price must be real. Pure, so it is tested on its own.</summary>
+    public static IEnumerable<(Guid OrderId, string BrokerOrderId, decimal Price, string ExecId)> ConfirmationsFor(
+        IEnumerable<(Guid Id, string BrokerOrderId)> assumed,
+        IReadOnlyDictionary<string, (decimal Qty, decimal Notional, string? ExecId)> fillsByOrder)
+    {
+        foreach (var (id, bid) in assumed)
+        {
+            if (string.IsNullOrWhiteSpace(bid)) continue;
+            if (!fillsByOrder.TryGetValue(bid, out var f) || f.Qty <= 0m) continue;
+            var px = f.Notional / f.Qty;
+            if (px <= 0m) continue;
+            yield return (id, bid, px, f.ExecId ?? $"exec:{bid}");
+        }
     }
 }
