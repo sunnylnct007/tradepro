@@ -25,3 +25,19 @@ Data: the IBKR 5m bars Aug 2024 – Nov 2026 already in the store, same names.
 3. t >= 2.5 (six variants tested, so the usual 2.0 is raised).
 4. Positive in BOTH halves of the period.
 A pass earns a forward shadow record (no orders), not a paper book.
+
+## Result (run 18 Nov 2026, after the commit above) — ALL SIX FAIL
+
+| Variant | n | Win | Avg win | Avg loss | Avg/trade | t | Halves |
+|---|---|---|---|---|---|---|---|
+| Rule 2, target 0.50% | 253 | 73% | +0.44% | −1.56% | −0.098% | −1.75 | −0.12 / −0.08 |
+| Rule 2, target 0.75% | 253 | 65% | +0.69% | −1.53% | −0.085% | −1.27 | −0.08 / −0.09 |
+| Rule 2, target 1.00% | 253 | 59% | +0.93% | −1.49% | −0.076% | −1.00 | −0.14 / −0.02 |
+| Rule 7 short, target 0.50% | 241 | 74% | +0.44% | −1.22% | +0.005% | +0.10 | −0.03 / +0.04 |
+| Rule 7 short, target 0.75% | 241 | 66% | +0.68% | −1.27% | +0.005% | +0.08 | +0.01 / −0.00 |
+| Rule 7 short, target 1.00% | 241 | 59% | +0.87% | −1.26% | −0.002% | −0.03 | +0.00 / −0.01 |
+
+A tighter target buys win rate and pays for it in win size, one for one: at
+0.5% the short wins three times in four, and 0.74 x 0.44 − 0.26 x 1.22 ≈ 0.
+The stop still takes full-size losses. On these signals the price path after
+entry carries no structure a target can harvest. No shadow record is earned.
