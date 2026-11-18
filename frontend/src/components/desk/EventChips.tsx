@@ -67,7 +67,10 @@ export function EventChips({ w, compact = false, only }: {
             color: e.severity === "high" ? TONE.warn : TONE.dim,
           }}>
       <span aria-hidden>{ICON[e.kind] ?? "•"}</span>
-      {compact ? `${e.label} ${day(e.on)}` : e.short}
+      {/* Name the fund: a stock's sector fund and the market fund can both be
+          in a sell-off, and two chips both reading "sector sell-off 16 Nov"
+          looked like a duplicate (owner, 18 Nov). */}
+      {compact ? `${e.kind === "sector_selloff" && e.scope && e.scope !== "MARKET" ? `${e.scope} sell-off` : e.label} ${day(e.on)}` : e.short}
     </span>
   ));
   return (

@@ -35,6 +35,7 @@ import datetime as dt
 import re
 import json
 import logging
+import os
 import pathlib
 import plistlib
 import subprocess
@@ -104,6 +105,11 @@ SCHEDULED_JOBS = (
     "com.tradepro.paper-momentum-ibkr",
     "com.tradepro.screener-daily",
     "com.tradepro.mac-deploy-sync",
+    "com.tradepro.paper-momentum-rotation-weekly-t212",
+    # The live card. Missing from this list until 18 Nov 2026: its 17 Nov run
+    # failed (AWS sign-in expired) and the owner found the card two sessions
+    # old by reading it — nothing on the desk said so.
+    "com.tradepro.live-risk",
     # This check watches itself. A dead checker is the worst failure mode in
     # this file, because it is indistinguishable from a healthy desk unless
     # something says otherwise. Between this line and --always-mail in the
@@ -621,6 +627,68 @@ def check_boards(base: str, token: str | None) -> list[Check]:
     return out
 
 
+#: When the live card is rebuilt: weekdays at this LOCAL time (the launchd
+#: plist com.tradepro.live-risk). Grace covers the run itself.
+LIVE_BOOK_RUN = (22, 50)
+LIVE_BOOK_GRACE_MIN = 20
+LIVE_RISK_LOG_DIR = os.path.expanduser("~/.tradepro/logs")
+
+
+def _last_live_book_run(now_local):
+    """The most recent scheduled weekday run that should have finished."""
+    _td = dt.timedelta
+    t = now_local.replace(hour=LIVE_BOOK_RUN[0], minute=LIVE_BOOK_RUN[1], second=0, microsecond=0)
+    if now_local < t + _td(minutes=LIVE_BOOK_GRACE_MIN):
+        t -= _td(days=1)
+    while t.weekday() >= 5:
+        t -= _td(days=1)
+    return t
+
+
+def _live_risk_failure(day: str) -> str | None:
+    """The reason the live-risk run on `day` gave, from its own log, or None."""
+    path = os.path.join(LIVE_RISK_LOG_DIR, f"live-risk-{day}.log")
+    try:
+        lines = open(path, errors="replace").read().splitlines()
+    except OSError:
+        return None
+    if not any("live-risk FAILED" in l for l in lines):
+        return None
+    text = "\n".join(lines)
+    if "Token has expired" in text or "Unable to locate credentials" in text:
+        return "the AWS sign-in on the Mac expired, so the IBKR Flex secret could not be read"
+    errs = [l for l in lines if re.search(r"error|failed|denied|403", l, re.I) and "live-risk FAILED" not in l]
+    return (errs[-1].strip()[:140] if errs else "see the log") + f" ({path})"
+
+
+def check_live_book(base: str, token: str | None, now_local=None) -> list[Check]:
+    """The live card must be from the last scheduled run, and when it is not,
+    say WHY — the reason sits in the run's own log on this Mac."""
+    now_local = now_local or dt.datetime.now().astimezone()
+    due = _last_live_book_run(now_local)
+    today_run = now_local.replace(hour=LIVE_BOOK_RUN[0], minute=LIVE_BOOK_RUN[1], second=0, microsecond=0)
+    if due < today_run <= now_local and _live_risk_failure(now_local.strftime("%Y-%m-%d")):
+        due = today_run        # tonight's run already failed: no grace to wait out
+    name = "Board · Live book (real account)"
+    try:
+        d = _get(base, token, "/api/today-setups/live-book-risk/latest")
+    except Exception as exc:  # noqa: BLE001
+        return [Check(name, UNKNOWN, f"could not be read ({str(exc)[:50]})")]
+    as_of = d.get("asOfUtc")
+    if not as_of:
+        return [Check(name, UNKNOWN, "published with no timestamp — age unknowable")]
+    built = dt.datetime.fromisoformat(str(as_of).replace("Z", "+00:00")).astimezone(now_local.tzinfo)
+    _td = dt.timedelta
+    if built >= due - _td(minutes=5):
+        return [Check(name, OK, f"built {built:%d %b %H:%M} — the last scheduled run")]
+    why = _live_risk_failure(due.strftime("%Y-%m-%d")) or "the run did not publish"
+    fix = ("run: aws sso login --profile infoccit-admin — the next scheduled run refreshes it"
+           if "AWS sign-in" in why else "read the live-risk log for that day")
+    return [Check(name, BROKEN,
+                  f"built {built:%d %b %H:%M}, missed the {due:%d %b %H:%M} run: {why} — "
+                  f"days to expiry and prices on the card are from {built:%d %b}", fix)]
+
+
 def check_execution(base: str, token: str | None) -> list[Check]:
     """Did orders reach the BROKER — not the OMS, the broker.
 
@@ -1067,6 +1135,7 @@ def run_checks(base: str, token: str | None) -> list[Check]:
     checks: list[Check] = []
     for fn in (lambda: check_data(base, token),
                lambda: check_boards(base, token),
+               lambda: check_live_book(base, token),
                lambda: check_execution(base, token),
                check_jobs,
                lambda: check_broker_agrees(base, token),

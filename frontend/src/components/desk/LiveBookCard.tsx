@@ -58,6 +58,10 @@ export function LiveBookCard() {
   // that hides seven of eighteen contracts is not the book. CLOSE/WATCH still
   // sort first; HOLD rows can be folded by hand, never by default.
   const [showAll, setShowAll] = useState(true);
+  // WHY it is stale, from the desk check (which reads the run's own log on
+  // the Mac). Owner, 18 Nov 2026: the card sat two sessions old after the
+  // 17 Nov run failed, and "i dont understand why we do not have diagnostics".
+  const [why, setWhy] = useState<{ detail: string; fix?: string } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -65,8 +69,15 @@ export function LiveBookCard() {
       api.todaySetupsArtifact("live-book-risk")
         .then((d) => { if (live) { setArt(d.artifact); setAsOf(d.asOfUtc); setErr(null); } })
         .catch((e) => { if (live) setErr(e instanceof Error ? e.message : "unavailable"); });
-    load();
-    const t = setInterval(load, 300_000);
+    const loadWhy = () =>
+      fetch("/api/desk-check/latest").then((r) => r.json())
+        .then((j) => {
+          const c = (j?.artifact?.checks ?? []).find((x: any) => x.lane === "Board · Live book (real account)");
+          if (live) setWhy(c && c.status !== "OK" ? { detail: c.detail, fix: c.fix } : null);
+        })
+        .catch(() => { if (live) setWhy(null); });
+    load(); loadWhy();
+    const t = setInterval(() => { load(); loadWhy(); }, 300_000);
     return () => { live = false; clearInterval(t); };
   }, []);
 
@@ -116,6 +127,16 @@ export function LiveBookCard() {
           </span>
         </span>
       </div>
+
+      {(why || (age != null && age > 74)) && (
+        <div role="alert" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, fontSize: 12.5,
+          border: `1px solid ${TONE.watch}`, color: TONE.watch, lineHeight: 1.5 }}>
+          <b>NOT CURRENT — {age != null ? `built ${Math.round(age)}h ago` : "age unknown"}.</b>{" "}
+          Days to expiry, prices and verdicts below are from then, not today.
+          {why ? <> {why.detail}.{why.fix ? <> Fix: {why.fix}.</> : null}</>
+               : <> The reason is not known yet — the desk check has not graded it.</>}
+        </div>
+      )}
 
       {err && (
         <div style={{ fontSize: 12, color: TONE.act, marginTop: 8 }}>
