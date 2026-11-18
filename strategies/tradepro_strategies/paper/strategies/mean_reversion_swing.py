@@ -887,6 +887,10 @@ class MeanReversionSwingStrategy(Strategy):
                   len(ranked), day, ", ".join(ranked[:10]) or "none")
         return ranked
 
+    #: Calendar days a stored series may lag the tick before it is refused.
+    #: A long weekend plus a holiday is 4; a week means the harvest missed it.
+    STALE_AFTER_DAYS = 7
+
     def _history(self, sym: str, bar: Bar):
         """Settled daily closes from the canonical store. Never the live bus —
         the backtest ran on settled bars, so the live signal must too.
@@ -900,11 +904,18 @@ class MeanReversionSwingStrategy(Strategy):
         try:
             from ...ibkr_bars import fetch_daily_bars
             end = bar.timestamp
+            # Stored bars only: the nightly harvest is the one downloader. A
+            # tick that fetched on a miss cost the 18 Nov session 88 minutes.
             df = fetch_daily_bars(sym, end - timedelta(days=500), end,
-                                  fetched_by="paper.swing")
+                                  fetched_by="paper.swing", stored_only=True)
             if df is None or df.empty:
-                return None, "bar store returned nothing"
+                return None, "bar store holds nothing"
             sub = df["close"].dropna()
+            # ...which makes a missed harvest visible here instead of filled in
+            # silently: a series whose last close is over a week old is refused.
+            if len(sub) and (end.date() - sub.index[-1].date()).days > self.STALE_AFTER_DAYS:
+                return None, (f"stored closes end {str(sub.index[-1])[:10]} — the harvest "
+                              f"has not written it since; not trading on it")
             closes = [float(x) for x in sub.tolist()]
             self._dates = [str(x)[:10] for x in sub.index]
             if len(closes) < self.SIGNALS.MIN_BARS:

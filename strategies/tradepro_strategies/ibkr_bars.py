@@ -121,6 +121,7 @@ def fetch_daily_bars(
     asset_class: str | None = None,
     fetched_by: str = "unknown",
     legacy_provider: str = "yahoo",
+    stored_only: bool = False,
 ) -> pd.DataFrame | None:
     """IBKR-first daily bar fetch with legacy-cache fallback. Returns None only
     if BOTH the BarStore chain and the legacy cache come back empty/erroring —
@@ -136,7 +137,8 @@ def fetch_daily_bars(
             return None
     df, _ = fetch_daily_bars_with_provenance(
         symbol, start, end, asset_class=asset_class,
-        fetched_by=fetched_by, legacy_provider=legacy_provider)
+        fetched_by=fetched_by, legacy_provider=legacy_provider,
+        stored_only=stored_only)
     return df
 
 
@@ -231,13 +233,20 @@ def fetch_daily_bars_with_provenance(
     asset_class: str | None = None,   # None = resolve; see fetch_daily_bars
     fetched_by: str = "unknown",
     legacy_provider: str = "yahoo",
+    stored_only: bool = False,
 ) -> "tuple[pd.DataFrame | None, dict]":
     """As `fetch_daily_bars`, but also returns who served the bars.
 
     Callers that put a number in front of a human should use THIS one: the
     plain variant discards the origin, which is how the screen spent a week
     unable to say whether a close came from IBKR, from yahoo, or from a cache
-    partition written days earlier."""
+    partition written days earlier.
+
+    ``stored_only`` serves what the store already holds (local + S3) and asks
+    NO provider — neither the IBKR chain nor the legacy yahoo cache. A trading
+    lane passes it: the nightly harvest is the one downloader (owner ruling 11
+    Nov), and on 18 Nov a rotation run spent 88 minutes of the session asking
+    IBKR for SKHY months that do not exist."""
     if asset_class is None:
         asset_class = route_asset_class(symbol)
         if asset_class is None:
@@ -248,6 +257,7 @@ def fetch_daily_bars_with_provenance(
         frame = bar_store().get(
             symbol, asset_class, "1d", start, end,
             allow_partial=True, fetched_by=fetched_by,
+            skip_fetch=stored_only,
         )
         if frame.df is not None and not frame.df.empty:
             if not frame.coverage_complete:
@@ -262,6 +272,10 @@ def fetch_daily_bars_with_provenance(
         store_error = str(exc)[:200]
         _log.warning("BarStore fetch failed for %s, falling back to legacy "
                      "%s cache: %s", symbol, legacy_provider, exc)
+
+    if stored_only:
+        # The legacy cache DOWNLOADS on a miss — not on a trading tick.
+        return None, bars_provenance(None, error=f"{symbol}: {store_error} (stored only)")
 
     try:
         from .cache import ensure_cached
