@@ -300,6 +300,18 @@ function Column({ action, rows }: { action: Row["action"]; rows: Row[] }) {
   );
 }
 
+/** Is the US regular session open right now (Mon–Fri 09:30–16:00 New York)?
+ *  Holidays are not known here; on one, the 40-minute rule still holds because
+ *  the lane runs every 15 minutes whether or not the market is open. */
+function usSessionOpen(now = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short",
+    hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  if (get("weekday") === "Sat" || get("weekday") === "Sun") return false;
+  const m = Number(get("hour")) * 60 + Number(get("minute"));
+  return m >= 570 && m < 960;
+}
+
 export function SignalBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -329,7 +341,13 @@ export function SignalBoard() {
   }
 
   const by = (a: Row["action"]) => board.rows.filter((r) => r.action === a);
-  const stale = board.generated_at_utc && Date.now() - new Date(board.generated_at_utc).getTime() > 6 * 3600_000;
+  // STALE IS JUDGED HERE, IN THE BROWSER, because the lane cannot report its
+  // own absence. 19 Nov 2026: the Mac slept on battery with the lid shut from
+  // 07:27 to 18:51 UTC, the board sat 7 hours old through the session, and the
+  // only mark was a grey "older than expected" after six hours. The lane runs
+  // every 15 minutes; in the US session 40 minutes old means it has stopped.
+  const ageMin = board.generated_at_utc ? (Date.now() - new Date(board.generated_at_utc).getTime()) / 60_000 : null;
+  const stale = ageMin != null && ageMin > (usSessionOpen() ? 40 : 180);
 
   return (
     <div style={frame}>
@@ -339,9 +357,17 @@ export function SignalBoard() {
           <span style={{ color: "var(--text-dim)", fontSize: 12.5 }}> · {board.strategy}</span>
         </div>
         <span style={{ fontSize: 11.5, color: stale ? "#d29922" : "var(--text-muted)" }}>
-          updated {ago(board.generated_at_utc)}{stale ? " — older than expected" : ""}
+          updated {ago(board.generated_at_utc)}
         </span>
       </div>
+      {stale && (
+        <div role="alert" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, fontSize: 12.5,
+          border: "1px solid #d29922", color: "#d29922", lineHeight: 1.5 }}>
+          <b>LANE NOT RUNNING — last update {Math.round(ageMin!)} min ago</b> (it runs every 15 min).
+          Prices, P&amp;L and stop distances below are from then. Most likely the Mac that runs it is
+          asleep, off power or offline; no orders or stop exits happen until it runs again.
+        </div>
+      )}
       {board.error ? (
         <div style={{ fontSize: 12.5, color: "#d29922", marginTop: 6 }}>
           No new decision: {board.error}. Holdings below keep their 20% trailing stops.
