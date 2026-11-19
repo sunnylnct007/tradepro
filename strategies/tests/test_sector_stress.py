@@ -69,7 +69,11 @@ def test_events_between_carries_the_sell_off_as_a_high_event():
         if path.startswith("/api/earnings-calendar/"):
             return {"events": [], "store": FRESH_STORE}
         if path == "/api/catalysts/":
-            return {"catalysts": [{"symbol": "MARKET", "kind": "fomc", "occurs_on": "2026-12-09",
+            # Dated OUTSIDE the 20-day window, relative to today. It was a fixed
+            # "2026-12-09", and on 19 Nov the window first reached it and the
+            # test failed on its own.
+            far = (date.today() + timedelta(days=40)).isoformat()
+            return {"catalysts": [{"symbol": "MARKET", "kind": "fomc", "occurs_on": far,
                                    "title": "FOMC", "source": "market_calendar", "severity": "high"}]}
         if path == f"/api/today-setups/{ss.ARTIFACT_UNIVERSE}/latest":
             # Stamped TODAY by the real clock: events_between judges the
