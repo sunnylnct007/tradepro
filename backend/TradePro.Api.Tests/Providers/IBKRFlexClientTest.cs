@@ -272,4 +272,54 @@ public class FlexSummaryRowsOnlyTest
         """;
         Assert.Equal(2, IBKRFlexClient.ParsePositions(two).Count);
     }
+
+    // ── the User-Agent ──────────────────────────────────────────────────
+    // IBKR's Flex host answers a request with NO User-Agent "Error 403 -
+    // Access Denied" — the exact text the deployed API got for two weeks and
+    // read as "IBKR blocks the cloud". This drives a real request through the
+    // client (not a source grep) and asserts the header is on the wire.
+
+    private sealed class CaptureHandler : HttpMessageHandler
+    {
+        public readonly List<HttpRequestMessage> Seen = new();
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            Seen.Add(request);
+            // No User-Agent → what IBKR really sends back.
+            var body = request.Headers.UserAgent.Count == 0
+                ? "Error 403 - Access Denied"
+                : "<FlexStatementResponse><Status>Fail</Status><ErrorCode>1020</ErrorCode>"
+                  + "<ErrorMessage>Invalid request or unable to validate request.</ErrorMessage>"
+                  + "</FlexStatementResponse>";
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new StringContent(body) });
+        }
+    }
+
+    private sealed class OneClientFactory(HttpMessageHandler h) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(h, disposeHandler: false);
+    }
+
+    [Fact]
+    public async Task Every_Flex_request_carries_a_User_Agent()
+    {
+        var h = new CaptureHandler();
+        var opts = Microsoft.Extensions.Options.Options.Create(new IBKRFlexOptions
+        {
+            Token = "0000", PositionsQueryId = "0000",
+            BaseUrl = "https://flex.invalid/FlexWebService",
+        });
+        var client = new IBKRFlexClient(new OneClientFactory(h), opts,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IBKRFlexClient>.Instance);
+
+        var r = await client.GetPositionsAsync(CancellationToken.None, forceFresh: true);
+
+        Assert.NotEmpty(h.Seen);
+        Assert.All(h.Seen, req => Assert.Contains(IBKRFlexClient.UserAgent,
+            req.Headers.UserAgent.ToString()));
+        // And the failure that comes back is IBKR's real answer, not the 403.
+        Assert.DoesNotContain("403", r.Error ?? "");
+    }
 }
