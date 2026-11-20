@@ -57,14 +57,13 @@ def redact_flex(text: str, token: str | None) -> str:
 def _flex_direct(token: str, query_id: str) -> list[dict]:
     """Pull the Open Positions report straight from IBKR.
 
-    WHY NOT THROUGH THE API. IBKR's Flex Web Service answers the deployed API
-    with "Error 403 - Access Denied" and answers this machine with
-    Status=Success — same URL, same token, same second. It blocks the cloud
-    range the API runs in. Proxying a report through a host IBKR will not talk
-    to cannot be made to work from our side.
-
-    Every other Mac lane already reads its sources directly; this one was the
-    odd case, and only because the Flex client happened to live in the backend.
+    WHY THIS READ EXISTS ON THE MAC. From 7 Nov 2026 the deployed API's Flex
+    reads came back "Error 403 - Access Denied" while this machine got
+    Status=Success, and that was read as IBKR blocking the cloud range. It was
+    not: measured 20 Nov 2026, a request with NO User-Agent gets exactly that
+    403 from the Mac too, and the API's Flex client sent none (requests always
+    does). The API client now sends one, so the API path works again; this
+    direct read stays as the second route until live-risk moves off the Mac.
 
     Two-step, as IBKR defines it: SendRequest returns a reference code, then
     GetStatement is polled until the report exists. The second call goes to a
@@ -606,9 +605,9 @@ def main() -> int:
             # A stale read is worse than none: this decides whether to close a
             # position before assignment.
             print(f"Flex error via the API: {d['error']}\n"
-                  f"If this is a 403, IBKR is blocking the cloud host — set "
-                  f"TRADEPRO_IBKR_FLEX_TOKEN and "
-                  f"TRADEPRO_IBKR_FLEX_POSITIONS_QUERY to read directly.",
+                  f"A bare 'Error 403 - Access Denied' means the request "
+                  f"reached IBKR with no User-Agent — check the API's "
+                  f"Flex client (IBKRFlexClient.Prepare), not the network.",
                   file=sys.stderr)
             return 1
         positions = d.get("positions") or []

@@ -58,6 +58,25 @@ public sealed class IBKRFlexClient
         _http = http; _opts = opts; _log = log;
     }
 
+    /// <summary>
+    /// THE 403 WAS OURS, NOT IBKR'S. From 7 Nov 2026 every Flex read from the
+    /// deployed API was answered "Error 403 - Access Denied", and the code and
+    /// notes concluded IBKR blocks the cloud range — so live-risk stayed on the
+    /// Mac, behind an AWS sign-in that expires, and the live card went stale
+    /// whenever it did. Measured 20 Nov 2026 from the Mac, invalid token, same
+    /// second: no User-Agent → "Error 403 - Access Denied"; with one → IBKR's
+    /// normal XML (ErrorCode 1020). The named "ibkr-flex" HttpClient sent no
+    /// User-Agent at all; Python's requests always sends one, which is why the
+    /// Mac "worked". Every Flex request goes out with one.
+    /// </summary>
+    public const string UserAgent = "tradepro/1.0";
+
+    public static void Prepare(HttpClient client)
+    {
+        client.DefaultRequestHeaders.UserAgent.Clear();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+    }
+
     public bool IsEnabled => _opts.Value.IsEnabled;
     public string? PositionsQueryId => Blank(_opts.Value.PositionsQueryId);
     public string? TradesQueryId => Blank(_opts.Value.TradesQueryId);
@@ -137,6 +156,7 @@ public sealed class IBKRFlexClient
 
             var client = _http.CreateClient("ibkr-flex");
             client.Timeout = TimeSpan.FromSeconds(60);
+            Prepare(client);
 
             var sendUrl = $"{o.BaseUrl.TrimEnd('/')}/SendRequest"
                         + $"?t={Uri.EscapeDataString(o.Token)}"
