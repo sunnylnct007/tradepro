@@ -13,9 +13,9 @@ Python so there is one definition and no shell to drift:
            boards ∪ the IBKR paper book (TRADEPRO_HARVEST_SCOPE=candidates)
   window   a trailing 7 days (the harvester's "daily mode" cannot serve a
            single session of intraday bars)
-  then     the intraday shadow record, the intraday setups board and the
-           market movers, each --push, each guarded — a failure is NAMED and
-           does not hide the others.
+  then     the intraday shadow record and the intraday setups board, each
+           --push, each guarded — a failure is NAMED and does not hide the
+           other. Market movers is a separate job (see FOLLOW_UPS).
 
 Nothing here places an order. Both this and the Mac lane may run for a day
 or two: they write the same bars to the same store, and the later writer
@@ -104,9 +104,14 @@ def _run_cli(name: str, module: str, argv: list[str]) -> int:
     return rc
 
 
+#: Market movers is NOT here (21 Nov 2026). The first Lambda run harvested 214
+#: symbols in 4m20s and then spent 5m37s in movers reading 400 days of closes
+#: for every name from a cold S3 — a slow READER sharing the harvest's 900s
+#: budget. Owner: "we need to ensure lambda runs for symbols that do not get
+#: completed in 15 mins cycle". Movers runs as its own job (JOBS["market_movers"])
+#: on its own schedule, so nothing after the harvest can ever cost it a symbol.
 FOLLOW_UPS = (("tradepro-intraday-shadow", "tradepro_strategies.cli.intraday_shadow", ["--push"]),
-              ("tradepro-intraday-setups", "tradepro_strategies.cli.intraday_setups", ["--push"]),
-              ("tradepro-market-movers", "tradepro_strategies.cli.market_movers", ["--push"]))
+              ("tradepro-intraday-setups", "tradepro_strategies.cli.intraday_setups", ["--push"]))
 
 
 def main(argv: list[str] | None = None) -> int:

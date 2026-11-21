@@ -207,3 +207,16 @@ Measured on the Mac: 214 symbols, 4.5 minutes.
 
 Run beside the Mac lane for a session (same bars, same store), compare the
 run log, then unload `com.tradepro.bar-cache-harvest-5m`.
+
+### Same evening — movers split out
+
+First Lambda run of `harvest_5m`: harvest 4m20s (201 GOLD), shadow+setups 8s,
+market-movers 5m37s (cold S3: 400 days of closes × 214 names) = 605s. A reader
+must not share the harvest's budget, so `market_movers` is its own job:
+
+    tradepro-harvest-5m     cron(0/10 14-21 ? * MON-FRI *)   harvest + shadow + setups
+    tradepro-market-movers  cron(5/15 14-21 ? * MON-FRI *)   movers, read-only
+
+Bars are written per symbol as the harvest goes and every run re-covers the
+trailing 7 days, so a symbol missed by a kill is caught by the next cycle and
+the cockpit's per-symbol health names it meanwhile.

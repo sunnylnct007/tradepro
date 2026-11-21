@@ -50,5 +50,11 @@ def test_a_failing_follow_up_is_named_and_does_not_stop_the_others(monkeypatch):
     monkeypatch.setattr(P, "load_credentials", lambda: ("http://x/", "t"))
     rc = J.main([])
     assert rc == 1
-    assert calls == ["tradepro-bar-cache-harvest", "tradepro-intraday-shadow",
-                     "tradepro-intraday-setups", "tradepro-market-movers"]
+    assert calls == ["tradepro-bar-cache-harvest", "tradepro-intraday-shadow", "tradepro-intraday-setups"]
+
+
+def test_movers_is_its_own_job_not_a_follow_up():
+    """A slow reader must never share the harvest's time budget (21 Nov 2026:
+    5m37s of cold S3 reads after a 4m20s harvest)."""
+    assert "tradepro-market-movers" not in [n for n, _, _ in J.FOLLOW_UPS]
+    assert H.JOBS["market_movers"] == ("tradepro_strategies.cli.market_movers", ["--push"])
