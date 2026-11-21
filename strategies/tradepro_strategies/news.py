@@ -139,13 +139,12 @@ NEWS_FALLBACK: dict[str, str] = {
 }
 
 
-def fetch_news(
+def _fetch_yahoo(
     symbol: str,
     limit: int = 8,
     max_age_days: int = 14,
-) -> list[NewsItem]:
-    """Best-effort. Returns [] on any failure — empty headlines are not
-    a reason to fail the comparator run.
+) -> tuple[list[NewsItem], str | None]:
+    """Yahoo headlines and, when the read failed, why.
 
     Yahoo's `Ticker.news` returns whatever is in its store, in no
     particular order, with no freshness guarantee — users reported
@@ -162,11 +161,11 @@ def fetch_news(
     try:
         import yfinance as yf
     except ImportError:
-        return []
+        return [], "yahoo: yfinance not installed"
     try:
         items = yf.Ticker(symbol).news or []
-    except Exception:  # noqa: BLE001
-        return []
+    except Exception as exc:  # noqa: BLE001
+        return [], f"yahoo: {type(exc).__name__}: {str(exc).strip('* ')[:80]}"
 
     parsed: list[NewsItem] = []
     # Over-fetch — yfinance ignores extra so this is a no-op when the
@@ -206,7 +205,107 @@ def fetch_news(
         -(pair[1].timestamp() if pair[1] else float("-inf")),
         0 if pair[1] else 1,
     ))
-    return [item for item, _ in fresh[:limit]]
+    return [item for item, _ in fresh[:limit]], None
+
+
+# ── one read, every source, and the reason when it comes back empty ─────
+# 20 Nov 2026, the worst AI sell-off week of the year: the desk's news read
+# returned ZERO headlines for NVDA, AMD and SPY. Yahoo answered "currently
+# down"; the Finnhub fallback needed a key the Mac never had; both failures
+# were swallowed into [], which every caller rendered as a quiet tape and the
+# sentiment scorer read as "nothing material". A read that FAILED is not "no
+# news" — it now says which source failed and why, and the backend (which holds
+# the Finnhub key in AWS) is the second source wherever this runs.
+
+@dataclass
+class NewsRead:
+    items: list[NewsItem]
+    source: str | None
+    errors: list[str]
+
+    @property
+    def failed(self) -> bool:
+        """Nothing came back AND at least one source could not be read."""
+        return not self.items and bool(self.errors)
+
+    def to_dict(self) -> dict:
+        return {"source": self.source, "errors": self.errors, "failed": self.failed,
+                "count": len(self.items)}
+
+
+def _finnhub_via_api(symbol: str, limit: int, days: int) -> tuple[list[NewsItem], str | None]:
+    """Finnhub company news through the TradePro API, which holds the key."""
+    try:
+        import requests
+
+        from .cli.push_to_api import load_credentials
+        base, token = load_credentials()
+        r = requests.get(f"{base.rstrip('/')}/api/integrations/finnhub/company-news",
+                         params={"symbol": symbol, "days": days},
+                         headers={"Authorization": f"Bearer {token}"} if token else {},
+                         timeout=20)
+        if r.status_code != 200:
+            return [], f"finnhub via api: HTTP {r.status_code}"
+        d = r.json()
+        if d.get("error"):
+            return [], f"finnhub via api: {d['error']}"
+        out = []
+        for row in d.get("items") or []:
+            ts = row.get("datetime")
+            out.append(NewsItem(
+                title=row.get("headline") or "",
+                publisher=row.get("source"),
+                link=row.get("url"),
+                published_at=(datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                              if ts else None),
+                thumbnail=None))
+        out.sort(key=lambda i: i.published_at or "", reverse=True)
+        return out[:limit], None
+    except Exception as exc:  # noqa: BLE001
+        return [], f"finnhub via api: {type(exc).__name__}"
+
+
+def _finnhub(symbol: str, limit: int, max_age_days: int) -> tuple[list[NewsItem], str | None]:
+    import os
+    key = os.environ.get("TRADEPRO_FINNHUB_API_KEY", "")
+    days = max(1, min(max_age_days, 7))
+    if not key:
+        return _finnhub_via_api(symbol, limit, days)
+    try:
+        from .catalysts_finnhub import fetch_company_news
+        return fetch_company_news(symbol, api_key=key, days_back=days)[:limit], None
+    except Exception as exc:  # noqa: BLE001
+        return [], f"finnhub: {type(exc).__name__}"
+
+
+def read_news(symbol: str, limit: int = 8, max_age_days: int = 14) -> NewsRead:
+    """Yahoo, then Finnhub. Returns the first source with headlines, and the
+    errors of every source that could not be read."""
+    errors: list[str] = []
+    for name, fn in (("yahoo", _fetch_yahoo), ("finnhub", _finnhub)):
+        items, err = fn(symbol, limit, max_age_days)
+        if err:
+            errors.append(err)
+        if items:
+            return NewsRead(items, name, errors)
+    return NewsRead([], None, errors)
+
+
+def fetch_news(
+    symbol: str,
+    limit: int = 8,
+    max_age_days: int = 14,
+) -> list[NewsItem]:
+    """Headlines from the first source that has them. Kept as a list for its
+    callers; a read where every source FAILED is logged loudly, never passed
+    off silently as a quiet tape. Callers that must tell the two apart use
+    read_news()."""
+    r = read_news(symbol, limit=limit, max_age_days=max_age_days)
+    if r.failed:
+        import logging
+        logging.getLogger("tradepro.news").warning(
+            "news for %s could NOT be read (not 'no news'): %s", symbol, "; ".join(r.errors))
+    return r.items
 
 
 def fetch_news_with_fallback(
@@ -233,28 +332,8 @@ def fetch_news_with_fallback(
     # sector proxy — it's the symbol's own news, just a different source, so it's
     # strictly better than "via ^FTSE". Fires ONLY for empty-Yahoo names, so it
     # adds at most one Finnhub call per sparse symbol (not one per symbol).
-    finnhub_items = _fetch_finnhub_company_news(symbol, limit, max_age_days)
-    if finnhub_items:
-        return finnhub_items, None  # symbol's own news → not a proxy label
     fallback = NEWS_FALLBACK.get(symbol.upper())
     if not fallback:
         return [], None
     proxy_items = fetch_news(fallback, limit=limit, max_age_days=max_age_days)
     return proxy_items, (fallback if proxy_items else None)
-
-
-def _fetch_finnhub_company_news(
-    symbol: str, limit: int, max_age_days: int,
-) -> list[NewsItem]:
-    """Finnhub company-news for a symbol, or [] when the key is unset or the
-    call fails. Best-effort multi-source enrichment — never raises."""
-    import os
-    key = os.environ.get("TRADEPRO_FINNHUB_API_KEY", "")
-    if not key:
-        return []
-    try:
-        from .catalysts_finnhub import fetch_company_news
-        items = fetch_company_news(symbol, api_key=key, days_back=min(max_age_days, 7))
-        return items[:limit]
-    except Exception:
-        return []

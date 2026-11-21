@@ -231,6 +231,59 @@ public sealed class FinnhubClient
             return null;
         }
     }
+
+    // ── news ─────────────────────────────────────────────────────────────
+    // A READ THAT FAILED IS NOT "NO NEWS". On 20 Nov 2026, in the worst AI
+    // sell-off week of the year, the desk's news read returned zero headlines
+    // for NVDA, AMD and SPY: Yahoo answered "currently down" and the Finnhub
+    // fallback had no key on the Mac — both swallowed into an empty list that
+    // read as a quiet tape. These methods return the error beside the items so
+    // a caller can never show one as the other.
+
+    /// <summary>Company headlines for <paramref name="symbol"/> over the last
+    /// <paramref name="days"/> days (Finnhub /company-news, free tier).</summary>
+    public Task<(IReadOnlyList<FinnhubNewsItem> Items, string? Error)> GetCompanyNewsAsync(
+        string symbol, int days, CancellationToken ct)
+    {
+        var to = DateTime.UtcNow.Date;
+        var from = to.AddDays(-Math.Clamp(days, 1, 30));
+        return GetNewsAsync(
+            $"company-news?symbol={HttpUtility.UrlEncode(symbol.Trim().ToUpperInvariant())}"
+            + $"&from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}&token={_options.ApiKey}",
+            $"company news for {symbol.Trim().ToUpperInvariant()}", ct);
+    }
+
+    /// <summary>Market-wide headlines (Finnhub /news, category general |
+    /// forex | crypto | merger) — the macro tape a single stock's feed misses.</summary>
+    public Task<(IReadOnlyList<FinnhubNewsItem> Items, string? Error)> GetMarketNewsAsync(
+        string category, CancellationToken ct) =>
+        GetNewsAsync($"news?category={HttpUtility.UrlEncode(category)}&token={_options.ApiKey}",
+                     $"market news ({category})", ct);
+
+    private async Task<(IReadOnlyList<FinnhubNewsItem> Items, string? Error)> GetNewsAsync(
+        string path, string what, CancellationToken ct)
+    {
+        if (!_options.IsEnabled)
+            return (Array.Empty<FinnhubNewsItem>(), "Finnhub is not configured (no API key)");
+        try
+        {
+            using var resp = await _http.GetAsync(path, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                // Never the URL: it carries the token.
+                _log.LogWarning("Finnhub {What} failed: HTTP {Status}", what, (int)resp.StatusCode);
+                return (Array.Empty<FinnhubNewsItem>(),
+                        $"Finnhub {what}: HTTP {(int)resp.StatusCode}");
+            }
+            var list = await resp.Content.ReadFromJsonAsync<List<FinnhubNewsItem>>(cancellationToken: ct);
+            return ((IReadOnlyList<FinnhubNewsItem>?)list ?? Array.Empty<FinnhubNewsItem>(), null);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning("Finnhub {What} error: {Type}", what, ex.GetType().Name);
+            return (Array.Empty<FinnhubNewsItem>(), $"Finnhub {what}: {ex.GetType().Name}");
+        }
+    }
 }
 
 /// <summary>One row from the Finnhub /calendar/earnings response.
@@ -290,3 +343,14 @@ public sealed record FinnhubUpgradeDowngrade(
     string? Company,        // analyst firm name (Goldman Sachs / Citi / etc.)
     [property: System.Text.Json.Serialization.JsonPropertyName("action")]
     string? Action);        // up / down / main / init
+
+/// <summary>One headline from Finnhub /company-news or /news.</summary>
+public sealed record FinnhubNewsItem(
+    [property: System.Text.Json.Serialization.JsonPropertyName("id")] long? Id,
+    [property: System.Text.Json.Serialization.JsonPropertyName("datetime")] long? Datetime,
+    [property: System.Text.Json.Serialization.JsonPropertyName("headline")] string? Headline,
+    [property: System.Text.Json.Serialization.JsonPropertyName("summary")] string? Summary,
+    [property: System.Text.Json.Serialization.JsonPropertyName("source")] string? Source,
+    [property: System.Text.Json.Serialization.JsonPropertyName("url")] string? Url,
+    [property: System.Text.Json.Serialization.JsonPropertyName("related")] string? Related,
+    [property: System.Text.Json.Serialization.JsonPropertyName("category")] string? Category);

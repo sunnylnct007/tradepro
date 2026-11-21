@@ -284,9 +284,17 @@ def get_news_with_sentiment(symbol: str, limit: int = 8) -> dict:
     if not symbol:
         return _err("get_news_with_sentiment", "symbol is required")
     try:
-        from ..news import fetch_news
+        from ..news import read_news
         from ..news_sentiment import score_news, summarise_recent
-        items = fetch_news(symbol, limit=limit)
+        read = read_news(symbol, limit=limit)
+        items = read.items
+        if read.failed:
+            # A read that failed is NOT a quiet tape (20 Nov 2026: zero
+            # headlines for NVDA/AMD/SPY in an AI sell-off, every source down).
+            return {"_source": f"live://news/{symbol}", "fetched_at": _now_iso(),
+                    "symbol": symbol, "ok": False, "items": [],
+                    "error": "news could not be read — this is NOT 'no news'",
+                    "news_read": read.to_dict()}
         scored = score_news(items)
         summary = summarise_recent(scored, items, days=7)
     except Exception as e:  # noqa: BLE001
@@ -310,7 +318,33 @@ def get_news_with_sentiment(symbol: str, limit: int = 8) -> dict:
         "ok": True,
         "items": enriched,
         "summary_7d": summary.to_dict(),
+        "news_read": read.to_dict(),
     }
+
+
+def get_market_news(category: str = "general", limit: int = 20) -> dict:
+    """Market-wide headlines (Finnhub general news via the TradePro API): the
+    macro tape — Fed, IPOs, sector moves — that one stock's feed misses. A
+    failed read returns ok=false with the reason, never an empty list."""
+    try:
+        d = _get("/api/integrations/finnhub/market-news", params={"category": category})
+    except Exception as e:  # noqa: BLE001
+        return _err("get_market_news", str(e), category=category)
+    if d.get("error"):
+        return {"_source": f"live://market_news/{category}", "fetched_at": _now_iso(),
+                "ok": False, "items": [],
+                "error": f"market news could not be read — this is NOT 'no news': {d['error']}"}
+    items = []
+    for i, row in enumerate((d.get("items") or [])[:max(1, min(limit, 100))]):
+        ts = row.get("datetime")
+        items.append({"headline": row.get("headline"), "summary": row.get("summary"),
+                      "source": row.get("source"), "url": row.get("url"),
+                      "related": row.get("related"),
+                      "published_at": (datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+                                       if ts else None),
+                      "_source": f"live://market_news/{category}/items[{i}]"})
+    return {"_source": f"live://market_news/{category}", "fetched_at": _now_iso(),
+            "ok": True, "category": category, "count": len(items), "items": items}
 
 
 def get_regime_history(universe: str, symbol: str, strategy: str | None = None) -> dict:
