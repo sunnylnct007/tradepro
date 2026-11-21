@@ -172,3 +172,23 @@ make this trivial. It should be answered first.
 - The Mac agents are UNTOUCHED and still doing the real work.
 - The Lambda timeout was raised 300 s → 900 s. That only affects jobs that were
   previously being killed; nothing else changes behaviour.
+
+## 21 Nov 2026 — live-risk moves (owner: "it could be a simple lambda")
+
+Job `live_risk` = `tradepro-live-risk --push --email --via-api`. Read-only
+(Flex, through the API's client — the one central IBKR connection), no Flex
+credential on the function, no new IAM grant. Spots come from the bar store
+(S3 read), events from the API, mail from `tradepro/email`.
+
+To finish (needs an SSO login; not repo material):
+
+    aws lambda update-function-configuration --function-name tradepro-jobs \
+      --environment "Variables={...existing...,TRADEPRO_LIVE_NAV_USD=<account value>}"
+    aws events put-rule --name tradepro-live-risk \
+      --schedule-expression 'cron(50 22 ? * MON-FRI *)'      # 22:50 UTC = the Mac's 22:50 GMT; move to 21:50 in BST
+    aws events put-targets --cli-input-json file://live-risk-target.json   # Input {"job":"live_risk"} — VERIFY Input after
+
+Run beside the Mac lane for a few nights (both push the same artifact; the
+later one wins and they agree), compare the run log, then unload
+`com.tradepro.live-risk`. The desk check still runs on the Mac and grades the
+card from the artifact's age, so it needs no change.
