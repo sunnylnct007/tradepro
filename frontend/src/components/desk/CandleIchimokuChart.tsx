@@ -150,6 +150,27 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
   const [err, setErr] = useState<string | null>(null);
   // Live crosshair readout (OHLC + date) shown above the chart.
   const [hover, setHover] = useState<Candle | null>(null);
+  // VISIBLE ZOOM CONTROLS (21 Nov 2026). Wheel/pinch zoom and drag-pan were
+  // always on, but nothing on the chart SAID so, and in the narrow rail a wheel
+  // over the canvas competes with page scroll. Buttons make the capability
+  // visible; Reset restores the window the range pill asked for (not
+  // fitContent, which would show the Ichimoku lead-in pad).
+  const initialRangeRef = useRef<{ from: Time; to: Time } | null>(null);
+  const zoomBy = (factor: number) => {
+    const ts = chartRef.current?.timeScale();
+    const r = ts?.getVisibleLogicalRange();
+    if (!ts || !r) return;
+    const width = r.to - r.from;
+    const next = Math.max(10, width * factor);
+    // Keep the right edge (the newest bar) where it is; zoom from the left.
+    ts.setVisibleLogicalRange({ from: r.to - next, to: r.to });
+  };
+  const resetView = () => {
+    const ts = chartRef.current?.timeScale();
+    if (!ts) return;
+    if (initialRangeRef.current) ts.setVisibleRange(initialRangeRef.current);
+    else ts.fitContent();
+  };
 
   // REGIME READ (22 Aug 2026). Stated as a verdict, not another squiggle,
   // because it answers a gate question: "is this even a trending market?"
@@ -732,6 +753,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
         chart.timeScale().setVisibleRange({
           from: fromTsR as Time, to: (lastBrickTs + 24 * 3600) as Time,
         });
+        initialRangeRef.current = { from: fromTsR as Time, to: (lastBrickTs + 24 * 3600) as Time };
       }
 
       // Hover readout. Without this the crosshair handler further down never
@@ -862,6 +884,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
     const lastTs = toTime(candles[candles.length - 1].timestamp) as number;
     const fromTs = (lastTs - windowDays * 24 * 3600) as number;
     chart.timeScale().setVisibleRange({ from: fromTs as Time, to: (lastTs + SHIFT * 24 * 3600) as Time });
+    initialRangeRef.current = { from: fromTs as Time, to: (lastTs + SHIFT * 24 * 3600) as Time };
 
     // Repaint the cloud on any pan/zoom + on resize.
     chart.timeScale().subscribeVisibleTimeRangeChange(paintCloud);
@@ -946,6 +969,19 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
             </span>
           );
         })()}
+        {([["−", () => zoomBy(1.5), "Zoom out (wheel or pinch over the chart also zooms; drag to pan)"],
+           ["+", () => zoomBy(1 / 1.5), "Zoom in — keeps the newest bar at the right edge"],
+           ["Reset", resetView, "Back to the range the pill asked for (double-click an axis also resets it)"]] as const
+         ).map(([label, fn, tip]) => (
+          <button key={label} onClick={fn} title={tip} aria-label={tip}
+            style={{
+              fontSize: 11, padding: "2px 9px", borderRadius: 999, cursor: "pointer",
+              border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)",
+              fontFamily: "var(--font-mono)", minWidth: label.length === 1 ? 26 : undefined,
+            }}>
+            {label}
+          </button>
+        ))}
         {([["Candles", false], ["Renko", true]] as const).map(([label, val]) => (
           <button
             key={label}

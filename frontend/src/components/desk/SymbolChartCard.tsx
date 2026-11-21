@@ -15,7 +15,7 @@
  * The choice is remembered per browser (localStorage) so the chart comes back
  * the way it was left; a storage failure simply means defaults.
  */
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { CandleIchimokuChart } from "./CandleIchimokuChart";
 import { RES_OPTS, TF_FOR_RES, rangeFor } from "./chartResolutions";
 
@@ -54,7 +54,24 @@ export function SymbolChartCard({
     return r in TF_FOR_RES ? r : "1d";
   });
   const [tf, setTf] = useState<string>(() => rangeFor(res, remembered(KEY_TF, "3M")));
+  // FULL-SCREEN VIEW (owner, 21 Nov 2026: "where we can expand, zoom in etc").
+  // The rail is ~400px wide; a chart you can actually work on needs the
+  // viewport. Expanded renders the same card in a fixed overlay; Esc closes it.
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [expanded]);
+  const [vh, setVh] = useState(() => (typeof window === "undefined" ? 800 : window.innerHeight));
+  useEffect(() => {
+    const onResize = () => setVh(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const pickRes = (r: string) => {
     setRes(r); remember(KEY_RES, r);
@@ -70,12 +87,12 @@ export function SymbolChartCard({
     borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer",
   });
 
-  return (
+  const card = (
     <div
       style={{
         border: "1px solid #1b2233",
         borderRadius: 6,
-        background: "rgba(255,255,255,0.015)",
+        background: expanded ? "var(--surface, #0a0e17)" : "rgba(255,255,255,0.015)",
         padding: 10,
         width: "100%",
         minWidth: 0,
@@ -98,10 +115,10 @@ export function SymbolChartCard({
         <button
           onClick={() => setExpanded((e) => !e)}
           style={{ ...pill(expanded), marginLeft: "auto" }}
-          title={expanded ? "Back to the rail height" : "Taller chart"}
+          title={expanded ? "Close the full-screen chart (Esc)" : "Full-screen chart"}
           aria-pressed={expanded}
         >
-          {expanded ? "Compact" : "Expand"}
+          {expanded ? "Close ✕" : "Expand ⤢"}
         </button>
       </div>
 
@@ -109,12 +126,29 @@ export function SymbolChartCard({
         symbol={symbol}
         timeframe={tf}
         resolution={res}
-        height={expanded ? Math.round(height * 1.8) : height}
+        height={expanded ? Math.max(360, vh - 150) : height}
         entryPrice={entryPrice}
         entryDate={entryDate}
         fills={fills}
         strategyId={strategyId}
       />
     </div>
+  );
+
+  if (!expanded) return card;
+  return (
+    <>
+      {/* Keep the rail's slot occupied so the layout does not jump. */}
+      <div style={{ height: height + 48 }} />
+      <div
+        role="dialog"
+        aria-label={`${symbol} chart, full screen`}
+        onClick={(e) => { if (e.target === e.currentTarget) setExpanded(false); }}
+        style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.72)",
+                 display: "flex", alignItems: "stretch", justifyContent: "stretch", padding: 16 }}
+      >
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>{card}</div>
+      </div>
+    </>
   );
 }
