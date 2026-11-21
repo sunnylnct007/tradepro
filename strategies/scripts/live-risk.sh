@@ -22,6 +22,11 @@ PY="$PROJECT_DIR/.venv/bin/tradepro-live-risk"
 log "live-risk starting (profile=${AWS_PROFILE:-<none>})"
 if "$PY" --push --email --nav-usd "${TRADEPRO_LIVE_NAV_USD:-245000}" 2>&1 | tee -a "$LOG"; then
   log "live-risk ok"
+  # CLEAR IT WHERE THE OWNER LOOKS, TOO. 20 Nov 2026: this run succeeded at
+  # 22:50 but the banner from the 21:45 desk check kept saying "Live book
+  # BROKEN" (and "Deployed API BROKEN", fixed at 21:47) all weekend — the desk
+  # check runs on weekdays only, and this script refreshed it on failure only.
+  "$PROJECT_DIR/.venv/bin/tradepro-desk-check" --push --no-mail >>"$LOG" 2>&1 || true
 else
   rc=${PIPESTATUS[0]}
   log "live-risk FAILED rc=$rc — the Live card is NOT refreshed; if the log says 'Unable to locate credentials', run: aws sso login --profile ${AWS_PROFILE:-<your profile>}"
