@@ -57,6 +57,10 @@ class Params:
     corr_cap: float | None = None         # skip a pick whose 63-day return corr with a chosen pick exceeds this
     vol_stop: bool = False                # trail = clip(2 x 63d daily vol x sqrt(21), 10%, 30%), set at entry
     min_ret_3m: float | None = None       # a pick needs a 3-month return above this
+    # GATES_V4_SELLOFF_EXITS (21 Nov 2026). Default None = the decided design.
+    # Between decisions, sell the whole book at the next open when the market
+    # condition fails at a close; re-enter only at the next decision.
+    market_exit: str | None = None        # None | spy200_daily | spy200_buffer3 | spy200_weekly | spy50_daily
     # proposed implementation details
     min_history: int = 252
     min_price: float = 10.0
@@ -351,6 +355,26 @@ def select(t: pd.Timestamp, D: Derived, P: Panels, p: Params, multiplier: float 
             "market_ok": market, "eligible": eligible, "reason": reason}
 
 
+def _market_exit_series(P: "Panels", p: Params) -> pd.Series | None:
+    """True on a close where the V4 sell-off exit fires. None = off."""
+    if not p.market_exit:
+        return None
+    spy = P.spy.reindex(P.dates).ffill()
+    if p.market_exit in ("spy200_daily", "spy200_weekly"):
+        return spy < spy.rolling(200).mean()
+    if p.market_exit == "spy200_buffer3":
+        return spy <= spy.rolling(200).mean() * 0.97
+    if p.market_exit == "spy50_daily":
+        return spy < spy.rolling(50).mean()
+    raise ValueError(f"unknown market_exit {p.market_exit!r}")
+
+
+def _week_ends(dates: pd.DatetimeIndex) -> list[pd.Timestamp]:
+    """The last session of each calendar week."""
+    s = pd.Series(dates, index=dates)
+    return list(s.groupby([dates.isocalendar().year, dates.isocalendar().week]).max())
+
+
 def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
     if panels is None:
         syms, sectors = load_universe()
@@ -396,6 +420,10 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
             if not math.isnan(v):          # a holding with no price at all is carried at 0
                 tot += q * v
         return tot
+
+    exit_cond = _market_exit_series(P, p)
+    week_end = set(_week_ends(run_dates))
+    exited = market_exits = 0
 
     for t in run_dates:
         o = opn_f.loc[t]
@@ -510,8 +538,16 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
             pending = {s: 0.5 * q * px_of(c, s) / nlv for s, q in shares.items()
                        if not math.isnan(px_of(c, s))}
 
+        # 2b. sell-off exit (V4): the market condition failed at this close
+        if exit_cond is not None and shares and not exited and bool(exit_cond.get(t, False)) \
+                and (p.market_exit != "spy200_weekly" or t in week_end):
+            pending = {}
+            exited = 1
+            market_exits += 1
+
         # 3. the monthly decision
         if t in rebal:
+            exited = 0
             if dd > -(p.alert_halve or 1.0):
                 multiplier = 1.0
             dec = select(t, D, P, p, multiplier)
@@ -526,6 +562,7 @@ def backtest(p: Params = Params(), panels: Panels | None = None) -> dict:
                          "avg_holding_days": round(float(np.mean(holds)), 1) if holds else None,
                          "trailing_stop_exits": stop_exits,
                          "take_profit_exits": tp_exits,
+                         "market_exits": market_exits,
                          "time_in_cash_pct": round(float(np.mean(np.array(invested) < 0.01)) * 100, 1),
                          "avg_invested_pct": round(float(np.mean(invested)) * 100, 1),
                          "max_sector_weight_pct": round(float(np.max(sector_max)) * 100, 1)},
