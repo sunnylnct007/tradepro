@@ -17,11 +17,14 @@ def test_registered_with_no_argv_of_its_own():
     assert H.JOBS["harvest_5m"] == ("tradepro_strategies.cli.harvest_5m", [])
 
 
-def test_argv_is_the_mac_lanes_5m_call_with_a_trailing_window():
+def test_argv_is_the_mac_lanes_5m_call_with_a_two_day_window_and_a_7_day_repair():
     a = J.harvest_argv(["QQQ", "AMD"], today=date(2026, 11, 21))
     assert a[:6] == ["--resolution", "5m", "--asset", "us_etf", "--allow-partial", "--verbose"]
-    assert a[a.index("--from") + 1] == "2026-11-14" and a[a.index("--to") + 1] == "2026-11-21"
+    assert a[a.index("--from") + 1] == "2026-11-19" and a[a.index("--to") + 1] == "2026-11-21"
     assert a[-1] == "QQQ,AMD"
+    r = J.harvest_argv(["QQQ"], today=date(2026, 11, 21), window_days=J.REPAIR_WINDOW_DAYS)
+    assert r[r.index("--from") + 1] == "2026-11-14"
+    assert H.JOBS["harvest_5m_repair"] == ("tradepro_strategies.cli.harvest_5m", ["--window-days", "7"])
 
 
 def test_scope_is_the_union_and_refuses_an_empty_universe(monkeypatch):
@@ -50,5 +53,11 @@ def test_a_failing_follow_up_is_named_and_does_not_stop_the_others(monkeypatch):
     monkeypatch.setattr(P, "load_credentials", lambda: ("http://x/", "t"))
     rc = J.main([])
     assert rc == 1
-    assert calls == ["tradepro-bar-cache-harvest", "tradepro-intraday-shadow",
-                     "tradepro-intraday-setups", "tradepro-market-movers"]
+    assert calls == ["tradepro-bar-cache-harvest", "tradepro-intraday-shadow", "tradepro-intraday-setups"]
+
+
+def test_movers_is_its_own_job_not_a_follow_up():
+    """A slow reader must never share the harvest's time budget (21 Nov 2026:
+    5m37s of cold S3 reads after a 4m20s harvest)."""
+    assert "tradepro-market-movers" not in [n for n, _, _ in J.FOLLOW_UPS]
+    assert H.JOBS["market_movers"] == ("tradepro_strategies.cli.market_movers", ["--push"])
