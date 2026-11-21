@@ -192,3 +192,18 @@ Run beside the Mac lane for a few nights (both push the same artifact; the
 later one wins and they agree), compare the run log, then unload
 `com.tradepro.live-risk`. The desk check still runs on the Mac and grades the
 card from the artifact's age, so it needs no change.
+
+## 21 Nov 2026 — the 5-minute harvest moves (owner: "it should be on lambda")
+
+Job `harvest_5m` = `tradepro-harvest-5m`: the Mac lane's `--resolution 5m`
+call in Python (scope = harvest-flagged ∪ candidates ∪ paper book, 7-day
+window), then intraday-shadow, intraday-setups and market-movers `--push`.
+Bars come from `ibkr_web` through the backend; the store writes to S3.
+Measured on the Mac: 214 symbols, 4.5 minutes.
+
+    aws events put-rule --name tradepro-harvest-5m \
+      --schedule-expression 'cron(0/10 14-21 ? * MON-FRI *)'   # US session, winter clock; 13-20 in BST
+    put-targets Input {"job":"harvest_5m"} — VERIFY Input
+
+Run beside the Mac lane for a session (same bars, same store), compare the
+run log, then unload `com.tradepro.bar-cache-harvest-5m`.
