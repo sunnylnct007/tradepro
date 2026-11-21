@@ -376,6 +376,15 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_news_with_sentiment(symbol, limit))
 
     @mcp.tool()
+    @instrumented("get_market_news")
+    def get_market_news(category: str = "general", limit: int = 20) -> str:
+        """Market-wide headlines (Fed, IPOs, sector moves) — the macro tape a
+        single stock's feed misses. category: general | forex | crypto | merger.
+        ok=false with a reason means the feed could NOT be read; that is not
+        the same as a quiet day. Cite as `live://market_news/<category>/items[<i>]`."""
+        return _json(t.get_market_news(category, limit))
+
+    @mcp.tool()
     @instrumented("get_regime_history")
     def get_regime_history(
         universe: str,

@@ -1897,6 +1897,35 @@ public static class IntegrationsEndpoints
         // over-month bullish shift" (rolling 2-month delta of buy +
         // strongBuy minus sell + strongSell) so the worker doesn't
         // have to redo the math per symbol.
+        // Headlines, with the read's own error beside them. "items: [], error:
+        // null" means the source answered and had nothing; "error: ..." means
+        // it could not be read — the two must never look alike (20 Nov 2026).
+        app.MapGet("/integrations/finnhub/company-news",
+            async (string? symbol, int? days, FinnhubClient client, CancellationToken ct) =>
+            {
+                if (string.IsNullOrWhiteSpace(symbol))
+                    return Results.BadRequest(new { error = "symbol is required" });
+                var (items, error) = await client.GetCompanyNewsAsync(symbol, days ?? 7, ct);
+                return Results.Ok(new
+                {
+                    enabled = client.IsEnabled, symbol = symbol.Trim().ToUpperInvariant(),
+                    source = "finnhub", count = items.Count, error, items,
+                    fetchedAtUtc = DateTimeOffset.UtcNow,
+                });
+            });
+
+        app.MapGet("/integrations/finnhub/market-news",
+            async (string? category, FinnhubClient client, CancellationToken ct) =>
+            {
+                var cat = string.IsNullOrWhiteSpace(category) ? "general" : category.Trim().ToLowerInvariant();
+                var (items, error) = await client.GetMarketNewsAsync(cat, ct);
+                return Results.Ok(new
+                {
+                    enabled = client.IsEnabled, category = cat, source = "finnhub",
+                    count = items.Count, error, items, fetchedAtUtc = DateTimeOffset.UtcNow,
+                });
+            });
+
         app.MapGet("/integrations/finnhub/recommendations",
             async (
                 string? symbol,
