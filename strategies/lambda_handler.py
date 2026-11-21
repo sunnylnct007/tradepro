@@ -179,6 +179,16 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # NAV comes from TRADEPRO_LIVE_NAV_USD on the function, never from here —
     # an account figure is not repo material.
     "live_risk": ("tradepro_strategies.cli.live_risk", ["--push", "--email", "--via-api"]),
+
+    # ── The 5-minute harvest (21 Nov 2026) ──────────────────────────────
+    #
+    # Owner: "I still do not understand why harvest is not off mac. it should
+    # be on lambda". Bars come from IBKR's Web API through the backend; the
+    # store writes to S3; 214 symbols took 4.5 minutes on the Mac. Then the
+    # intraday shadow record, the setups board and the market movers, so the
+    # intraday screens refresh from AWS, not from a laptop lid. Schedule every
+    # 10 minutes through the US session (the Mac did 30).
+    "harvest_5m": ("tradepro_strategies.cli.harvest_5m", []),
 }
 
 
