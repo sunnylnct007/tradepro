@@ -305,6 +305,14 @@ case " $* " in
         else
             log "intraday shadow record FAILED (harvest unaffected)"
         fi
+        # INTRADAY SETUPS (21 Nov 2026): the two rules' CONDITIONS as of the
+        # bars just written — in play, gap, opening range, VWAP side, RS vs
+        # QQQ, triggered-at. Display only, verdict-tagged; no orders.
+        if "$UV" run tradepro-intraday-setups --push >>"$LOG_FILE" 2>&1; then
+            log "intraday setups published"
+        else
+            log "intraday setups FAILED (harvest unaffected)"
+        fi
         # MARKET MOVERS (17 Nov 2026): today's gainers/losers across every
         # harvested stock, from the bars just written. Display only.
         if "$UV" run tradepro-market-movers --push >>"$LOG_FILE" 2>&1; then
