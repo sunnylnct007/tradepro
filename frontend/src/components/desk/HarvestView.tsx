@@ -11,6 +11,7 @@
  * a symbol never harvested shows "not harvested", not a false red.
  */
 import { useEffect, useMemo, useState } from "react";
+import { RES_OPTS, TF_FOR_RES, rangeFor } from "./chartResolutions";
 import { api } from "../../api/client";
 import { CandleIchimokuChart } from "./CandleIchimokuChart";
 import { RunLogCard } from "./RunLogCard";
@@ -698,20 +699,6 @@ export function HarvestView() {
   );
 }
 
-// Range windows offered per resolution — intraday resolutions get short
-// windows, daily gets the long ones. (Resolution "1m"/"5m" pull from the deep
-// IBKR store; "1d" pulls Yahoo daily.)
-const TF_FOR_RES: Record<string, string[]> = {
-  "1m": ["1D", "5D", "1M"],
-  "5m": ["5D", "1M", "3M"],
-  "1d": ["3M", "6M", "1Y", "5Y"],
-};
-const RES_OPTS = [
-  { k: "1m", label: "1-min" },
-  { k: "5m", label: "5-min" },
-  { k: "1d", label: "Daily" },
-];
-
 /** Resolution + range pills for the flexible chart, plus a "what data exists"
  * strip for the selected symbol (from the harvest coverage) so the user can see
  * exactly what's available before/while charting it. */
@@ -732,7 +719,7 @@ function FlexChartControls({ res, setRes, tf, setTf }: {
         <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginRight: 2 }}>Resolution</span>
         {RES_OPTS.map((o) => (
           <button key={o.k} style={pill(res === o.k)}
-            onClick={() => { setRes(o.k); if (!(TF_FOR_RES[o.k] ?? []).includes(tf)) setTf((TF_FOR_RES[o.k] ?? ["3M"])[0]); }}>
+            onClick={() => { setRes(o.k); setTf(rangeFor(o.k, tf)); }}>
             {o.label}
           </button>
         ))}
