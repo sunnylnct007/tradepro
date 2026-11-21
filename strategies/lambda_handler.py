@@ -163,6 +163,22 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # reliability is worth more than most of this list.
     "option_chain_capture": ("tradepro_strategies.cli.option_chain_capture",
                              ["--rights", "PC", "--strangle-dte", "7,21"]),
+
+    # ── The live book, read for risk (21 Nov 2026) ──────────────────────
+    #
+    # Owner, 20 Nov, on a Live card 44 hours old because the laptop lid was
+    # down: "this is ridiculous and that why i want these jobs in aws infra",
+    # "it could be a simple lambda". It is: READ-ONLY by construction (IBKR
+    # Flex, through the API's own client), a few seconds of work, and a kill
+    # at the ceiling costs exactly what a sleeping Mac cost — one missing card.
+    #
+    # --via-api: the book comes through /api/integrations/ibkr/flex/positions,
+    # the ONE central IBKR connection. This function holds no Flex credential
+    # and the role grants none; the Mac's direct read existed only while the
+    # API's Flex client was sending no User-Agent (fixed 20 Nov, #442).
+    # NAV comes from TRADEPRO_LIVE_NAV_USD on the function, never from here —
+    # an account figure is not repo material.
+    "live_risk": ("tradepro_strategies.cli.live_risk", ["--push", "--email", "--via-api"]),
 }
 
 

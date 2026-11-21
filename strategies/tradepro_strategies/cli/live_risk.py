@@ -558,6 +558,14 @@ def flex_credentials(env: "dict | None" = None,
     return t2, q2, ""
 
 
+def _env_float(name: str) -> float | None:
+    v = (os.environ.get(name) or "").strip()
+    try:
+        return float(v) if v else None
+    except ValueError:
+        return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--push", action="store_true", help="publish the artifact")
@@ -566,8 +574,17 @@ def main() -> int:
                          "is the LIVE account, because a paper alert read as "
                          "live (or the reverse) is the expensive mistake")
     ap.add_argument("--nav-usd", type=float,
+                    default=_env_float("TRADEPRO_LIVE_NAV_USD"),
                     help="account value, so assignment obligation can be checked "
-                         "against what you could actually fund")
+                         "against what you could actually fund. Default: the "
+                         "TRADEPRO_LIVE_NAV_USD environment variable (the Mac plist "
+                         "and the Lambda both set it there — never in the repo)")
+    ap.add_argument("--via-api", action="store_true",
+                    help="read the live book through the TradePro API's Flex route — "
+                         "the ONE central IBKR connection — and never directly. The "
+                         "Lambda job passes this: it holds no Flex credential and "
+                         "needs none (owner, 21 Nov 2026: 'the ibkr connection is "
+                         "handled centrally ... the same connection shd be used')")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -579,7 +596,7 @@ def main() -> int:
 
     # DIRECT when this machine holds a token, because IBKR 403s the cloud.
     # The API path stays as the fallback so nothing breaks if that changes.
-    flex_token, flex_query, flex_src = flex_credentials()
+    flex_token, flex_query, flex_src = ("", "", "") if a.via_api else flex_credentials()
     if flex_src:
         log.info("Flex credentials from %s", flex_src)   # the SOURCE, never the value
     positions: list[dict] = []
