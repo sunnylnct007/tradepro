@@ -342,6 +342,28 @@ def get_ibkr_fyi(max_items: int = 20) -> dict:
     return {**out, "ok": True, "items": items}
 
 
+def get_shadow_books() -> dict:
+    """SHADOW_BOOKS_V1 scoreboard: frozen rules (swing, momentum pullback, the
+    defensive rotation, the SPY<200d intraday tag) replayed nightly on settled
+    bars from the date each was frozen, NO orders. Verdicts are against
+    pre-registered marks; 'too few' means exactly that. The pullback/swing
+    'record' is CLOSED trades — read `open`/`caveat` beside it."""
+    try:
+        d = _get("/api/today-setups/shadow-books/latest")
+    except Exception as e:  # noqa: BLE001
+        return _err("get_shadow_books", str(e))
+    art = d.get("artifact") or {}
+    if not art:
+        return _err("get_shadow_books", "shadow-books has never been published — this is NOT an empty record")
+    return {"_source": "live://today-setups/shadow-books", "fetched_at": _now_iso(), "ok": True,
+            "as_of_utc": art.get("as_of_utc"), "version": art.get("version"), "placed_orders": art.get("placed_orders"),
+            "scoreboard": art.get("scoreboard"), "errors": art.get("errors"),
+            "books": {k: {kk: vv for kk, vv in b.items() if kk not in ("closed_recent", "open", "dropped")}
+                      for k, b in ((art.get("daily") or {}).get("books") or {}).items()},
+            "rotation_defensive": art.get("rotation_defensive"), "intraday_gate": art.get("intraday_gate"),
+            "how": art.get("how")}
+
+
 def get_market_news(category: str = "general", limit: int = 20) -> dict:
     """Market-wide headlines (Finnhub general news via the TradePro API): the
     macro tape — Fed, IPOs, sector moves — that one stock's feed misses. A
