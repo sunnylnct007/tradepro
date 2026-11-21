@@ -376,6 +376,13 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_news_with_sentiment(symbol, limit))
 
     @mcp.tool()
+    @instrumented("get_intraday_setups")
+    def get_intraday_setups() -> str:
+        """Intraday setups forming (rules 7 and 2 conditions as of the last
+        harvested 5m bar; 29 names; NOT a signal — verdict-tagged; no orders)."""
+        return _json(t.get_intraday_setups())
+
+    @mcp.tool()
     @instrumented("get_shadow_books")
     def get_shadow_books() -> str:
         """Shadow books scoreboard (SHADOW_BOOKS_V1): swing, momentum pullback,

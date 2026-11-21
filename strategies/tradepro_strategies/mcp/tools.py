@@ -342,6 +342,22 @@ def get_ibkr_fyi(max_items: int = 20) -> dict:
     return {**out, "ok": True, "items": items}
 
 
+def get_intraday_setups() -> dict:
+    """Intraday setups forming: the two intraday rules' CONDITIONS (in play,
+    gap, opening range, VWAP side, RS vs QQQ, triggered-at) as of the last
+    harvested 5m bar, for the 29-name intraday universe. NOT a signal — both
+    rules failed their backtests; `verdicts` carries the forward record's
+    grade. `as_of_bar` + `data_age_note` say how old the bars are."""
+    try:
+        d = _get("/api/today-setups/intraday-setups/latest")
+    except Exception as e:  # noqa: BLE001
+        return _err("get_intraday_setups", str(e))
+    art = d.get("artifact") or {}
+    if not art:
+        return _err("get_intraday_setups", "intraday-setups has never been published — NOT 'no setups'")
+    return {"_source": "live://today-setups/intraday-setups", "fetched_at": _now_iso(), "ok": True, **art}
+
+
 def get_shadow_books() -> dict:
     """SHADOW_BOOKS_V1 scoreboard: frozen rules (swing, momentum pullback, the
     defensive rotation, the SPY<200d intraday tag) replayed nightly on settled
