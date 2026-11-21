@@ -189,6 +189,8 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # intraday screens refresh from AWS, not from a laptop lid. Schedule every
     # 10 minutes through the US session (the Mac did 30).
     "harvest_5m": ("tradepro_strategies.cli.harvest_5m", []),
+    # Once after the close, a 7-day window heals any gap a killed cycle left.
+    "harvest_5m_repair": ("tradepro_strategies.cli.harvest_5m", ["--window-days", "7"]),
     # Movers reads 400 days of closes for every harvested name — 5m37s cold on
     # the first Lambda run. Its own job so the harvest never shares its budget
     # with a reader; scheduled a few minutes after each harvest.

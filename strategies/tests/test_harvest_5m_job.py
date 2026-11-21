@@ -17,11 +17,14 @@ def test_registered_with_no_argv_of_its_own():
     assert H.JOBS["harvest_5m"] == ("tradepro_strategies.cli.harvest_5m", [])
 
 
-def test_argv_is_the_mac_lanes_5m_call_with_a_trailing_window():
+def test_argv_is_the_mac_lanes_5m_call_with_a_two_day_window_and_a_7_day_repair():
     a = J.harvest_argv(["QQQ", "AMD"], today=date(2026, 11, 21))
     assert a[:6] == ["--resolution", "5m", "--asset", "us_etf", "--allow-partial", "--verbose"]
-    assert a[a.index("--from") + 1] == "2026-11-14" and a[a.index("--to") + 1] == "2026-11-21"
+    assert a[a.index("--from") + 1] == "2026-11-19" and a[a.index("--to") + 1] == "2026-11-21"
     assert a[-1] == "QQQ,AMD"
+    r = J.harvest_argv(["QQQ"], today=date(2026, 11, 21), window_days=J.REPAIR_WINDOW_DAYS)
+    assert r[r.index("--from") + 1] == "2026-11-14"
+    assert H.JOBS["harvest_5m_repair"] == ("tradepro_strategies.cli.harvest_5m", ["--window-days", "7"])
 
 
 def test_scope_is_the_union_and_refuses_an_empty_universe(monkeypatch):

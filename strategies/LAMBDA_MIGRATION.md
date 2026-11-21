@@ -220,3 +220,10 @@ must not share the harvest's budget, so `market_movers` is its own job:
 Bars are written per symbol as the harvest goes and every run re-covers the
 trailing 7 days, so a symbol missed by a kill is caught by the next cycle and
 the cockpit's per-symbol health names it meanwhile.
+
+### Window (owner: "only the latest since it ran — that will be quicker")
+
+Session runs fetch 2 days (today + the prior session); `harvest_5m_repair`
+fetches 7 days once after the close:
+
+    tradepro-harvest-5m-repair  cron(30 21 ? * MON-FRI *)

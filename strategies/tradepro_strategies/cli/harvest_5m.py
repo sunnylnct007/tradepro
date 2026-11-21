@@ -11,8 +11,8 @@ Python so there is one definition and no shell to drift:
 
   scope    harvest_symbols() ∪ candidates on the swing/momentum/preearnings
            boards ∪ the IBKR paper book (TRADEPRO_HARVEST_SCOPE=candidates)
-  window   a trailing 7 days (the harvester's "daily mode" cannot serve a
-           single session of intraday bars)
+  window   today + the prior session during the day; 7 days once after the
+           close (see WINDOW_DAYS / REPAIR_WINDOW_DAYS)
   then     the intraday shadow record and the intraday setups board, each
            --push, each guarded — a failure is NAMED and does not hide the
            other. Market movers is a separate job (see FOLLOW_UPS).
@@ -29,7 +29,13 @@ from datetime import date, timedelta
 
 log = logging.getLogger("tradepro.harvest_5m")
 
-WINDOW_DAYS = 7
+#: Session runs fetch TODAY plus the prior session (the gap and the previous
+#: close need it; the 20-session norms come from the store). Owner, 21 Nov
+#: 2026: "if we're running every 10 minutes we have already completed the
+#: backfill, so we don't need to rerun 7 days — only the latest". One post-close
+#: run uses REPAIR_WINDOW_DAYS so a gap left by a killed cycle is still healed.
+WINDOW_DAYS = 2
+REPAIR_WINDOW_DAYS = 7
 BOARDS = ("swing", "momentum", "preearnings")
 
 
@@ -77,10 +83,10 @@ def scope(base: str, token: str, store_dir=None) -> list[str]:
     return syms
 
 
-def harvest_argv(symbols: list[str], today: date | None = None) -> list[str]:
+def harvest_argv(symbols: list[str], today: date | None = None, window_days: int = WINDOW_DAYS) -> list[str]:
     today = today or date.today()
     return ["--resolution", "5m", "--asset", "us_etf", "--allow-partial", "--verbose",
-            "--from", str(today - timedelta(days=WINDOW_DAYS)), "--to", str(today),
+            "--from", str(today - timedelta(days=window_days)), "--to", str(today),
             "--symbols", ",".join(symbols)]
 
 
@@ -115,12 +121,19 @@ FOLLOW_UPS = (("tradepro-intraday-shadow", "tradepro_strategies.cli.intraday_sha
 
 
 def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--window-days", type=int, default=WINDOW_DAYS,
+                    help=f"calendar days to fetch (default {WINDOW_DAYS}; the post-close repair passes {REPAIR_WINDOW_DAYS})")
+    a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     from .push_to_api import load_credentials
     base, token = load_credentials()
     base = base.rstrip("/")
     syms = scope(base, token)
-    rc = _run_cli("tradepro-bar-cache-harvest", "tradepro_strategies.cli.bar_cache_harvest", harvest_argv(syms))
+    log.info("window: %d day(s)", a.window_days)
+    rc = _run_cli("tradepro-bar-cache-harvest", "tradepro_strategies.cli.bar_cache_harvest",
+                  harvest_argv(syms, window_days=a.window_days))
     results = {"harvest": rc}
     for name, module, args in FOLLOW_UPS:
         results[name] = _run_cli(name, module, args)
