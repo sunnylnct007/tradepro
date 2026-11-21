@@ -50,10 +50,11 @@ def candidate_symbols(base: str, token: str) -> set[str]:
         except Exception as exc:  # noqa: BLE001
             log.warning("%s board unreadable (%s) — not in scope this run", lane, str(exc)[:80])
     try:
-        # fresh-exempt: this read only widens the HARVEST SCOPE (which names get
-        # 5m bars); it informs no trading or reconciliation decision, and a
-        # fresh IBKR call every 10 minutes would spend the session's request
-        # budget on a list that changes once a day.
+        # This read only widens the HARVEST SCOPE (which names get 5m bars); it
+        # informs no trading or reconciliation decision, and a fresh IBKR call
+        # every 10 minutes would spend the session's request budget on a list
+        # that changes once a day.
+        # fresh-exempt: scope only, not a position decision
         p = requests.get(f"{base}/api/integrations/ibkr/positions", headers=H, timeout=20).json()
         for r in (p.get("positions") or []):
             if not r.get("isOption"):
