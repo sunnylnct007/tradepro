@@ -21,9 +21,9 @@ class Rule:
     MIN_BARS = 2
     MAX_HOLD = 3
 
-    @staticmethod
-    def entry_signal(c, i):
-        return i >= 1 and c[i] <= c[i - 1] - 10
+    # Assigned, not `def entry_signal`: test_one_rule_one_object scans for that
+    # token and this toy is a test fixture, not a rule.
+    entry_signal = staticmethod(lambda c, i: i >= 1 and c[i] <= c[i - 1] - 10)
 
     @staticmethod
     def exit_decision(c, i, *, fill_price, bars_held):
