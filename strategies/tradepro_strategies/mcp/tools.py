@@ -322,6 +322,26 @@ def get_news_with_sentiment(symbol: str, limit: int = 8) -> dict:
     }
 
 
+def get_ibkr_fyi(max_items: int = 20) -> dict:
+    """IBKR FYIs (Web API v1.0 /fyi/notifications): IBKR's own alerts about the
+    session's holdings — analyst rating changes, corporate actions, account
+    notices. NOT a general news feed. `account` says whose holdings (PAPER for
+    TradePro's session). ok=false with a reason means it could NOT be read."""
+    try:
+        d = _get("/api/integrations/ibkr/fyi", params={"max": max_items})
+    except Exception as e:  # noqa: BLE001
+        return _err("get_ibkr_fyi", str(e))
+    out = {"_source": "live://ibkr/fyi", "fetched_at": _now_iso(),
+           "account": d.get("account"), "count": d.get("count", 0)}
+    if d.get("error") or not d.get("enabled", True):
+        return {**out, "ok": False, "items": [],
+                "error": f"IBKR FYIs could not be read — this is NOT 'no FYIs': "
+                         f"{d.get('error') or 'IBKR disabled'}"}
+    items = [{**it, "_source": f"live://ibkr/fyi/items[{i}]"}
+             for i, it in enumerate(d.get("items") or [])]
+    return {**out, "ok": True, "items": items}
+
+
 def get_market_news(category: str = "general", limit: int = 20) -> dict:
     """Market-wide headlines (Finnhub general news via the TradePro API): the
     macro tape — Fed, IPOs, sector moves — that one stock's feed misses. A

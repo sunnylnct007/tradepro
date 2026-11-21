@@ -376,6 +376,14 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_news_with_sentiment(symbol, limit))
 
     @mcp.tool()
+    @instrumented("get_ibkr_fyi")
+    def get_ibkr_fyi(max_items: int = 20) -> str:
+        """IBKR FYIs — IBKR's own alerts on the session's holdings (analyst
+        rating changes, corporate actions, account notices). Not general news.
+        `account` names whose holdings. ok=false = could NOT be read."""
+        return _json(t.get_ibkr_fyi(max_items))
+
+    @mcp.tool()
     @instrumented("get_market_news")
     def get_market_news(category: str = "general", limit: int = 20) -> str:
         """Market-wide headlines (Fed, IPOs, sector moves) — the macro tape a

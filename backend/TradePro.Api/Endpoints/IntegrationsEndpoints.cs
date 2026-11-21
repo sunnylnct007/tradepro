@@ -1407,6 +1407,25 @@ public static class IntegrationsEndpoints
         // byte-identical P&L — for minutes afterwards. Anything asking "did it
         // actually close?" must pass fresh=true; the default stays cheap for
         // the panels that poll it every minute.
+        // IBKR FYIs (Web API v1.0 /fyi/notifications) — alerts about the
+        // session's own holdings, labelled with WHICH account they describe.
+        app.MapGet("/integrations/ibkr/fyi", async (
+            TradePro.Api.Providers.IBKR.IBKRClient ibkr,
+            Microsoft.Extensions.Options.IOptions<TradePro.Api.Providers.IBKR.IBKROptions> opts,
+            CancellationToken ct,
+            int max = 20) =>
+        {
+            var (items, error, status) = await ibkr.GetFyiNotificationsAsync(max, ct);
+            return Results.Ok(new
+            {
+                enabled = ibkr.IsEnabled,
+                account = opts.Value.IsLiveMode ? "LIVE" : "PAPER",
+                source = "ibkr web api /fyi/notifications",
+                count = items.Count, error, httpStatus = status, items,
+                fetchedAtUtc = DateTimeOffset.UtcNow,
+            });
+        });
+
         app.MapGet("/integrations/ibkr/positions", async (
             TradePro.Api.Providers.IBKR.IBKRClient ibkr,
             CancellationToken ct,

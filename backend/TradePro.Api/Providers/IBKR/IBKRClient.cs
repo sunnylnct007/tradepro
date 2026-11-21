@@ -1797,6 +1797,56 @@ public sealed class IBKRClient
     /// clone's orders route through an ack-less path that never emits a fill event.
     /// Filtered to this client's account (the endpoint returns all accounts).
     /// </summary>
+    /// <summary>
+    /// IBKR FYIs — GET /fyi/notifications?max=N (Web API v1.0, "FYIs and
+    /// notifications"). IBKR's own alerts about the logged-in user's holdings:
+    /// analyst rating changes, corporate actions, margin and account notices.
+    /// NOT a general news feed. Read-only. The error travels beside the items:
+    /// an empty list with no error is "no FYIs", an error is "could not read".
+    /// </summary>
+    public async Task<(IReadOnlyList<IBKRFyi> Items, string? Error, int Status)> GetFyiNotificationsAsync(
+        int max, CancellationToken ct = default)
+    {
+        if (!_options.IsEnabled) return (Array.Empty<IBKRFyi>(), "IBKR disabled", 0);
+        try
+        {
+            using var resp = await SendWithAuthAsync(
+                HttpMethod.Get, $"v1/api/fyi/notifications?max={Math.Clamp(max, 1, 100)}", null, ct);
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var snip = text.Length > 200 ? text[..200] : text;
+                return (Array.Empty<IBKRFyi>(), $"HTTP {(int)resp.StatusCode}: {snip}", (int)resp.StatusCode);
+            }
+            return (ParseFyis(text), null, (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            return (Array.Empty<IBKRFyi>(), ex.Message, 0);
+        }
+    }
+
+    public static IReadOnlyList<IBKRFyi> ParseFyis(string json)
+    {
+        var list = new List<IBKRFyi>();
+        using var doc = System.Text.Json.JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "[]" : json);
+        if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return list;
+        static string? Str(System.Text.Json.JsonElement e, string k) =>
+            e.TryGetProperty(k, out var v) ? (v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : v.ToString()) : null;
+        foreach (var e in doc.RootElement.EnumerateArray())
+        {
+            DateTimeOffset? at = null;
+            if (double.TryParse(Str(e, "D"), System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out var epoch))
+                at = DateTimeOffset.FromUnixTimeMilliseconds((long)(epoch * 1000));
+            var body = Str(e, "MD") ?? "";
+            var plain = System.Text.RegularExpressions.Regex.Replace(
+                body.Replace("<br />", "\n").Replace("<br/>", "\n"), "<[^>]+>", "").Trim();
+            list.Add(new IBKRFyi(Str(e, "ID"), at, Str(e, "MS"), plain, Str(e, "FC"), Str(e, "R") == "1"));
+        }
+        return list;
+    }
+
     public async Task<IBKRTradesResult> GetTradesAsync(CancellationToken ct = default)
     {
         if (!_options.IsEnabled)
@@ -1866,3 +1916,7 @@ public sealed class IBKRClient
     private static string Truncate(string s, int max)
         => s.Length <= max ? s : s[..max] + "…";
 }
+
+/// <summary>One IBKR FYI. Text is the body with HTML stripped.</summary>
+public sealed record IBKRFyi(string? Id, DateTimeOffset? At, string? Title, string Text,
+                             string? Code, bool Read);
