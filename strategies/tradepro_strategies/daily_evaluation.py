@@ -235,6 +235,16 @@ def intraday(session: date) -> dict:
             "missing": a["missing"], "stale": a["stale"]}
 
 
+def shadow_books() -> dict:
+    """SHADOW_BOOKS_V1: swing, pullback, the defensive rotation and the SPY<200d
+    intraday tag, replayed from the date each rule was frozen. Scoreboard only;
+    the full record is published separately (today-setups/shadow-books)."""
+    from . import shadow_books as B
+    a = B.build()
+    return {"version": a["version"], "scoreboard": a["scoreboard"], "errors": a["errors"],
+            "last_session": (a.get("daily") or {}).get("last_session")}
+
+
 # ── the day ────────────────────────────────────────────────────────────
 
 
@@ -263,7 +273,8 @@ def build(base: str, token: str, session: date | None = None) -> dict:
            "session": str(session), "conditions": conds, "strategies": {}, "errors": {}}
     for key, fn in (("momentum_rotation", lambda: rotation(session, conds, base, token)),
                     ("rotation_schedules", lambda: rotation_schedules(session)),
-                    ("intraday_rules", lambda: intraday(session))):
+                    ("intraday_rules", lambda: intraday(session)),
+                    ("shadow_books", shadow_books)):
         try:
             out["strategies"][key] = fn()
         except Exception as exc:  # noqa: BLE001 — one strategy failing must not hide the others; it is NAMED
@@ -314,6 +325,23 @@ def text_summary(e: dict) -> str:
             lines.append(f"  {k} record: " + (f"{rec['trades']} trades, avg {rec['avg_pct']:+.3f}% "
                                                f"(backtest {rr['backtest_avg_pct']:+.2f}%), total {rec['total_usd']:+,.0f} $"
                                                if rec.get("trades") else "no finished trades yet"))
+        lines.append("")
+    sb = e["strategies"].get("shadow_books")
+    if sb:
+        lines.append(f"SHADOW BOOKS ({sb['version']}, no orders) — closed trades only; pass marks pre-registered")
+        for r in sb["scoreboard"]:
+            if r.get("n") is None:
+                lines.append(f"  {r['book']}: {r['verdict']}")
+            elif "return_pct" in r:
+                lines.append(f"  {r['book']}: {r['n']} decisions, {r['return_pct']:+.2f}% vs control "
+                             f"{r['control_return_pct']:+.2f}%, worst DD {r['worst_dd_pct']:+.2f}% vs "
+                             f"{r['control_worst_dd_pct']:+.2f}% → {r['verdict']}")
+            else:
+                lines.append(f"  {r['book']}: n={r['n']}, win {r.get('win_pct')}%, avg {r.get('avg_pct')}%"
+                             + (f", {r['open']} open at {r.get('open_avg_pct')}%" if r.get("open") else "")
+                             + f" → {r['verdict']}" + (f"  ! {r['caveat']}" if r.get("caveat") else ""))
+        for k, v in sb["errors"].items():
+            lines.append(f"  ! {k} NOT computed: {v}")
         lines.append("")
     for k, v in e["errors"].items():
         lines.append(f"! {k} could not be evaluated: {v}")

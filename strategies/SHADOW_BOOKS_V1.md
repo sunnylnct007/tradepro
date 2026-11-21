@@ -60,3 +60,17 @@ Between PASS and FAIL the book reads **"below the mark — keep recording"**.
   answered only by a placed order.
 * No book changes a live rule. A pass earns a proposal to the owner, nothing
   automatic.
+
+## Amendment — 21 Nov 2026, after the first run (conservative only)
+
+The first run printed **pullback: FAIL** on 77 closed trades (−5.2%, 13% win)
+while 61 trades were still open at +0.4% — no September entry had yet reached
+the 60-session timeout, so every close so far was a stop or a trail. A record
+of closed trades is losers-first until the first cohort could have timed out.
+
+Rule added: a daily book prints **no verdict** ("deferred — record censored")
+until at least `MAX_HOLD` sessions have passed since its record start (swing
+20, pullback 60 → from about 26 Nov). This can only delay a verdict, never
+upgrade one. The marks themselves are unchanged. Also added as display splits,
+not marks: the closed record by `sector_stock` / `no_sector` (the repo's ETF
+rule), and the open book's marked P&L beside the closed record.

@@ -376,6 +376,14 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_news_with_sentiment(symbol, limit))
 
     @mcp.tool()
+    @instrumented("get_shadow_books")
+    def get_shadow_books() -> str:
+        """Shadow books scoreboard (SHADOW_BOOKS_V1): swing, momentum pullback,
+        defensive rotation, SPY<200d intraday tag — frozen rules replayed
+        nightly, NO orders, verdicts against pre-registered marks."""
+        return _json(t.get_shadow_books())
+
+    @mcp.tool()
     @instrumented("get_ibkr_fyi")
     def get_ibkr_fyi(max_items: int = 20) -> str:
         """IBKR FYIs — IBKR's own alerts on the session's holdings (analyst

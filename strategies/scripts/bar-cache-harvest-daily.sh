@@ -131,6 +131,20 @@ else
     log "WARNING: daily evaluation FAILED or incomplete (exit $?) — see $LOG"
 fi
 
+# ── Shadow books (SHADOW_BOOKS_V1, 21 Nov 2026) ─────────────────────────────
+# Owner: "can we not evaluate a bit more strategy in parallel" → "yes go with
+# it". Swing, momentum pullback, the defensive rotation and the SPY<200d
+# intraday tag, replayed on tonight's settled closes from the date each rule
+# was frozen; verdicts against marks fixed before the first run. No orders.
+# Recomputed from the start each night, so a missed run leaves no gap. Must
+# not fail the harvest.
+log "shadow books"
+if "$UV" run tradepro-shadow-books --push >>"$LOG" 2>&1; then
+    log "shadow books published"
+else
+    log "WARNING: shadow books FAILED or incomplete (exit $?) — see $LOG"
+fi
+
 # ── Sector stress (SELLOFF_PLAYBOOK_GATES_V1 §S2, 10 Nov 2026) ──────────────
 # With tonight's bars settled, publish which sector ETFs (and SPY/QQQ) sit ≥ 8%
 # below their 20-day high. Every events window (options screen, puts board,
