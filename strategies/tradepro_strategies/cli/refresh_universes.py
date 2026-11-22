@@ -190,7 +190,12 @@ def main() -> None:
     if not real_universes:
         log.error("no universes parsed successfully")
         sys.exit(1)
+    # 0, explicitly. The first Lambda run (22 Nov 2026) pushed 6 universes /
+    # 1,686 symbols and was graded FAILED because this fell off the end
+    # returning None, which the handler reads as "not 0". A job that did its
+    # work must say so in the one value the scheduler reads.
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
