@@ -58,3 +58,15 @@ def test_the_image_can_parse_wikipedia_tables():
     parser until this lane moved."""
     docker = (ROOT / "Dockerfile.lambda").read_text()
     assert "lxml" in docker and "beautifulsoup4" in docker
+
+
+def test_refresh_universes_returns_zero_when_it_has_pushed(monkeypatch):
+    """First Lambda run pushed everything and was graded FAILED: main() fell
+    off the end returning None. The handler reads rc == 0 and nothing else."""
+    from tradepro_strategies.cli import refresh_universes as RU
+    monkeypatch.setattr(sys, "argv", ["refresh-universes", "--push"])
+    monkeypatch.setattr(RU.wu, "fetch_all_universes", lambda **k: {"sp500": ["AAPL"]})
+    monkeypatch.setattr(RU, "_build_payload", lambda batch: {"universes": [], "errors": {}})
+    monkeypatch.setattr(RU, "_resolve_creds", lambda: ("http://api.test", "tok"))
+    monkeypatch.setattr(RU, "_push", lambda payload, base, token: True)
+    assert RU.main() == 0
