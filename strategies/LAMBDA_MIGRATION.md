@@ -227,3 +227,46 @@ Session runs fetch 2 days (today + the prior session); `harvest_5m_repair`
 fetches 7 days once after the close:
 
     tradepro-harvest-5m-repair  cron(30 21 ? * MON-FRI *)
+
+## 22 Nov 2026 — the short Mac lanes (owner: "leverage their infra")
+
+Three lanes that are HTTP in, HTTP out, seconds each:
+
+    job                 Mac lane                          schedule (UTC)
+    ibkr_health_probe   com.tradepro.ibkr-health-probe    rate(15 minutes)
+    refresh_universes   com.tradepro.refresh-universes    cron(30 7 * * ? *)
+    trade_alerts        com.tradepro.trade-alerts         cron(7/15 * * * ? *)
+
+`trade_alerts` CLOSES paper positions on stop / target / max-hold, so before
+it could run anywhere but the laptop its dedupe ledger moved out of
+`~/.tradepro/signal_watch_fired.json` into settings-kv (`trade_alerts_fired`):
+the Mac lane and the Lambda job now share one memory and may overlap; the
+first run that finds no key imports the laptop's file once. The order book is
+also checked for an exit already enqueued against the same order, so a lost
+ledger cannot produce a second close. The Lambda schedule sits 7 minutes off
+the Mac's quarter-hours so the two never read the ledger in the same minute.
+Mail goes through `resolve_smtp_creds` (file → Secrets Manager `tradepro/email`).
+
+Run-log rows from the function carry `machine=lambda:tradepro-jobs`
+(`TRADEPRO_MACHINE`, set in the image), so a Mac-vs-Lambda comparison is a
+filter on one column.
+
+    aws events put-rule --name tradepro-ibkr-health-probe --schedule-expression 'rate(15 minutes)'
+    aws events put-rule --name tradepro-refresh-universes --schedule-expression 'cron(30 7 * * ? *)'
+    aws events put-rule --name tradepro-trade-alerts      --schedule-expression 'cron(7/15 * * * ? *)'
+    put-targets Input {"job":"<name>"} for each — VERIFY Input; add-permission for each rule
+
+Run beside the Mac lanes for a day, compare `machine=` rows in the run log,
+then unload the three plists (and drop them from desk-check's SCHEDULED_JOBS).
+
+### Stays on the Mac, and why
+
+| lane | reason | goes where |
+|---|---|---|
+| desk-check | grades launchd lanes, the Mac checkout and host power | rewritten last, when the Mac is empty |
+| daily-digest | tails the paper lanes' logs on the Mac | moves with the placers |
+| screener-daily | 21 min (options screen) | Fargate |
+| bar-cache-audit | walks a local parquet tree | S3-aware rewrite, then Lambda |
+| bar-cache-resource-intraday, harvest-daily, option-chain-capture, mirror | long | Fargate |
+| paper-* placers | place orders; a kill mid-run can leave one leg | Fargate, after a resting broker stop |
+| mac-deploy-sync, log-rotate, stay-awake | exist only because the others do | deleted with the last lane |

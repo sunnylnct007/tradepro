@@ -11,12 +11,15 @@ fail-loud (status + error carry the reason).
 from __future__ import annotations
 
 import logging
+import os
 import socket
 from datetime import datetime, timezone
 from typing import Any
 
 _log = logging.getLogger("tradepro.run_log")
-_HOST = socket.gethostname()
+# TRADEPRO_MACHINE names a host whose hostname means nothing to a reader
+# (Lambda sandboxes); unset, the hostname is the name, as it always was.
+_HOST = os.environ.get("TRADEPRO_MACHINE") or socket.gethostname()
 
 
 def _iso(t: Any) -> str | None:

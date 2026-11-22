@@ -62,6 +62,7 @@ import json
 import time as _time
 import logging
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,12 +72,109 @@ log = logging.getLogger("tradepro.trade_alerts")
 # the retry path without actually waiting nine seconds.
 RETRY_BACKOFF_S = 3
 
-# One file, one line per fired event key. Same pattern as the strangle's
-# _fired_today — a watcher with no memory is a watcher that spams.
-# The lane was RENAMED signal-watch -> trade-alerts (owner, 19 Sep 2026);
-# the state file keeps its old name ON PURPOSE — this is the dedupe ledger
-# of every alert ever sent, and a fresh path would re-fire all of them.
-FIRED = Path.home() / ".tradepro" / "signal_watch_fired.json"
+# THE DEDUPE LEDGER LIVES IN THE API, NOT ON THE HOST (22 Nov 2026).
+#
+# It was a JSON file under ~/.tradepro. That is fine for one laptop and wrong
+# for a job that now runs on Lambda: /tmp is wiped between cold starts, so a
+# fresh runtime remembers nothing, re-alerts, and — because this watcher
+# CLOSES paper positions — re-closes. A close that fires twice is a sell of a
+# position already sold: the 1 Oct runaway in miniature. The ledger now lives
+# in settings-kv, where the Mac lane and the Lambda job read and write the
+# SAME key, so the two schedules may overlap without either repeating the
+# other (the pre-earnings watch has worked this way since September).
+#
+# If the ledger cannot be READ, the run checks nothing and says so. "I could
+# not remember what I did" must never be rendered as "nothing has fired".
+FIRED_KEY = "trade_alerts_fired"
+
+# The Mac's old ledger, imported ONCE into the kv key the first time the key is
+# created, so moving the store does not re-fire every alert ever sent. Never
+# written to again.
+LEGACY_FIRED = Path.home() / ".tradepro" / "signal_watch_fired.json"
+
+
+class FiredStoreUnreachable(RuntimeError):
+    """The dedupe ledger could not be read or written through the API."""
+
+
+def _kv_headers(token: str | None) -> dict:
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _kv_read(base: str, token: str | None) -> dict | None:
+    """The ledger as stored, None if the key does not exist yet; raises when
+    the API itself cannot be reached."""
+    import requests
+    try:
+        r = requests.get(f"{base.rstrip('/')}/api/settings-kv/{FIRED_KEY}",
+                         headers=_kv_headers(token), timeout=15)
+    except Exception as exc:  # noqa: BLE001 — the reason travels with the error
+        raise FiredStoreUnreachable(f"GET {FIRED_KEY}: {str(exc)[:120]}") from exc
+    if r.status_code == 404:
+        return None
+    if r.status_code != 200:
+        raise FiredStoreUnreachable(f"GET {FIRED_KEY}: HTTP {r.status_code}")
+    v = (r.json() or {}).get("value")
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            v = None
+    return v if isinstance(v, dict) else {}
+
+
+def _legacy_ledger() -> dict:
+    try:
+        d = json.loads(LEGACY_FIRED.read_text())
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001 — no file, or not ours: start empty
+        return {}
+
+
+def _kv_write(base: str, token: str | None, ledger: dict, *, create: bool) -> None:
+    import requests
+    H = _kv_headers(token)
+    try:
+        if create:
+            # POST creates key + metadata; PUT on a missing key is a 404.
+            r = requests.post(f"{base.rstrip('/')}/api/settings-kv/", headers=H, timeout=15,
+                              json={"key": FIRED_KEY, "value": ledger, "valueType": "json",
+                                    "label": "Trade alerts: fired today",
+                                    "description": "Dedupe ledger of the trade-alerts watcher "
+                                                   "({date: [event keys]}). Shared by every host "
+                                                   "that runs the watcher; an event fires once a day.",
+                                    "category": "Trading"})
+        else:
+            # PUT stores the body AS the value (SettingsKvEndpoints.cs).
+            r = requests.put(f"{base.rstrip('/')}/api/settings-kv/{FIRED_KEY}", headers=H,
+                             timeout=15, json=ledger)
+    except Exception as exc:  # noqa: BLE001
+        raise FiredStoreUnreachable(f"write {FIRED_KEY}: {str(exc)[:120]}") from exc
+    if r.status_code >= 300:
+        raise FiredStoreUnreachable(f"write {FIRED_KEY}: HTTP {r.status_code} {r.text[:120]}")
+
+
+def _fired_today(base: str, token: str | None) -> set[str]:
+    """Event keys already alerted today. Raises FiredStoreUnreachable rather
+    than guessing: an unreadable ledger is not an empty one."""
+    today = _dt.date.today().isoformat()
+    ledger = _kv_read(base, token)
+    if ledger is None:
+        ledger = _legacy_ledger()
+        _kv_write(base, token, ledger, create=True)
+    return set(ledger.get(today) or [])
+
+
+def _mark_fired(base: str, token: str | None, keys: set[str]) -> None:
+    if not keys:
+        return
+    today = _dt.date.today().isoformat()
+    ledger = _kv_read(base, token)
+    create = ledger is None
+    ledger = ledger or {}
+    ledger = {today: sorted(set(ledger.get(today) or []) | keys)}   # keep today only
+    _kv_write(base, token, ledger, create=create)
+
 
 # Only strategies whose candidates carry a stop we can check.
 WATCHED_PREFIX = "candidates_"
@@ -104,28 +202,6 @@ def _max_hold_sessions() -> dict[str, int]:
             "candidates_momentum": int(_MOM_MAX_HOLD)}
 
 
-def _fired_today() -> set[str]:
-    today = _dt.date.today().isoformat()
-    try:
-        d = json.loads(FIRED.read_text())
-    except Exception:  # noqa: BLE001 — a missing or corrupt file means nothing fired
-        return set()
-    return set(d.get(today) or [])
-
-
-def _mark_fired(keys: set[str]) -> None:
-    if not keys:
-        return
-    today = _dt.date.today().isoformat()
-    try:
-        d = json.loads(FIRED.read_text())
-    except Exception:  # noqa: BLE001
-        d = {}
-    d = {today: sorted(set(d.get(today) or []) | keys)}   # keep today only
-    FIRED.parent.mkdir(parents=True, exist_ok=True)
-    FIRED.write_text(json.dumps(d))
-
-
 def _last_close(symbol: str) -> tuple[float | None, str | None]:
     """(close, bar_date) from OUR store — the same bars the signal was measured
     on. Returns (None, None) rather than guessing."""
@@ -151,8 +227,16 @@ def check(base: str, token: str | None) -> list[dict]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     if token:
         headers["Content-Type"] = "application/json"
-    already = _fired_today()
     events: list[dict] = []
+    try:
+        already = _fired_today(base, token)
+    except FiredStoreUnreachable as exc:
+        log.warning("fired ledger unreachable: %s", exc)
+        return [{"key": "fired_store_unreachable", "kind": "SYSTEM", "symbol": "-",
+                 "text": "Could not read the alert ledger (settings-kv), so this run "
+                         "checked nothing and closed nothing: without it an event "
+                         "could fire — and a paper close could repeat. No trade "
+                         "action is implied. If this repeats, the desk API needs a look."}]
 
     # RETRY FIRST. A single read timeout used to mail the owner a raw Python
     # exception under the banner "ACT ON THESE ... an event on a position you
@@ -180,6 +264,10 @@ def check(base: str, token: str | None) -> list[dict]:
                          "If this repeats, the desk API needs a look."}]
 
     OPEN = {"FILLED", "PARTIALLY_FILLED", "WORKING", "SUBMITTED"}
+    # Orders an exit has ALREADY been enqueued for, read from the book itself.
+    # Independent of the ledger: if the ledger were ever lost, this is what
+    # stops the watcher selling a position it sold yesterday.
+    already_closed = _orders_with_an_exit(orders)
     for o in orders:
         strat = str(o.get("strategyId") or o.get("strategy_id") or "")
         if not strat.startswith(WATCHED_PREFIX):
@@ -237,11 +325,32 @@ def check(base: str, token: str | None) -> list[dict]:
             key = f"{sym}:{tag}"
             if key in already:
                 continue
+            if str(o.get("id")) in already_closed:
+                log.info("%s: an exit already references order %s — not closing again",
+                         sym, o.get("id"))
+                continue
             closed = _close_paper(base, headers, o, close)
             events.append({"key": key, "kind": kind, "symbol": sym,
                            "text": text + ("  [paper position CLOSED]" if closed
                                            else "  [close FAILED — do it by hand]")})
     return events
+
+
+def _orders_with_an_exit(orders: list[dict]) -> set[str]:
+    """Ids of orders that a SIGNAL_WATCH_EXIT order already closes (from its
+    signalMeta), so a close is never enqueued twice whatever the ledger says."""
+    out: set[str] = set()
+    for o in orders:
+        if str(o.get("placedBy") or o.get("placed_by") or "") != "SIGNAL_WATCH_EXIT":
+            continue
+        meta = o.get("signalMeta") or o.get("signal_meta")
+        try:
+            m = json.loads(meta) if isinstance(meta, str) else (meta or {})
+        except ValueError:
+            continue
+        if m.get("closes") is not None:
+            out.add(str(m["closes"]))
+    return out
 
 
 def _sessions_held(signal_bar) -> int | None:
@@ -338,8 +447,11 @@ def main() -> int:
 
     sent = False
     try:
-        from .email_digest import CRED_PATH, send_email
-        cfg = json.loads(CRED_PATH.read_text())
+        # File on the Mac, Secrets Manager on Lambda — the same resolver the
+        # strangle and live-risk mailers use. Reading the file directly meant
+        # a Lambda tick could never mail.
+        from .email_digest import resolve_smtp_creds, send_email
+        cfg = resolve_smtp_creds()
         html = "<pre style=\"font-family:monospace\">" + text.replace("<", "&lt;") + "</pre>"
         send_email(SimpleNamespace(subject=subj, text_body=text, html_body=html,
                                    pdf_bytes=None), cfg)
@@ -361,5 +473,18 @@ def main() -> int:
     # Mark AFTER the attempt: a send that failed should retry on the next run
     # rather than be silently swallowed for the day.
     if sent:
-        _mark_fired({e["key"] for e in events})
+        try:
+            _mark_fired(base, token, {e["key"] for e in events})
+        except FiredStoreUnreachable as exc:
+            # The mail went and any paper close is already in the book; the
+            # book-side guard (_orders_with_an_exit) stops a second close. Say
+            # so loudly — a repeat ALERT tomorrow is noise, not a trade.
+            print(f"  WARNING: alert ledger not updated ({exc}) — these events may "
+                  f"alert again on the next run", file=sys.stderr)
+            try:
+                from ..run_log import log_run
+                log_run("trade-alerts", "ledger", "fail", error=str(exc)[:200],
+                        summary="fired keys not recorded")
+            except Exception:  # noqa: BLE001
+                pass
     return 0
