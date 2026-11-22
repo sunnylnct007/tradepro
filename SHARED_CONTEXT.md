@@ -2497,3 +2497,39 @@ it a backtest-only result. Until then every "THE strategy" claim is about a back
 Lesson of the day: a sleeve's fill COUNT is not evidence it is running. Ask three things
 before calling anything live: last order date, which scheduler fires it, and whether its
 exits are broker-confirmed or reconciler-written.
+
+### 2026-11-21/22 (Sat night) — shadow books, two lanes off the Mac, the chart was on Yahoo for six months
+
+**Shipped (all merged, CI green, verified live):** #447 SHADOW_BOOKS_V1 (swing, pullback, SPY<50d
+defensive rotation, SPY<200d intraday tag; nightly, no orders, pre-registered marks; MCP
+`get_shadow_books`) · #448 live-risk as a Lambda job (reads the book through the API's Flex
+route, no Flex secret on the function; rule `tradepro-live-risk` 22:50 UTC, verified Input,
+hand invoke = the Mac's result) · #449 intraday setups board (rules 7/2 conditions + levels per
+5m bar; MCP `get_intraday_setups`) · #450/#451 the 5m harvest as a Lambda job (`harvest_5m`
+every 10 min 14–21 UTC, 2-day window; `market_movers` its own job at :05/15; `harvest_5m_repair`
+7-day window 21:30) · #452/#453 chart: 1m/5m/daily pills, zoom −/+/Reset, full-screen ·
+**#454/#455 production charts read the golden store** · #456 sell-off technicals V1: all 3 FAIL.
+Disabled `tradepro-preearnings-watch` (fired a retired job every 5 min).
+
+**The finding that matters.** `frontend/.env.production` had `VITE_DEFAULT_PROVIDER=yahoo` since
+the May initial commit. Every deployed chart read Yahoo (1m only 7 days back, 5m only 60) while
+the 11 Nov one-store ruling and #386 said the store. Found only when the owner said "graph gives
+error on 1min for any other day than 1D". Yahoo is now not registered as a candles provider at
+all (`/marketdata/providers` → `bar_cache` only). Lesson: a ruling's structural test must cover
+the config the deploy ships with, not just code paths; one live probe with the UI's exact
+parameters found it.
+
+**Second lesson (shadow books):** a forward record of CLOSED trades is losers-first until the
+hold period has elapsed — the first run read "pullback FAIL" on 77 closes with 61 trades open at
+a profit. Verdicts now defer until MAX_HOLD sessions have passed (pullback ≈ 26 Nov).
+
+**Mac lanes still loaded and now DUPLICATED by AWS (compare Mon 23 Nov, then unload):**
+`com.tradepro.live-risk`, `com.tradepro.bar-cache-harvest-5m`. Owner direction: EVERYTHING off
+the Mac; LLM via paid API later. Long jobs (daily harvest ~1h, option-chain 35 min, order
+placers) → ECS Fargate scheduled tasks via a Terraform PR; placers last.
+
+**Open with the owner:** IBKR news — if the Web API has a news route, paste it / save
+`docs/ibkr-llms.txt` and it wires like the FYIs; otherwise not built.
+
+**Monday 23 Nov:** weekly T212 book places nothing (decision = cash). Watch AMD/MU vs their
+stops (any stop sell = MKT, full qty, filled). First Lambda `harvest_5m` fires 14:00 UTC.
