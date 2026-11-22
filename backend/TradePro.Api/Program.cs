@@ -66,8 +66,15 @@ builder.Services.AddHttpClient<YahooSearchProvider>(c =>
     c.Timeout = TimeSpan.FromSeconds(8);
 });
 
-// Only Yahoo Finance is advertised to the registry today.
-builder.Services.AddScoped<IMarketDataProvider>(sp => sp.GetRequiredService<YahooFinanceProvider>());
+// YAHOO IS NOT A CANDLES PROVIDER (21 Nov 2026). It was registered here as
+// one, so any caller could ask /marketdata/candles for provider=yahoo — and the
+// production frontend DID, for six months, through a build-time default nobody
+// checked (frontend/.env.production). Yahoo serves 1m bars 7 days back and 5m
+// 60, so every intraday chart beyond 1D failed while the golden store answered
+// in 0.1s. Owner: "we already have a central store of harvesting and we
+// should be using that". The YahooFinanceProvider class stays registered as
+// ITSELF for /earnings, /insiders and /corporate-actions, which the store does
+// not hold; candles come from the store, full stop.
 // The golden bar store (docs/DATA_ARCHITECTURE.md): parquet written by the
 // Python harvester, mirrored to S3. Registered as "bar_cache"; becomes the
 // default for /marketdata/candles via Providers:Default once the EC2 role can

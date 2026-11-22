@@ -30,7 +30,9 @@ public sealed class MarketDataRegistry : IMarketDataRegistry
         IConfiguration config)
     {
         _byName = providers.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
-        _default = config["Providers:Default"] ?? _byName.Keys.First();
+        // The golden bar store is THE default (docs/DATA_ARCHITECTURE.md). It
+        // used to be "whichever provider registered first", which was Yahoo.
+        _default = config["Providers:Default"] ?? BarCache.BarCacheStoreProvider.ProviderName;
     }
 
     public IReadOnlyCollection<string> AvailableProviders => _byName.Keys.ToArray();
