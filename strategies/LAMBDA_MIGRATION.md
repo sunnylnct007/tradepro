@@ -290,4 +290,29 @@ First job: `tradepro-harvest-daily` (this repo, `cli/harvest_daily.py`) — the
 Mac's `bar-cache-harvest-daily.sh` chain step for step. **One writer:** the
 Fargate schedule is created DISABLED, verified by a hand `run-task` with
 `--no-email`, and enabled the same evening the Mac plist is unloaded — never
-both on one night. `TRADEPRO_MACHINE=fargate:tradepro-jobs` on the task.
+both on one night. `TRADEPRO_MACHINE=fargate:ccit-dev-tradepro-jobs` on the task.
+
+### First run (22 Nov 2026, `harvest_daily --no-email` by hand)
+
+Applied (ccit-infra #3, two applies — the deploy role's new policy
+attachments land in the first). Cluster `ccit-dev-tradepro-jobs`, task
+definition `:1`, schedule `…-harvest-daily` cron(30 21 ? * MON-FRI *)
+Europe/London, DISABLED. Result, exit 1 after 65 minutes:
+
+| step | Fargate | Mac (20 Nov) | note |
+|---|---|---|---|
+| bar-cache-harvest | 3 min 49 s, 207/207, all from cache | 7 min 35 s | run-log row `machine=fargate:ccit-dev-tradepro-jobs` |
+| harvest-scope | **rc 2** | 5 s | wrapper omitted `--symbols` → fixed (#462) + argv-parse test |
+| daily-evaluation (no mail) | **56 min 19 s**, published | 44 s | empty container: ≈100k sequential S3 GETs |
+| shadow-books | 8 s, published | — | |
+| sector-stress | 4 min 7 s, published | 4 s | same cause |
+
+The store is read-through: a local miss fetches ONE object, and a daily
+history is one parquet + one manifest per symbol-month (421k daily objects,
+1.5 GB). The Mac is fast because its local mirror is warm. Fix = give the
+task the same warm mirror: **EFS mounted at `/tmp/.tradepro/bar_cache`**
+(ccit-infra #4, awaiting the owner's merge — the plan check cannot run until
+the OIDC trust admits `pull_request`). The first run after it fills the
+mirror; the second should match the Mac's minutes. S3 stays golden; the
+harvest still writes through. Nothing in this run wrote to S3 (all 207 names
+were already current) — the Mac's writer was not duplicated.
