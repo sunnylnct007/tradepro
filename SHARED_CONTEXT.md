@@ -2533,3 +2533,22 @@ placers) → ECS Fargate scheduled tasks via a Terraform PR; placers last.
 
 **Monday 23 Nov:** weekly T212 book places nothing (decision = cash). Watch AMD/MU vs their
 stops (any stop sell = MKT, full qty, filled). First Lambda `harvest_5m` fires 14:00 UTC.
+
+### 2026-11-22 (eve) — three more lanes off the Mac (#458, #459)
+`ibkr_health_probe` rate(15m), `refresh_universes --push` 07:30Z, `trade_alerts` cron(7/15) are
+Lambda jobs with EventBridge rules (Inputs verified), each hand-invoked OK on the deployed image.
+trade-alerts CLOSES paper positions, so its dedupe ledger left `~/.tradepro` for settings-kv
+`trade_alerts_fired` (Mac + Lambda share it; legacy file imported once) and the order book is
+checked for an exit already enqueued before any close. Run-log rows from the function carry
+`machine=lambda:tradepro-jobs` — Mac and Lambda probe rows are identical. #459: refresh_universes
+pushed 1,686 symbols and was graded FAILED because `main()` returned None; fixed. Pre-existing:
+nasdaq100 / nikkei225 Wikipedia tables no longer parse (same on the Mac) — not yet fixed.
+
+**Mac plists now duplicated by AWS, unload after Monday's compare:** live-risk, bar-cache-harvest-5m,
+ibkr-health-probe, refresh-universes, trade-alerts (and drop trade-alerts/live-risk from
+`desk_check.SCHEDULED_JOBS` when unloading). Stays on the Mac for now: desk-check (grades launchd;
+rewrite last), daily-digest (tails Mac lane logs), screener-daily (21 min), bar-cache-audit (local
+parquet tree), long jobs + placers → Fargate (Terraform PR next).
+
+IBKR Web API notes from the owner accumulate in `docs/IBKR_WEB_API_NOTES.md` (websocket `blt`
+bulletins so far; news section still awaited).
