@@ -270,3 +270,24 @@ then unload the three plists (and drop them from desk-check's SCHEDULED_JOBS).
 | bar-cache-resource-intraday, harvest-daily, option-chain-capture, mirror | long | Fargate |
 | paper-* placers | place orders; a kill mid-run can leave one leg | Fargate, after a resting broker stop |
 | mac-deploy-sync, log-rotate, stay-awake | exist only because the others do | deleted with the last lane |
+
+## 22 Nov 2026 — the long jobs: ECS Fargate, same image
+
+Lambda's 900 s ceiling is the only reason the daily harvest (~1 h), the option
+chain capture (~35 min) and the intraday re-source stayed on the Mac. They run
+as **ECS Fargate scheduled tasks on the SAME `tradepro-jobs` image** this
+workflow already builds (`:latest` is pushed alongside the SHA tag): the
+container's entrypoint is overridden to `python -m <cli module>`, so the code
+that runs on Fargate is the code that runs on Lambda, built once.
+
+The infrastructure is Terraform in `ccit-infra` (`modules/tradepro-jobs-fargate`):
+cluster, task definition (1 vCPU / 4 GB, public subnet, egress-only SG), task
+role = the Lambda role's grants (bar-cache bucket RW, `tradepro/all` and
+`tradepro/email` secrets), EventBridge Scheduler schedules in Europe/London so
+the Mac's clock times carry over without a BST shift.
+
+First job: `tradepro-harvest-daily` (this repo, `cli/harvest_daily.py`) — the
+Mac's `bar-cache-harvest-daily.sh` chain step for step. **One writer:** the
+Fargate schedule is created DISABLED, verified by a hand `run-task` with
+`--no-email`, and enabled the same evening the Mac plist is unloaded — never
+both on one night. `TRADEPRO_MACHINE=fargate:tradepro-jobs` on the task.
