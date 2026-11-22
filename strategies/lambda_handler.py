@@ -45,6 +45,13 @@ import traceback
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
+# The run log's `machine` column. Lambda's hostname is an opaque sandbox id, so
+# a row from here would be unreadable beside the Mac's; naming the function is
+# what lets the Mac-vs-Lambda side-by-side be read off the log. Set at import,
+# before any module can read it (the image sets it too; this covers a local
+# invoke of the handler).
+os.environ.setdefault("TRADEPRO_MACHINE", "lambda:tradepro-jobs")
+
 # An image older than this means aws-lambda-jobs has stopped deploying, since it
 # runs on every push touching strategies/. Generous on purpose: a quiet fortnight
 # in that directory is plausible, a quiet month is not.
@@ -195,6 +202,33 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # the first Lambda run. Its own job so the harvest never shares its budget
     # with a reader; scheduled a few minutes after each harvest.
     "market_movers": ("tradepro_strategies.cli.market_movers", ["--push"]),
+
+    # ── The short Mac lanes (22 Nov 2026) ───────────────────────────────
+    #
+    # Owner: "we are paying aws and need to leverage their infra", "unless we
+    # have some llm to run we dont need [the Mac]". These three are HTTP in,
+    # HTTP out, seconds each; nothing about them ever needed a laptop.
+    #
+    #   ibkr_health_probe  two reads of the API's IBKR status every 15 min,
+    #                      one run_log row. A laptop that sleeps punches holes
+    #                      in exactly the timeline this probe exists to draw.
+    #   refresh_universes  Wikipedia scrape -> /api/ingest/universes, 07:30.
+    #   trade_alerts       stop / target / max-hold on paper candidates, every
+    #                      15 min. It CLOSES paper positions, so its dedupe
+    #                      ledger moved from a file under ~/.tradepro to
+    #                      settings-kv first: the Mac lane and this job share
+    #                      one memory and may overlap without a second close
+    #                      (and the order book itself is checked for an exit
+    #                      already enqueued, ledger or no ledger).
+    #
+    # NOT here, and why: desk-check grades launchd lanes and the Mac checkout
+    # (it moves last, rewritten, when the Mac is empty); daily-digest reads
+    # the paper lanes' logs on the Mac (moves with the placers); screener-daily
+    # runs 21 minutes (Fargate); bar-cache-audit walks a local parquet tree
+    # (needs an S3-aware rewrite); the intraday re-source is a long job.
+    "ibkr_health_probe": ("tradepro_strategies.cli.ibkr_health_probe", []),
+    "refresh_universes": ("tradepro_strategies.cli.refresh_universes", ["--push"]),
+    "trade_alerts": ("tradepro_strategies.cli.trade_alerts", []),
 }
 
 

@@ -21,6 +21,7 @@ THREE PROPERTIES THIS PINS
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 
@@ -28,8 +29,17 @@ from tradepro_strategies.cli import trade_alerts as SW
 
 
 @pytest.fixture(autouse=True)
-def _tmp_fired(tmp_path, monkeypatch):
-    monkeypatch.setattr(SW, "FIRED", tmp_path / "fired.json")
+def _mem_ledger(monkeypatch):
+    """The ledger lives in settings-kv (22 Nov 2026); here, in a dict."""
+    box = {"ledger": None}
+    def _read(base, token):
+        return None if box["ledger"] is None else dict(box["ledger"])
+    def _write(base, token, ledger, *, create):
+        box["ledger"] = dict(ledger)
+    monkeypatch.setattr(SW, "_kv_read", _read)
+    monkeypatch.setattr(SW, "_kv_write", _write)
+    monkeypatch.setattr(SW, "LEGACY_FIRED", pathlib.Path("/nonexistent/legacy.json"))
+    return box
 
 
 def _orders(monkeypatch, rows):
@@ -77,7 +87,7 @@ def test_an_event_does_not_repeat_once_fired(monkeypatch):
     monkeypatch.setattr(SW, "_last_close", lambda s: (160.0, "2026-09-02"))
     first = SW.check("http://api.test", None)
     assert len(first) == 1
-    SW._mark_fired({e["key"] for e in first})
+    SW._mark_fired("http://api.test", None, {e["key"] for e in first})
     assert SW.check("http://api.test", None) == []
 
 
@@ -214,3 +224,43 @@ def test_a_failed_close_still_alerts_and_says_so(monkeypatch):
 def _dt_today_iso():
     import datetime as d
     return d.date.today().isoformat()
+
+
+def test_an_unreadable_ledger_checks_nothing_and_closes_nothing(monkeypatch):
+    """22 Nov 2026, the ledger moved from a file on the laptop to settings-kv so
+    the Lambda job and the Mac lane share ONE memory. If that memory cannot be
+    read, "nothing has fired" is a guess — and the guess would re-close a
+    paper position. So the run reports itself and touches nothing."""
+    _orders(monkeypatch, [{"id": 7, "symbol": "PLTR", "state": "FILLED",
+                           "strategyId": "candidates_momentum", "signalStopPrice": 165.53}])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (160.0, "2026-09-02"))
+    def _boom(base, token):
+        raise SW.FiredStoreUnreachable("GET: HTTP 503")
+    monkeypatch.setattr(SW, "_kv_read", _boom)
+    monkeypatch.setattr(SW, "_close_paper", lambda *a, **k: pytest.fail("must not close"))
+    ev = SW.check("http://api.test", None)
+    assert len(ev) == 1 and ev[0]["kind"] == "SYSTEM"
+    assert "closed nothing" in ev[0]["text"]
+
+
+def test_an_order_an_exit_already_references_is_never_closed_twice(monkeypatch):
+    """Independent of the ledger: the book itself says the exit was enqueued."""
+    _orders(monkeypatch, [
+        {"id": 7, "symbol": "PLTR", "side": "BUY", "qty": 11, "state": "FILLED",
+         "strategyId": "candidates_momentum", "signalStopPrice": 165.53},
+        {"id": 9, "symbol": "PLTR", "side": "SELL", "qty": 11, "state": "FILLED",
+         "strategyId": "candidates_momentum", "placedBy": "SIGNAL_WATCH_EXIT",
+         "signalMeta": json.dumps({"exit": True, "closes": "7"})},
+    ])
+    monkeypatch.setattr(SW, "_last_close", lambda s: (160.0, "2026-09-02"))
+    monkeypatch.setattr(SW, "_close_paper", lambda *a, **k: pytest.fail("must not close"))
+    assert SW.check("http://api.test", None) == []
+
+
+def test_the_first_run_imports_the_laptops_old_ledger_once(monkeypatch, tmp_path, _mem_ledger):
+    legacy = tmp_path / "signal_watch_fired.json"
+    today = SW._dt.date.today().isoformat()
+    legacy.write_text(json.dumps({today: ["PLTR:stop"]}))
+    monkeypatch.setattr(SW, "LEGACY_FIRED", legacy)
+    assert SW._fired_today("http://api.test", None) == {"PLTR:stop"}
+    assert _mem_ledger["ledger"] == {today: ["PLTR:stop"]}
