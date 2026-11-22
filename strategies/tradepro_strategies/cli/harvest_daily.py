@@ -43,8 +43,12 @@ log = logging.getLogger("tradepro.harvest_daily")
 #: Trailing calendar days the harvest refreshes — verbatim from the Mac script.
 WINDOW_DAYS = 10
 
+#: ``SYMBOLS`` is replaced with the comma-joined harvested scope — harvest-scope
+#: requires ``--symbols`` (first Fargate run, 22 Nov 2026, exited 2 without it).
+SYMBOLS = "<symbols>"
+
 FOLLOW_UPS = (
-    ("tradepro-harvest-scope", "tradepro_strategies.cli.harvest_scope", ["--push"]),
+    ("tradepro-harvest-scope", "tradepro_strategies.cli.harvest_scope", ["--symbols", SYMBOLS, "--push"]),
     ("tradepro-daily-evaluation", "tradepro_strategies.cli.daily_evaluation", ["--push", "--email"]),
     ("tradepro-shadow-books", "tradepro_strategies.cli.shadow_books", ["--push"]),
     ("tradepro-sector-stress", "tradepro_strategies.cli.sector_stress", ["--push"]),
@@ -68,10 +72,11 @@ def harvest_argv(symbols: list[str], today: date | None = None, *, api_base: str
     return argv
 
 
-def follow_ups(*, email: bool) -> list[tuple[str, str, list[str]]]:
+def follow_ups(*, email: bool, symbols: list[str] = ()) -> list[tuple[str, str, list[str]]]:
     out = []
+    joined = ",".join(symbols)
     for name, module, args in FOLLOW_UPS:
-        args = [a for a in args if email or a != "--email"]
+        args = [joined if a == SYMBOLS else a for a in args if email or a != "--email"]
         out.append((name, module, args))
     return out
 
@@ -106,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
               f"(a verdict on stale bars must not be published as tonight's)", file=sys.stderr)
         return rc
     results = {}
-    for name, module, args in follow_ups(email=not a.no_email):
+    for name, module, args in follow_ups(email=not a.no_email, symbols=syms):
         results[name] = _run_cli(name, module, args)
     bad = {k: v for k, v in results.items() if v}
     print(f"harvest_daily: {len(syms)} symbols harvested · "

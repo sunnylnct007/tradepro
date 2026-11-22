@@ -2552,3 +2552,13 @@ parquet tree), long jobs + placers → Fargate (Terraform PR next).
 
 IBKR Web API notes from the owner accumulate in `docs/IBKR_WEB_API_NOTES.md` (websocket `blt`
 bulletins so far; news section still awaited).
+
+**Fargate (later that evening):** ccit-infra #3 merged (owner: "u can merge" over the pre-existing
+red OIDC plan check) and applied twice — cluster `ccit-dev-tradepro-jobs`, task def, schedule
+`…-harvest-daily` 21:30 London DISABLED. Hand run of `harvest_daily --no-email`: harvest 207/207
+in 4 min, but harvest-scope rc 2 (wrapper omitted `--symbols`; fixed #462 with a test that parses
+every follow-up's argv against its real CLI) and the evaluation took **56 min vs 44 s on the Mac**
+— an empty container reads ≈100k symbol-month objects from S3 one at a time. Fix is a persistent
+EFS mirror at `/tmp/.tradepro/bar_cache` (ccit-infra #4, OPEN — the classifier will not merge over
+the red check; owner merges, then dispatch `terraform-apply` twice). Mac harvest plist stays loaded
+until a Fargate run matches the Mac's minutes. Detail: `strategies/LAMBDA_MIGRATION.md`.

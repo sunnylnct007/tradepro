@@ -28,9 +28,37 @@ def test_the_follow_ups_are_the_scripts_in_the_scripts_order():
 
 
 def test_no_email_drops_only_the_mail_flag():
-    quiet = dict((n, a) for n, _, a in HD.follow_ups(email=False))
+    quiet = dict((n, a) for n, _, a in HD.follow_ups(email=False, symbols=["SPY"]))
     assert quiet["tradepro-daily-evaluation"] == ["--push"]
     assert quiet["tradepro-shadow-books"] == ["--push"]
+
+
+def test_harvest_scope_receives_the_harvested_symbols():
+    # First Fargate run (22 Nov 2026): "error: the following arguments are
+    # required: --symbols", rc 2. The scope is what was harvested, joined.
+    args = dict((n, a) for n, _, a in HD.follow_ups(email=True, symbols=["SPY", "QQQ"]))
+    assert args["tradepro-harvest-scope"] == ["--symbols", "SPY,QQQ", "--push"]
+
+
+def test_every_follow_up_argv_parses_against_its_real_cli(monkeypatch):
+    """The wrapper must speak each script's actual argument list — a grep of
+    the shell script cannot see a required flag. Parse only; nothing runs."""
+    import argparse, importlib, inspect
+    seen = {}
+    real_parse = argparse.ArgumentParser.parse_args
+    def spy(self, argv=None, ns=None):
+        out = real_parse(self, argv, ns)
+        seen["ok"] = True
+        raise SystemExit(0)  # parsed cleanly; do not run the body
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", spy)
+    for name, module, args in HD.follow_ups(email=True, symbols=["SPY"]):
+        seen.clear()
+        m = importlib.import_module(module)
+        monkeypatch.setattr(sys, "argv", [name, *args])  # for mains that read sys.argv
+        call = (lambda: m.main(args)) if inspect.signature(m.main).parameters else m.main
+        with pytest.raises(SystemExit) as e:
+            call()
+        assert e.value.code == 0 and seen.get("ok"), f"{name}: argv {args} rejected by its CLI"
 
 
 def _wire(monkeypatch, harvest_rc: int):
