@@ -234,6 +234,18 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # scan 13:45 + 16:30 on US trading days, monitor 21:15 after the close.
     "income_scan": ("tradepro_strategies.cli.income_spreads", ["scan", "--push"]),
     "income_monitor": ("tradepro_strategies.cli.income_spreads", ["monitor", "--push"]),
+    # The momentum-rotation paper lane (23 Nov 2026, owner: the Mac slept
+    # through a whole session — "why is it still on a laptop"). The Mac's
+    # plist flags verbatim; a tick is ~3 min, well inside 900 s. Positions and
+    # account state come through the API (IBKR Web API), orders through the
+    # OMS; nothing is read from the host. CUT OVER ATOMICALLY: the EventBridge
+    # rule (rate(15 minutes)) is enabled in the same minute the Mac plist is
+    # unloaded — two hosts ticking the same book could both place a stop exit.
+    "paper_momentum_rotation_ibkr": ("tradepro_strategies.cli.paper_session", [
+        "--broker", "ibkr", "--strategy", "momentum_rotation", "--strategy-id", "momentum_rotation_ibkr",
+        "--universe", "tradeable", "--capital-usd", "150000", "--interval", "1d",
+        "--max-open-positions", "10", "--max-position-pct-of-capital", "5.5",
+        "--placement-mode", "auto", "--push"]),
 }
 
 
