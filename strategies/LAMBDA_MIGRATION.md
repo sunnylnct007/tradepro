@@ -359,3 +359,21 @@ trades live there, never in this repo). Artifacts: `today-setups/income_put_spre
 
 Rules need SSO (owner): `aws events put-rule` ×3 + targets with `{"job": "income_scan"}` /
 `{"job": "income_monitor"}` as before. Stage G (the IBKR combo instruction) is NOT TradePro's.
+
+
+## 23 Nov 2026 — the momentum-rotation paper lane (owner: "why is it still on a laptop")
+
+The Mac slept 10:27→18:09 UTC and the lane missed the whole session. Job
+`paper_momentum_rotation_ibkr` = the plist's `tradepro-paper … --placement-mode auto --push`
+flags verbatim (a tick is ~3 min). Positions/account via the API's IBKR Web API read, orders via
+the OMS, no host state. **Cut over atomically** (two hosts ticking one book could both place a
+stop exit):
+
+    aws events put-rule --name tradepro-paper-momentum-rotation-ibkr --schedule-expression 'rate(15 minutes)'
+    aws events put-targets --rule tradepro-paper-momentum-rotation-ibkr --targets 'Id=1,Arn=<tradepro-jobs arn>,Input={"job":"paper_momentum_rotation_ibkr"}'
+    aws lambda add-permission … --statement-id ev-paper-momentum-rotation-ibkr --source-arn <rule arn>
+    launchctl bootout gui/$UID ~/Library/LaunchAgents/com.tradepro.paper-momentum-rotation-ibkr.plist   # same minute
+
+Then compare one tick: run-log rows with `machine=lambda:tradepro-jobs`, the board's `asOfUtc`
+advancing every 15 min, `account-state push: HTTP 200` in the Lambda log. Next rotation decision
+is 15 Dec; until then the lane only watches stops, so a quiet cutover week is available.
