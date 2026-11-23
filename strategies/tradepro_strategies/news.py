@@ -238,8 +238,7 @@ def _finnhub_via_api(symbol: str, limit: int, days: int) -> tuple[list[NewsItem]
     try:
         import requests
 
-        from .cli.push_to_api import load_credentials
-        base, token = load_credentials()
+        base, token = _api_base_and_token()
         r = requests.get(f"{base.rstrip('/')}/api/integrations/finnhub/company-news",
                          params={"symbol": symbol, "days": days},
                          headers={"Authorization": f"Bearer {token}"} if token else {},
@@ -262,7 +261,26 @@ def _finnhub_via_api(symbol: str, limit: int, days: int) -> tuple[list[NewsItem]
         out.sort(key=lambda i: i.published_at or "", reverse=True)
         return out[:limit], None
     except Exception as exc:  # noqa: BLE001
-        return [], f"finnhub via api: {type(exc).__name__}"
+        return [], f"finnhub via api: {type(exc).__name__}: {str(exc)[:120]}"
+
+
+def _api_base_and_token() -> tuple[str, str | None]:
+    """The API the MCP tools talk to. The remote MCP container has no
+    ~/.tradepro/credentials: it is configured by TRADEPRO_API_URL (+ token), so
+    that is tried FIRST; the laptop's credential chain is the fallback. Before
+    this, the container's Finnhub fallback failed on a credentials lookup and
+    a symbol in a sell-off read as 'no news' (owner: "claude complained about
+    the news endpoint", 23 Nov 2026)."""
+    import os
+    url = os.environ.get("TRADEPRO_API_URL")
+    if url:
+        try:
+            from .mcp.tools import _resolve_api_token
+            return url, _resolve_api_token()
+        except Exception:  # noqa: BLE001
+            return url, os.environ.get("TRADEPRO_API_TOKEN")
+    from .cli.push_to_api import load_credentials
+    return load_credentials()
 
 
 def _finnhub(symbol: str, limit: int, max_age_days: int) -> tuple[list[NewsItem], str | None]:

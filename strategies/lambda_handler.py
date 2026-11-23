@@ -234,18 +234,11 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # scan 13:45 + 16:30 on US trading days, monitor 21:15 after the close.
     "income_scan": ("tradepro_strategies.cli.income_spreads", ["scan", "--push"]),
     "income_monitor": ("tradepro_strategies.cli.income_spreads", ["monitor", "--push"]),
-    # The momentum-rotation paper lane (23 Nov 2026, owner: the Mac slept
-    # through a whole session — "why is it still on a laptop"). The Mac's
-    # plist flags verbatim; a tick is ~3 min, well inside 900 s. Positions and
-    # account state come through the API (IBKR Web API), orders through the
-    # OMS; nothing is read from the host. CUT OVER ATOMICALLY: the EventBridge
-    # rule (rate(15 minutes)) is enabled in the same minute the Mac plist is
-    # unloaded — two hosts ticking the same book could both place a stop exit.
-    "paper_momentum_rotation_ibkr": ("tradepro_strategies.cli.paper_session", [
-        "--broker", "ibkr", "--strategy", "momentum_rotation", "--strategy-id", "momentum_rotation_ibkr",
-        "--universe", "tradeable", "--capital-usd", "150000", "--interval", "1d",
-        "--max-open-positions", "10", "--max-position-pct-of-capital", "5.5",
-        "--placement-mode", "auto", "--push"]),
+    # The momentum-rotation paper lane is NOT here: its first Lambda tick read
+    # ~180 names' daily history from S3 one object at a time and hit the 900 s
+    # ceiling (23 Nov 2026, 22:35 UTC, Status: timeout). It runs as the Fargate
+    # schedule `ccit-dev-tradepro-jobs-rotation-tick` (EFS mirror, no ceiling);
+    # see RETIRED_JOBS so a stray rule cannot double-tick the book.
 }
 
 
@@ -377,6 +370,10 @@ def _report_provenance(job: str) -> dict:
 #: A retired job returns ok=True and says why. When the rule is finally removed
 #: this entry goes with it.
 RETIRED_JOBS: dict[str, str] = {
+    "paper_momentum_rotation_ibkr": (
+        "Moved to the Fargate schedule ccit-dev-tradepro-jobs-rotation-tick on 23 Nov 2026: "
+        "on Lambda the first tick timed out at 900 s reading the bar store cold. A rule "
+        "that still names this job returns here so two hosts never tick one book."),
     "preearnings_watch": (
         "The watch list (Watchlist / Pre-Earn) was removed 14 Nov 2026: hand-picked "
         "names scored by rules never backtested, on a desk that shows only what "
