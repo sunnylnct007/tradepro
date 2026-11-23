@@ -391,6 +391,31 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.get_shadow_books())
 
     @mcp.tool()
+    @instrumented("income_scan")
+    def income_scan(mode: str = "latest", symbols: str = "") -> str:
+        """Options Income Engine scan (put credit spreads + the cash-secured
+        alternative, INCOME_PUT_SPREADS_V1). mode="latest" = last scheduled
+        scan; mode="on_demand" = run now for `symbols` with live IBKR quotes
+        (slow, no orders). Every gate's number is on the row; rejections
+        carry reasons. TradePro never places; stage G is on approval."""
+        return _json(t.income_scan(mode, symbols or None))
+
+    @mcp.tool()
+    @instrumented("income_monitor")
+    def income_monitor(mode: str = "latest") -> str:
+        """Income engine monitor: open spreads with exit level, spread mid as
+        % of credit and keyed alerts (TAKE_PROFIT / EXIT_NEXT_SESSION /
+        GAMMA_RISK). mode="now" recomputes with live quotes."""
+        return _json(t.income_monitor(mode))
+
+    @mcp.tool()
+    @instrumented("income_ledger")
+    def income_ledger() -> str:
+        """Income engine ledger: recorded spreads and hedges, open max loss by
+        sector against the caps, realised income vs the 10%/yr target."""
+        return _json(t.income_ledger())
+
+    @mcp.tool()
     @instrumented("get_ibkr_fyi")
     def get_ibkr_fyi(max_items: int = 20) -> str:
         """IBKR FYIs — IBKR's own alerts on the session's holdings (analyst

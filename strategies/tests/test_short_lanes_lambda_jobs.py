@@ -74,27 +74,10 @@ def test_refresh_universes_returns_zero_when_it_has_pushed(monkeypatch):
     assert RU.main() == 0
 
 
-def test_the_rotation_lane_is_registered_with_the_macs_flags_and_they_parse(monkeypatch):
-    """23 Nov 2026: the Mac slept 10:27→18:09 UTC and the rotation lane missed
-    the session. The Lambda job carries the plist's flags verbatim, and they
-    must parse against the paper CLI's real parser (a grep cannot see a
-    renamed flag)."""
-    import argparse, importlib, sys
-    module, argv = H.JOBS["paper_momentum_rotation_ibkr"]
-    assert module == "tradepro_strategies.cli.paper_session"
-    assert argv[:4] == ["--broker", "ibkr", "--strategy", "momentum_rotation"]
-    assert "--placement-mode" in argv and argv[argv.index("--placement-mode") + 1] == "auto"
-    assert "--push" in argv and "--strategy-id" in argv
-    seen = {}
-    real = argparse.ArgumentParser.parse_args
-    def spy(self, a=None, ns=None):
-        out = real(self, a, ns); seen["ok"] = True
-        raise SystemExit(0)
-    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", spy)
-    monkeypatch.setattr(sys, "argv", ["tradepro-paper", *argv])
-    m = importlib.import_module(module)
-    import inspect
-    call = (lambda: m.main(argv)) if inspect.signature(m.main).parameters else m.main
-    with pytest.raises(SystemExit) as e:
-        call()
-    assert e.value.code == 0 and seen.get("ok")
+def test_the_rotation_lane_is_retired_on_lambda_and_lives_on_fargate():
+    """23 Nov 2026 22:35 UTC: the first Lambda tick timed out at 900 s reading
+    ~180 names' history from S3 cold. The job is RETIRED here (a stray rule
+    returns cleanly, never double-ticks the book) and runs as the Fargate
+    schedule with the EFS mirror."""
+    assert "paper_momentum_rotation_ibkr" not in H.JOBS
+    assert "rotation-tick" in H.RETIRED_JOBS["paper_momentum_rotation_ibkr"]

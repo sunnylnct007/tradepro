@@ -64,3 +64,17 @@ def test_mcp_tool_says_could_not_read(monkeypatch):
     out = tools.get_news_with_sentiment("SPY")
     assert out["ok"] is False and "NOT 'no news'" in out["error"]
     assert out["news_read"]["errors"]
+
+
+def test_the_via_api_fallback_uses_the_mcp_containers_api_url_first(monkeypatch):
+    """23 Nov 2026: the remote MCP container has no ~/.tradepro/credentials;
+    its Finnhub fallback must resolve the API from TRADEPRO_API_URL like
+    every other MCP tool, else Yahoo-blocked + credentials-missing reads as
+    'no news' for a symbol in a sell-off."""
+    monkeypatch.setenv("TRADEPRO_API_URL", "http://api.test")
+    monkeypatch.setenv("TRADEPRO_API_TOKEN", "tok")
+    base, token = news._api_base_and_token()
+    assert base == "http://api.test" and token == "tok"
+    monkeypatch.delenv("TRADEPRO_API_URL")
+    monkeypatch.setattr("tradepro_strategies.cli.push_to_api.load_credentials", lambda: ("http://laptop", "t2"))
+    assert news._api_base_and_token() == ("http://laptop", "t2")

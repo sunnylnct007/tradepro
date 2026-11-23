@@ -363,6 +363,15 @@ Rules need SSO (owner): `aws events put-rule` ×3 + targets with `{"job": "incom
 
 ## 23 Nov 2026 — the momentum-rotation paper lane (owner: "why is it still on a laptop")
 
+**Outcome the same night:** the Lambda job was invoked once by hand and TIMED OUT at 900 s
+(22:20→22:35 UTC): after "seeded 10 open fills" the tick reads ~180 names' daily history and,
+on a cold container, that is thousands of S3 reads one at a time. The job is RETIRED on Lambda
+and runs as the Fargate schedule `ccit-dev-tradepro-jobs-rotation-tick` (ccit-infra #5,
+`rate(15 minutes)`, DISABLED until the cutover; the EFS mirror is warm after one run). The
+cutover below is unchanged except the command: `aws scheduler update-schedule --name
+ccit-dev-tradepro-jobs-rotation-tick --state ENABLED …` in the same minute as the bootout.
+
+
 The Mac slept 10:27→18:09 UTC and the lane missed the whole session. Job
 `paper_momentum_rotation_ibkr` = the plist's `tradepro-paper … --placement-mode auto --push`
 flags verbatim (a tick is ~3 min). Positions/account via the API's IBKR Web API read, orders via

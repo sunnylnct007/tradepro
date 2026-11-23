@@ -380,6 +380,95 @@ def get_shadow_books() -> dict:
             "how": art.get("how")}
 
 
+def income_scan(mode: str = "latest", symbols: str | None = None) -> dict:
+    """Options Income Engine (INCOME_PUT_SPREADS_V1, spec §6 `income_scan`).
+    mode="latest": the last scheduled scan (13:45 / 16:30 London) as published
+    — top candidates with every gate's number, the rejected list with reasons,
+    the caps, and the cash-secured alternative beside each spread.
+    mode="on_demand": run the scan NOW for `symbols` (comma list; all seed
+    names if empty) with live IBKR quotes through the API — slow (≈20 s a
+    name), never places an order. Candidates are shown only when every gate
+    was computed and passed; a gate we could not compute is a rejection."""
+    if mode == "on_demand":
+        try:
+            from .. import income_spreads as I
+            only = {x.strip().upper() for x in (symbols or "").split(",") if x.strip()} or None
+            art = I.scan(_api_base(), _resolve_api_token() or "", only=only)
+        except Exception as e:  # noqa: BLE001
+            return _err("income_scan", str(e), mode=mode)
+        return {"_source": "live://income_spreads/scan(on_demand)", "fetched_at": _now_iso(), "ok": True,
+                "mode": "on_demand", "placed_orders": 0, **{k: art[k] for k in
+                ("as_of_utc", "candidates", "rejected", "caps", "fx", "held_live", "note")},
+                "settings_source": art["settings"].get("source")}
+    try:
+        d = _get("/api/today-setups/income_put_spreads/latest")
+    except Exception as e:  # noqa: BLE001
+        if "404" in str(e):
+            return _err("income_scan", "no scheduled scan has been published yet (first at 13:45 London on a "
+                        "US trading day); use mode='on_demand' for a live run — this is NOT 'no candidates'", mode=mode)
+        return _err("income_scan", str(e), mode=mode)
+    art = d.get("artifact") or {}
+    if not art:
+        return _err("income_scan", "no scan has been published yet — this is NOT 'no candidates'", mode=mode)
+    return {"_source": "live://today-setups/income_put_spreads", "fetched_at": _now_iso(), "ok": True,
+            "mode": "latest", "published_at_utc": d.get("asOfUtc"), "placed_orders": 0,
+            **{k: art.get(k) for k in ("as_of_utc", "candidates", "rejected", "caps", "fx", "held_live", "note")},
+            "settings_source": (art.get("settings") or {}).get("source")}
+
+
+def income_monitor(mode: str = "latest") -> dict:
+    """Income engine stage H (spec §6 `income_monitor`): every open spread
+    in the ledger with its settled close, exit level (the 30-day closing low
+    at entry), live spread mid as % of the credit, and ALERTS — TAKE_PROFIT,
+    EXIT_NEXT_SESSION, GAMMA_RISK — each with a stable key. mode="latest"
+    reads the 21:15 London publish; mode="now" recomputes with live quotes."""
+    if mode == "now":
+        try:
+            from .. import income_spreads as I
+            base, tok = _api_base(), _resolve_api_token() or ""
+            s = I.settings(base, tok); rec = I.record(base, tok)
+            rows = I.monitor(rec, base, tok, s)
+        except Exception as e:  # noqa: BLE001
+            return _err("income_monitor", str(e), mode=mode)
+        return {"_source": "live://income_spreads/monitor(now)", "fetched_at": _now_iso(), "ok": True,
+                "open_spreads": rows, "alerts": [dict(a, symbol=r["symbol"]) for r in rows for a in r["alerts"]],
+                "placed_orders": 0}
+    try:
+        d = _get("/api/today-setups/income_put_spreads-monitor/latest")
+    except Exception as e:  # noqa: BLE001
+        if "404" in str(e):
+            return _err("income_monitor", "no monitor run has been published yet (21:15 London); use mode='now' "
+                        "— this is NOT 'no alerts'", mode=mode)
+        return _err("income_monitor", str(e), mode=mode)
+    art = d.get("artifact") or {}
+    if not art:
+        return _err("income_monitor", "no monitor run has been published yet — this is NOT 'no alerts'", mode=mode)
+    return {"_source": "live://today-setups/income_put_spreads-monitor", "fetched_at": _now_iso(), "ok": True,
+            "published_at_utc": d.get("asOfUtc"), **{k: art.get(k) for k in ("open_spreads", "alerts", "record", "placed_orders")}}
+
+
+def income_ledger() -> dict:
+    """Income engine ledger (spec §6 `income_ledger`): the owner's recorded
+    spreads and hedges (settings-kv, never the repo), open max loss by
+    sector, realised income against the 10%/yr target on the registered
+    capital, and the verdict rule (needs 30 closed trades)."""
+    try:
+        from .. import income_spreads as I
+        base, tok = _api_base(), _resolve_api_token() or ""
+        s = I.settings(base, tok); rec = I.record(base, tok)
+        fx = float(s["fx_gbp_per_usd_fallback"])
+        per_sector, total = I.open_risk_gbp(rec, fx)
+        summary = I.record_summary(rec, s, fx)
+    except Exception as e:  # noqa: BLE001
+        return _err("income_ledger", str(e))
+    return {"_source": "live://settings-kv/income_put_spreads_manual_trades", "fetched_at": _now_iso(), "ok": True,
+            "trades": rec.get("trades") or [], "open_max_loss_by_sector_gbp": {k: round(v, 2) for k, v in per_sector.items()},
+            "open_max_loss_total_gbp": round(total, 2), "summary": summary,
+            "caps": {k: s[k] for k in ("max_loss_per_trade_gbp", "max_loss_per_sector_gbp", "phase_1_total_max_loss_gbp",
+                                       "csp_max_notional_per_name_gbp", "csp_total_notional_gbp")},
+            "settings_source": s.get("source"), "fx_note": "GBP/USD is the labelled fallback until a live balances route exists"}
+
+
 def get_market_news(category: str = "general", limit: int = 20) -> dict:
     """Market-wide headlines (Finnhub general news via the TradePro API): the
     macro tape — Fed, IPOs, sector moves — that one stock's feed misses. A
