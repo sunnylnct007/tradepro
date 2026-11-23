@@ -339,3 +339,23 @@ partitions and uploads them, restoring S3 for the 207 names, PROVIDED the
 Mac is awake. **The EFS volume holds the 7-bar partitions and must be wiped
 before any further Fargate run**, or the next run would merge against them
 and clobber S3 again. The schedule stays DISABLED.
+
+
+## 23 Nov 2026 — Options Income Engine (INCOME_PUT_SPREADS_V1)
+
+Spec: `strategies/INCOME_PUT_SPREADS_V1.md` (the owner's other agent, verbatim).
+Two Lambda jobs on the same image, no orders:
+
+| job | command | §8 schedule (London, US trading days) | EventBridge (UTC while GMT; shift in BST) |
+|---|---|---|---|
+| `income_scan` | `tradepro-income-spreads scan --push` | 13:45 and 16:30 | `cron(45 13 ? * MON-FRI *)`, `cron(30 16 ? * MON-FRI *)` |
+| `income_monitor` | `tradepro-income-spreads monitor --push` | 21:15 | `cron(15 21 ? * MON-FRI *)` |
+
+Live quotes come through the API's IBKR chain route (`/api/ibkr/chain/{sym}?month=&expiry=`,
+warm-up ×3; cold quotes = `stale_quote`, never a pass). Config = settings-kv `income_engine`
+(defaults = spec §2). Ledger = settings-kv `income_put_spreads_manual_trades` (the owner's own
+trades live there, never in this repo). Artifacts: `today-setups/income_put_spreads` (scan) and
+`today-setups/income_put_spreads-monitor`. The daily evaluation carries the record + monitor.
+
+Rules need SSO (owner): `aws events put-rule` ×3 + targets with `{"job": "income_scan"}` /
+`{"job": "income_monitor"}` as before. Stage G (the IBKR combo instruction) is NOT TradePro's.

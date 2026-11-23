@@ -235,6 +235,16 @@ def intraday(session: date) -> dict:
             "missing": a["missing"], "stale": a["stale"]}
 
 
+def income_spreads(base: str, token: str) -> dict:
+    """INCOME_PUT_SPREADS_V1: the forward record (owner's manual trades +
+    the screen's) and tonight's open-trade monitor, graded against the
+    10%-a-year target on the registered capital."""
+    from . import income_spreads as I
+    s = I.settings(base, token)
+    rec = I.record(base, token)
+    return {"spec": I.SPEC, "record": I.record_summary(rec, s), "open": I.monitor(rec, base, token, s)}
+
+
 def shadow_books() -> dict:
     """SHADOW_BOOKS_V1: swing, pullback, the defensive rotation and the SPY<200d
     intraday tag, replayed from the date each rule was frozen. Scoreboard only;
@@ -274,7 +284,8 @@ def build(base: str, token: str, session: date | None = None) -> dict:
     for key, fn in (("momentum_rotation", lambda: rotation(session, conds, base, token)),
                     ("rotation_schedules", lambda: rotation_schedules(session)),
                     ("intraday_rules", lambda: intraday(session)),
-                    ("shadow_books", shadow_books)):
+                    ("shadow_books", shadow_books),
+                    ("income_put_spreads", lambda: income_spreads(base, token))):
         try:
             out["strategies"][key] = fn()
         except Exception as exc:  # noqa: BLE001 — one strategy failing must not hide the others; it is NAMED
@@ -342,6 +353,24 @@ def text_summary(e: dict) -> str:
                              + f" → {r['verdict']}" + (f"  ! {r['caveat']}" if r.get("caveat") else ""))
         for k, v in sb["errors"].items():
             lines.append(f"  ! {k} NOT computed: {v}")
+        lines.append("")
+    inc = e["strategies"].get("income_put_spreads")
+    if inc:
+        r = inc["record"]
+        lines.append(f"INCOME PUT SPREADS ({inc['spec']}, owner's manual trades + the screen; no orders) — "
+                     f"target {r['target_pct_per_year']:g}%/yr on £{r['capital_gbp']:,.0f}")
+        lines.append(f"  record: {r['n_closed']} closed, {r['n_open']} open · win rate "
+                     f"{r['win_rate_pct'] if r['win_rate_pct'] is not None else '—'}% · realised {r['realised_usd']:+,.0f} $ · "
+                     f"open credit {r['open_credit_usd']:,.0f} $ against max loss {r['open_max_loss_usd']:,.0f} $ (£{r['open_max_loss_gbp']:,.0f}) · "
+                     f"target £{r['target_gbp_per_month']:,.0f}/month"
+                     + (f" · annualised {r['annualised_pct_on_capital']:+.2f}% on capital" if r.get("annualised_pct_on_capital") is not None else "")
+                     + f" → {r['verdict']}")
+        for t in inc["open"]:
+            lines.append(f"  {t['symbol']:5} {t.get('role','income'):6} {t.get('expiry')} {t.get('short_strike')}/{t.get('long_strike')} ×{t.get('contracts')}"
+                         f"  close {t.get('close')} (exit level {t.get('exit_level')})"
+                         + (f"  spread mid {t['spread_mid']} = {t['mark_pct_of_credit']:.0%} of credit" if t.get("mark_pct_of_credit") is not None
+                            else f"  {t.get('mark_note') or t.get('note') or ''}")
+                         + (f"  ** {' / '.join(a['kind'] for a in t['alerts'])} **" if t.get("alerts") else ""))
         lines.append("")
     for k, v in e["errors"].items():
         lines.append(f"! {k} could not be evaluated: {v}")
