@@ -316,3 +316,26 @@ the OIDC trust admits `pull_request`). The first run after it fills the
 mirror; the second should match the Mac's minutes. S3 stays golden; the
 harvest still writes through. Nothing in this run wrote to S3 (all 207 names
 were already current) — the Mac's writer was not duplicated.
+
+### Second run (22 Nov, 21:55 UTC, on the new EFS mirror) — INCIDENT
+
+ccit-infra #4 mounted an empty EFS volume at `/tmp/.tradepro/bar_cache`.
+The mirror's read-through downloaded each object to a temp file in the
+container's `/tmp` and moved it with `replace` — a rename, which cannot
+cross onto EFS (EXDEV). Every download failed; the mirror's fail-safe
+answered "absent"; the harvester saw a 20-year store as EMPTY, fetched the
+10-day window from IBKR and wrote 7-bar 2026-11 partitions for all 207
+names — through to S3, over the golden ones (run-log: `partial 1d 207 sym →
+0G/207S`). The evaluation then ran in six seconds on that empty store and
+published "session 2026-11-19, market None, volatility None" over Sunday's
+good evaluation; shadow-books and sector-stress followed.
+
+Fixes (tradepro, this PR): the temp file is created beside its destination;
+any download failure other than 404 raises `SharedStoreUnreachable` instead
+of reading as a miss (a reader that cannot see the store stops); directories
+created for a download are removed again on a miss (the 22 Aug "an empty dir
+IS a symbol" fault). Repair: the Mac's 21:30 harvest merges its full local
+partitions and uploads them, restoring S3 for the 207 names, PROVIDED the
+Mac is awake. **The EFS volume holds the 7-bar partitions and must be wiped
+before any further Fargate run**, or the next run would merge against them
+and clobber S3 again. The schedule stays DISABLED.

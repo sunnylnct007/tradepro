@@ -2562,3 +2562,17 @@ every follow-up's argv against its real CLI) and the evaluation took **56 min vs
 EFS mirror at `/tmp/.tradepro/bar_cache` (ccit-infra #4, OPEN — the classifier will not merge over
 the red check; owner merges, then dispatch `terraform-apply` twice). Mac harvest plist stays loaded
 until a Fargate run matches the Mac's minutes. Detail: `strategies/LAMBDA_MIGRATION.md`.
+
+### 2026-11-23 — Fargate run 2 CLOBBERED November in S3 (read-through failed, store read as empty)
+ccit-infra #4 (EFS mirror) merged and applied Sunday night; the hand run on the EMPTY mount failed
+every S3 download (temp file in /tmp, rename onto EFS = EXDEV), the mirror's fail-safe answered
+"absent", the harvest fetched 10 days and WROTE 7-bar 2026-11 partitions for 207 names through to
+S3 (`0G/207S`); the evaluation ran in 6 s and published "session 2026-11-19, conditions None" over
+Sunday's good one. Fix PR: temp file beside its target; non-404 download failure RAISES
+`SharedStoreUnreachable` (never read a store you cannot reach as empty); dirs created on a miss
+are removed. REPAIR = tonight's Mac 21:30 harvest merges full local partitions and uploads
+(Mac must be AWAKE). **EFS still holds the 7-bar partitions — wipe before ANY Fargate run**
+(needs owner SSO); schedule stays DISABLED. Also today: the Mac slept 10:27→18:09 UTC so the
+rotation lane missed the whole session (lane healthy; first tick 18:09 clean, 0 orders, book
+matches IBKR); MU's board "today" showed FRIDAY's −13.9% beside a live +18% price — fixed in the
+same PR (`_live_session`: "today" only describes the live session).

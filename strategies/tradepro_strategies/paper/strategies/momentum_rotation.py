@@ -313,6 +313,8 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                     session = et[-1].date()
                     today_bars = m5[[d == session for d in et.date]]
                     prior = closes[[str(t)[:10] < str(session) for t in closes.index]]
+                    if str(session) != _live_session(closes):
+                        today_bars = today_bars.iloc[0:0]  # a settled session is not "today"
                     if len(today_bars) >= 2 and len(prior):
                         tc = [round(float(x), 2) for x in today_bars["close"].tolist()]
                         out["spark_today"] = tc
@@ -409,6 +411,8 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                         sess = et[-1].date()
                         tb = m5[[d == sess for d in et.date]]
                         prior = gc[[str(t)[:10] < str(sess) for t in gc.index]]
+                        if str(sess) != _live_session(gc):
+                            tb = tb.iloc[0:0]  # a settled session is not "today"
                         if len(tb) and len(prior):
                             row["today_pct"] = round((float(tb["close"].iloc[-1]) / float(prior.iloc[-1]) - 1) * 100, 2)
                             row["today_as_of"] = tb.index[-1].isoformat()
@@ -485,4 +489,21 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                           base.rstrip("/"), token)   # default retries ~63 s: outlasts an API redeploy
         except Exception as exc:  # noqa: BLE001 — publishing never breaks a run
             _log.warning("could not publish the momentum signal board: %s", str(exc)[:120])
+
+
+def _live_session(closes) -> "str | None":
+    """The ONE session an intraday "today" line may describe, as YYYY-MM-DD:
+    the New York date once today's market has opened (weekday, ≥ 09:30 ET),
+    else the last settled close's date. A 5m series whose last bar belongs to
+    an earlier session is a SETTLED row — 23 Nov 2026: MU's 5m store ended on
+    Friday and the board printed Friday's −13.9% as "today" beside a live price
+    up 18%. Returns None when there is nothing settled to compare against."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    if now_et.weekday() < 5 and (now_et.hour, now_et.minute) >= (9, 30):
+        return now_et.date().isoformat()
+    if closes is None or not len(closes):
+        return None
+    return str(closes.index[-1])[:10]
 
