@@ -169,3 +169,12 @@ class SchemaVersionMismatch(BarFetchError):
             actual={"schema_version": actual_version},
             retry_strategy="user_intervention",
         )
+
+
+class SharedStoreUnreachable(BarFetchError):
+    """The shared S3 store is configured but a read-through FAILED for a reason
+    other than "object not there" (credentials, network, a move across
+    filesystems). Raised instead of returning "absent": on 22 Nov 2026 a
+    container whose downloads all failed read a 20-year store as EMPTY, re-
+    harvested a 10-day window and wrote those partitions THROUGH to S3 over the
+    golden ones. A reader that cannot see the store must stop, not guess."""

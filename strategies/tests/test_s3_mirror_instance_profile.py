@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tradepro_strategies.bar_cache import s3_mirror
 
 
@@ -28,6 +30,10 @@ def test_no_reachable_role_fails_loud_and_the_store_degrades_to_absent(
         raise RuntimeError("no instance role")
     monkeypatch.setattr(s3_mirror, "_instance_profile_client", _no_role)
     m = s3_mirror.S3Mirror("bucket", "bar_cache", tmp_path)
-    # download is fail-safe: logged, answered as a miss, never raised
-    assert m.download(tmp_path / "us_etf" / "SPY" / "1d" / "2026-11.parquet") is False
+    # download FAILS LOUD (22 Nov 2026): a store we cannot reach is not an
+    # empty store. Listing stays "could not ask" (None).
+    from tradepro_strategies.bar_cache.errors import SharedStoreUnreachable
+    with pytest.raises(SharedStoreUnreachable):
+        m.download(tmp_path / "us_etf" / "SPY" / "1d" / "2026-11.parquet")
+    assert not (tmp_path / "us_etf").exists(), "a failed download must not leave an empty symbol dir"
     assert m.list_names(tmp_path / "us_etf" / "SPY" / "1d") is None

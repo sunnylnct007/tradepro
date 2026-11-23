@@ -7,9 +7,14 @@ Design intent (small hedge firm, minimal staff):
   - The harvest is the single WRITER (write-through to S3 after each atomic local
     write). Every env READS from S3 on a local miss (read-through), then caches
     locally so backtests don't re-pull.
-  - FAIL-SAFE above all: if S3 is unreachable / creds absent / object missing,
-    we log and fall back to LOCAL — never crash the store. A data-store hiccup
-    must not halt trading or backtests when there's no one to babysit it.
+  - A MISSING object (404) is a miss and falls back to local. Any OTHER
+    download failure (creds, network, a cross-filesystem move) RAISES
+    SharedStoreUnreachable: a reader that cannot see the store must not read
+    it as empty. 22 Nov 2026 — every download in a Fargate task failed (temp
+    file on one filesystem, EFS target on another), the harvester saw an
+    empty store, fetched 10 days and wrote those partitions THROUGH to S3 over
+    the golden ones. Uploads stay best-effort (a failed upload keeps the local
+    write; nothing is lost).
 
 Enable by setting TRADEPRO_BAR_CACHE_S3_BUCKET (+ optional _S3_PREFIX, default
 "bar_cache"). Unset → pure local (dev), zero behaviour change. Boto3 resolves
@@ -178,23 +183,56 @@ class S3Mirror:
             # just been quarantined, and an empty dir IS a symbol as far as
             # the harvest universe is concerned — `ls us_etf` is the universe).
             import tempfile
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            dest = Path(path)
+            # The temp file lives in the DESTINATION directory: `replace` is a
+            # rename, and a rename across filesystems fails (EXDEV). With the
+            # cache on an EFS mount and /tmp on the container, every download
+            # failed that way on 22 Nov 2026.
+            # ...so on a miss every directory this call created is removed
+            # again (see _prune_empty_dirs).
+            created = self._mkdir_tracking(dest.parent)
+            with tempfile.NamedTemporaryFile(delete=False, dir=dest.parent,
+                                             prefix=f".{dest.name}.", suffix=".part") as tmp:
                 tmp_path = Path(tmp.name)
             try:
                 self._s3().download_file(self.bucket, key, str(tmp_path))
             except Exception:
                 tmp_path.unlink(missing_ok=True)
+                self._prune_empty_dirs(created)
                 raise
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            tmp_path.replace(Path(path))
+            tmp_path.replace(dest)
             return True
         except Exception as exc:  # noqa: BLE001
-            # 404 = genuine miss (not yet harvested); anything else = S3 issue →
-            # still fall back to "absent" so the store keeps working locally.
+            # 404 = genuine miss (not yet harvested) → absent, local fallback.
+            # Anything else: the store is there and we cannot read it — STOP.
             code = getattr(getattr(exc, "response", None), "get", lambda *_: None)("Error")
-            if not (isinstance(code, dict) and code.get("Code") in ("404", "NoSuchKey")):
-                _log.warning("S3 download failed for %s (local fallback): %s", key, exc)
-            return False
+            if isinstance(code, dict) and code.get("Code") in ("404", "NoSuchKey"):
+                return False
+            from .errors import SharedStoreUnreachable
+            raise SharedStoreUnreachable(
+                error_class="SharedStoreUnreachable", provider="s3", canonical=key,
+                message=(f"s3://{self.bucket}/{key}: download failed; refusing to read the "
+                         f"shared store as empty: {exc}"),
+                expected=None, actual=None, retry_strategy="user_intervention") from exc
+
+    def _mkdir_tracking(self, directory: Path) -> list[Path]:
+        """mkdir -p, returning the directories that did not exist before
+        (deepest first) so a miss can undo them."""
+        created: list[Path] = []
+        d = directory
+        while not d.exists():  # stops at the first existing ancestor
+            created.append(d)
+            d = d.parent
+        directory.mkdir(parents=True, exist_ok=True)
+        return created
+
+    @staticmethod
+    def _prune_empty_dirs(created: list[Path]) -> None:
+        for d in created:  # deepest first
+            try:
+                d.rmdir()  # only succeeds when empty
+            except OSError:
+                return
 
 
 def mirror_from_env(base_dir: Path) -> Optional[S3Mirror]:
