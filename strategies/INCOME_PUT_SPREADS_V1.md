@@ -311,3 +311,24 @@ Rules:
 | Exit | ABBV close < 274.39 → close next session |
 
 Context that made it a good candidate: ABBV fell only ~4% in the week the Nasdaq fell ~10% (defensive, low beta, uncorrelated with a tech-heavy book).
+
+## 11. Amendment (owner, 23 Nov 2026) — the cash-secured put beside every spread
+
+The long leg buys the loss cap and costs most of the credit. In some cases,
+cash permitting, the owner would rather sell the put cash-secured. The engine
+therefore prices BOTH structures for every candidate that passes the gates:
+
+| | put credit spread (§4) | cash-secured put |
+|---|---|---|
+| legs | short K1, long K2 | short K1 only |
+| credit | mid_short − mid_long | mid_short |
+| risk | (width − credit) × 100 per spread | strike to zero; cash K1 × 100 per contract |
+| sizing | §4.5 loss caps (£3k / £6k / £6k) | CASH caps: `csp_max_notional_per_name_gbp` (25,000), `csp_total_notional_gbp` (50,000) |
+| probability floor | `min_pop_full_credit` 0.70 | `csp_min_pop_full_credit` 0.75 (the downside is open) |
+| switch | — | `csp_enabled` (true) |
+
+Shown side by side with income, cash required, income as % of cash and
+annualised, breakeven, P(full profit) and the assignment risk. The owner picks
+per trade; the ledger records `structure`. Phase-1 caution stands: the legacy
+drawdown came from puts sold into a sell-off, so the CSP is offered only on
+names that already pass every §4.1 gate.

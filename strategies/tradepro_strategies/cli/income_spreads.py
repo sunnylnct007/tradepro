@@ -40,6 +40,14 @@ def _print_scan(art: dict) -> None:
         print(f"    gates: 200d {g['sma200']} ✓ · cloud {g['cloud_top']} ✓ · swing low {g['swing_low_30d']} · RSI {g['rsi14']} · %B {g['bb_pct_b']} · "
               f"earnings {g['next_earnings']} ({g['earnings_basis']}) · bars {g['bars_as_of']} · quotes {c.get('quote_source')}")
         print(f"    exit: {c['exit_rule']} · take profit ≤ {c['take_profit_at']} · {c['instruction_hint']}")
+        k = c.get("csp")
+        if k:
+            if k.get("eligible"):
+                print(f"    CASH-SECURED alternative: {k['short_strike']:g}P ×{k['contracts']} credit {k['credit_mid']:.2f} → income {k['income_usd']:,.0f} $ "
+                      f"on cash {k['cash_required_usd']:,.0f} $ (£{k['cash_required_gbp']:,.0f}) = {k['income_pct_of_cash']:.2f}% ({k['annualised_pct_of_cash']:.1f}%/yr) · "
+                      f"P(full) {k['p_full_profit_iv']:.0%} · assignment risk to zero {k['max_loss_usd']:,.0f} $ · {k['instruction_hint']}")
+            else:
+                print(f"    CASH-SECURED alternative: not offered — {k.get('why')}")
     if art["rejected"]:
         print("  REJECTED:")
         for r in art["rejected"]:

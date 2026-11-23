@@ -181,3 +181,25 @@ def test_technicals_from_bars_use_the_closing_low():
     assert t["above_200dma"] and t["above_cloud"]
     assert t["swing_low_30d"] == pytest.approx(float(close.tail(30).min()), abs=0.01)  # closes, not lows
     assert t["hv_30d"] is not None
+
+
+def test_cash_secured_alternative_is_priced_beside_the_spread_and_sized_by_cash():
+    r = _abbv()
+    k = r["csp"]
+    assert k["structure"] == "cash_secured_put" and k["short_strike"] == 270.0
+    assert k["credit_mid"] == pytest.approx(4.325, abs=0.01)       # the whole short-leg mid, no long leg
+    assert k["notional_per_contract_usd"] == 27000
+    # £25k per name at 1.31 → 32,750 $ → 1 contract of 27,000 $ notional
+    assert k["contracts"] == 1 and k["cash_required_usd"] == 27000
+    assert k["income_usd"] == pytest.approx(432.5, abs=1) and k["max_loss_usd"] == pytest.approx(26567.5, abs=1)
+    assert k["eligible"] is False and k["why"].startswith("low_pop")   # 73% < the 75% CSP floor on IV
+    relaxed = dict(S, csp_min_pop_full_credit=0.70)
+    r2 = _abbv(s=relaxed)
+    assert r2["csp"]["eligible"] is True and r2["csp"]["instruction_hint"].startswith("SELL 1 × ABBV 270P cash-secured")
+
+
+def test_cash_secured_respects_the_total_notional_cap_and_can_be_switched_off():
+    r = _abbv(csp_open_notional_gbp=40_000.0)                    # £10k room left → 13,100 $ → 0 contracts at 27,000 $
+    assert r["csp"]["eligible"] is False and "total_notional_cap" in r["csp"]["why"]
+    off = dict(S, csp_enabled=False)
+    assert "csp" not in _abbv(s=off)
