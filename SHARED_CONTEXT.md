@@ -2563,6 +2563,23 @@ EFS mirror at `/tmp/.tradepro/bar_cache` (ccit-infra #4, OPEN — the classifier
 the red check; owner merges, then dispatch `terraform-apply` twice). Mac harvest plist stays loaded
 until a Fargate run matches the Mac's minutes. Detail: `strategies/LAMBDA_MIGRATION.md`.
 
+### 2026-11-23 (eve) — OPTIONS INCOME ENGINE built to the other agent's spec (PR open)
+Owner wants put-credit-spread income trades flagged before they are found by hand; a full spec
+arrived from the owner's other agent and is committed (account details scrubbed) as
+`strategies/INCOME_PUT_SPREADS_V1.md`. `tradepro_strategies/income_spreads.py` implements stages
+A–F (gates → monthly expiry 25–60 DTE → short strike ≤ 30-day CLOSING low with |Δ| 0.15–0.30 →
+LIVE pricing via the API's IBKR chain route → lognormal P(full profit) ≥ 70% → sizing to £3k/£6k
+caps → score, top 3) and H (monitor: take-profit 50%, swing-low exit, gamma, keyed alerts).
+Stage G (IBKR combo instruction) is the other agent's — TradePro creates no order. §9 acceptance
+tests replay §10 (15 pass). THREE SPEC-vs-GOLDEN CONFLICTS resolved in favour of the golden
+replay, owner to confirm: (1) widths [5,10] first-that-works would build 270/265 → default order
+[10,5]; (2) 18 Dec monthly is exactly 25 DTE on 23 Nov and "nearer wins" would pick it over Jan →
+set dte_min 26 if Jan was intended; (3) the §10 long leg 2.20/2.75 is 22% wide vs the 15% leg
+gate → hard gate on the SHORT leg only, long-leg width = warning. Live scan tonight: JNJ/KO have no
+strike below the 30-day low with Δ ≥ 0.15 (too far OTM to pay), JPM/XOM in downtrends — zero
+candidates, every reason printed. The monitor priced the ledger's open spread live. Lambda jobs `income_scan`/`income_monitor` registered; EventBridge rules
+(13:45/16:30/21:15 London) need owner SSO. Ledger = settings-kv `income_put_spreads_manual_trades`.
+
 ### 2026-11-23 — Fargate run 2 CLOBBERED November in S3 (read-through failed, store read as empty)
 ccit-infra #4 (EFS mirror) merged and applied Sunday night; the hand run on the EMPTY mount failed
 every S3 download (temp file in /tmp, rename onto EFS = EXDEV), the mirror's fail-safe answered

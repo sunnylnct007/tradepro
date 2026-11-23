@@ -229,6 +229,11 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     "ibkr_health_probe": ("tradepro_strategies.cli.ibkr_health_probe", []),
     "refresh_universes": ("tradepro_strategies.cli.refresh_universes", ["--push"]),
     "trade_alerts": ("tradepro_strategies.cli.trade_alerts", []),
+    # Options Income Engine, INCOME_PUT_SPREADS_V1 (23 Nov 2026). Live quotes
+    # through the API's IBKR chain route; no orders. §8 schedule (London):
+    # scan 13:45 + 16:30 on US trading days, monitor 21:15 after the close.
+    "income_scan": ("tradepro_strategies.cli.income_spreads", ["scan", "--push"]),
+    "income_monitor": ("tradepro_strategies.cli.income_spreads", ["monitor", "--push"]),
 }
 
 
