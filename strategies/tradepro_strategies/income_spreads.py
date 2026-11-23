@@ -69,6 +69,15 @@ DEFAULTS: dict = {
     "earnings_store_window_days": 59,          # the API's earnings harvest looks this far ahead
     "score_weights": {"pop": 0.35, "credit": 0.25, "iv_hv": 0.20, "cushion": 0.10, "liquidity": 0.10},
     "max_candidates": 3,
+    # Cash-secured put beside every spread (owner, 23 Nov 2026: "the spread
+    # decreased the profit… provided cash permits"). Same short strike, no
+    # long leg: the whole credit, the whole strike at risk. Sized by CASH, not
+    # by the £3k loss cap (which a CSP cannot honour): notional per name and
+    # in total, plus the same P(full profit) floor. The owner picks per trade.
+    "csp_enabled": True,
+    "csp_max_notional_per_name_gbp": 25_000,
+    "csp_total_notional_gbp": 50_000,
+    "csp_min_pop_full_credit": 0.75,
 }
 
 
@@ -308,12 +317,51 @@ def size(width: float, credit: float, fx_gbp_per_usd: float, sector_open_gbp: fl
             "room_gbp": round(rooms[binding], 2), "fx_gbp_per_usd": round(fx_gbp_per_usd, 4)}
 
 
+# ── the cash-secured alternative (same short strike, no long leg) ─────────
+
+def cash_secured_put(short: dict, spot: float, dte: int, iv: float | None, hv: float | None,
+                     fx_gbp_per_usd: float, csp_open_notional_gbp: float, s: dict) -> dict:
+    """The same short put sold cash-secured. Credit = the short leg's mid (no
+    long leg to pay for); risk = the strike to zero, so it is sized by CASH:
+    contracts = floor(min(per-name notional room, total notional room) ÷
+    (strike × 100)). Shown beside the spread for the owner to choose."""
+    k = float(short["strike"])
+    bid, ask = short.get("bid"), short.get("ask")
+    if bid in (None, 0) or ask in (None, 0):
+        return {"eligible": False, "why": "stale_quote"}
+    mid = (float(bid) + float(ask)) / 2
+    per_name = float(s["csp_max_notional_per_name_gbp"]) / fx_gbp_per_usd
+    total_room = max(0.0, float(s["csp_total_notional_gbp"]) - csp_open_notional_gbp) / fx_gbp_per_usd
+    room_usd = min(per_name, total_room)
+    n = int(math.floor(room_usd / (k * 100)))
+    p = probabilities(spot, k, k, mid, dte, iv) if iv else {}
+    out = {"structure": "cash_secured_put", "short_strike": k, "credit_mid": round(mid, 2),
+           "credit_natural": float(bid), "breakeven": round(k - mid, 2),
+           "notional_per_contract_usd": round(k * 100, 2), "contracts": n,
+           "cash_required_usd": round(n * k * 100, 2), "cash_required_gbp": round(n * k * 100 * fx_gbp_per_usd, 2),
+           "income_usd": round(mid * 100 * n, 2),
+           "income_pct_of_cash": round(mid / k * 100, 2),
+           "annualised_pct_of_cash": round(mid / k * 365 / max(dte, 1) * 100, 1),
+           "max_loss_usd": round(n * (k - mid) * 100, 2),
+           "p_full_profit_iv": p.get("p_full_profit"), "p_assignment_iv": p.get("p_loss_any"),
+           "binding": "per_name" if per_name <= total_room else "total_notional",
+           "room_gbp": round(room_usd * fx_gbp_per_usd, 2)}
+    if n == 0:
+        out.update(eligible=False, why=f"{out['binding']}_cap: £{out['room_gbp']:,.0f} buys no contract at {k:g}")
+    elif p.get("p_full_profit") is not None and p["p_full_profit"] < float(s["csp_min_pop_full_credit"]):
+        out.update(eligible=False, why=f"low_pop: {p['p_full_profit']:.0%} < {float(s['csp_min_pop_full_credit']):.0%} (CSP floor)")
+    else:
+        out.update(eligible=True, why="cash permits",
+                   instruction_hint=f"SELL {n} × {short.get('symbol', '')} {k:g}P cash-secured, LMT {mid:.2f} (cash {n * k * 100:,.0f} $)")
+    return out
+
+
 # ── the whole evaluation of ONE underlying from plain inputs ─────────────
 
 def evaluate(sym: str, *, bucket: str, sector: str, spot: float, tech: dict, expiries: list[str],
              puts_for, next_earnings: str | None, earnings_basis: str, held: set[str],
              sector_open_gbp: float, total_open_gbp: float, fx_gbp_per_usd: float, s: dict,
-             today: date) -> dict:
+             today: date, csp_open_notional_gbp: float = 0.0) -> dict:
     """Stages A–F for one name. `puts_for(expiry) -> list[dict]` returns the
     put legs (strike, bid, ask, delta, iv, open_interest) for that expiry —
     live from the broker in production, the §10 table in the golden replay."""
@@ -341,6 +389,7 @@ def evaluate(sym: str, *, bucket: str, sector: str, spot: float, tech: dict, exp
     row["strike_note"] = why_k
     if legs is None:
         row["rejected"].append(f"no_strike: {why_k}"); return row
+    legs["short"] = dict(legs["short"], symbol=sym)
     row.update({k: legs[k] for k in ("short_strike", "long_strike", "width")})
     px, why_p = price_spread(legs["short"], legs["long"], s)
     if px:
@@ -371,6 +420,9 @@ def evaluate(sym: str, *, bucket: str, sector: str, spot: float, tech: dict, exp
         row["rejected"].append(f"{sz['binding_cap']}_cap: room £{sz['room_gbp']:,.0f} buys no spread"); return row
     row["score"] = score(p_iv["p_full_profit"], px["credit_to_width"], row["iv_hv_ratio"], row["cushion_pct"],
                          p_iv["one_sd_move_pct"], px["liquidity_score"], s["score_weights"])
+    if s.get("csp_enabled"):
+        row["csp"] = cash_secured_put(legs["short"], spot, row["dte"], iv, hv, fx_gbp_per_usd,
+                                      csp_open_notional_gbp, s)
     row["id"] = f"{sym}-{expiry.replace('-', '')}-{legs['short_strike']:g}-{legs['long_strike']:g}"
     row["exit_rule"] = f"close next session if {sym} closes < {tech['swing_low_30d']}"
     row["take_profit_at"] = round(px["credit_mid"] * float(s["take_profit_pct_of_credit"]), 2)
@@ -514,6 +566,11 @@ def held_names(base: str, token: str, rec: dict) -> set[str]:
     return held
 
 
+def open_csp_notional_gbp(rec: dict, fx_gbp_per_usd: float) -> float:
+    return sum(float(t.get("cash_required_usd") or 0) * fx_gbp_per_usd for t in rec.get("trades") or []
+               if t.get("status") == "open" and t.get("structure") == "cash_secured_put")
+
+
 def open_risk_gbp(rec: dict, fx_gbp_per_usd: float) -> tuple[dict[str, float], float]:
     per_sector: dict[str, float] = {}
     total = 0.0
@@ -551,6 +608,7 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
     fx, fx_src = _fx_gbp_per_usd(base, token, s)
     held = held_names(base, token, rec)
     per_sector, total = open_risk_gbp(rec, fx)
+    csp_open = open_csp_notional_gbp(rec, fx)
     names = [(x, "single", s["sectors"].get(x, "?")) for x in s["single_name_seed"]]
     if int(s.get("phase", 1)) >= 2:
         names += [(x, "index", "Index") for x in s["index_symbols"]]
@@ -575,7 +633,7 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
             row = evaluate(sym, bucket=bucket, sector=sector, spot=spot, tech=tech, expiries=exps,
                            puts_for=puts_for, next_earnings=nxt, earnings_basis=basis, held=held,
                            sector_open_gbp=per_sector.get(sector, 0.0), total_open_gbp=total,
-                           fx_gbp_per_usd=fx, s=s, today=today)
+                           fx_gbp_per_usd=fx, s=s, today=today, csp_open_notional_gbp=csp_open)
             row["quote_source"] = quote_notes
             row["spot_basis"] = f"settled close {tech.get('as_of')}"
         except Exception as exc:  # noqa: BLE001 — one name's failure is named, never hidden
@@ -585,7 +643,8 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
     return {"strategy": STRATEGY, "spec": SPEC, "as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "settings": s, "fx": {"gbp_per_usd": fx, "source": fx_src},
             "caps": {"open_total_gbp": round(total, 2), "open_by_sector_gbp": {k: round(v, 2) for k, v in per_sector.items()},
-                     "total_cap_gbp": s["phase_1_total_max_loss_gbp"], "sector_cap_gbp": s["max_loss_per_sector_gbp"]},
+                     "total_cap_gbp": s["phase_1_total_max_loss_gbp"], "sector_cap_gbp": s["max_loss_per_sector_gbp"],
+                     "csp_open_notional_gbp": round(csp_open, 2), "csp_total_notional_gbp": s["csp_total_notional_gbp"]},
             "candidates": top,
             "rejected": [{"symbol": r["symbol"], "reasons": r["rejected"], "gates": r.get("gates"), "warnings": r.get("warnings"),
                           "expiry": r.get("expiry"), "short_strike": r.get("short_strike"), "long_strike": r.get("long_strike"),
