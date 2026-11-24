@@ -186,6 +186,11 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # NAV comes from TRADEPRO_LIVE_NAV_USD on the function, never from here —
     # an account figure is not repo material.
     "live_risk": ("tradepro_strategies.cli.live_risk", ["--push", "--email", "--via-api"]),
+    # The same read WITHOUT mail, for the morning and midday refreshes (24 Nov
+    # 2026, owner: "still stale screen" at 07:15 on a card from 22:50). IBKR's
+    # Flex report for the prior session is ready by the UK morning; the mail
+    # stays with the 22:50 run only.
+    "live_risk_refresh": ("tradepro_strategies.cli.live_risk", ["--push", "--via-api"]),
 
     # ── The 5-minute harvest (21 Nov 2026) ──────────────────────────────
     #

@@ -111,7 +111,8 @@ export function LiveBookCard() {
             guess which they are looking at. */}
         {age != null && (
           <span style={{ fontSize: 11, color: age > 24 ? TONE.watch : TONE.muted }}>
-            {age < 1 ? "just now" : `${Math.round(age)}h old`}
+            {art.report_date ? `IBKR report of ${art.report_date} · ` : ""}
+            {age < 1 ? "read just now" : `read ${Math.round(age)}h ago`}
             {age > 24 ? " — STALE" : ""}
           </span>
         )}

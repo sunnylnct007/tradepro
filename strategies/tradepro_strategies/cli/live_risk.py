@@ -181,6 +181,28 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
 
     shorts = [(occ, p) for occ, p in opts
               if occ and occ[2] == "P" and (p.get("quantity") or 0) < 0]
+    # LONG PUTS PAIR WITH SHORT PUTS (24 Nov 2026). The book now holds put
+    # credit spreads and bought put-spread hedges; a lane that counts every
+    # short put as a naked obligation overstates the risk of defined-risk
+    # legs several times over. Same root + expiry: a long strike BELOW the
+    # short = credit spread (risk = width); a long strike ABOVE = the short is
+    # the financing leg of a bought hedge (no obligation of its own).
+    longs = {}
+    for occ, p in opts:
+        if occ and occ[2] == "P" and (p.get("quantity") or 0) > 0:
+            longs.setdefault((occ[0], occ[1]), []).append([occ[3], float(p.get("quantity") or 0), p])
+
+    def _pair(root: str, expiry: str, strike: float, qty: float):
+        """Consume long-put quantity for this short leg; returns
+        (structure, long_strike, protected_qty)."""
+        cands = longs.get((root, expiry)) or []
+        for leg in sorted(cands, key=lambda l: abs(l[0] - strike)):
+            if leg[1] <= 0:
+                continue
+            take = min(leg[1], qty)
+            leg[1] -= take
+            return ("credit_spread" if leg[0] < strike else "hedge_short_leg"), leg[0], take
+        return "naked", None, 0.0
     # SHORT CALLS TOO. Owner, 9 Nov: the screen "only shows the put position
     # and not the equity position". The calls are the repair trade on the
     # shares (ORCL 145C against ORCL stock) and the thing that caps the
@@ -213,10 +235,30 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
         v = assess(strike=strike, spot=spot.get(root),
                    credit=_f(p.get("costBasisPrice")), mark=_f(p.get("markPrice")),
                    dte=dte, rules=rules)
-        assignment += strike * 100 * qty
+        structure, long_strike, protected = _pair(root, expiry, strike, qty)
+        if structure == "credit_spread":
+            obligation = (strike - long_strike) * 100 * protected + strike * 100 * (qty - protected)
+        elif structure == "hedge_short_leg":
+            obligation = strike * 100 * (qty - protected)
+        else:
+            obligation = strike * 100 * qty
+        assignment += obligation
+        if structure != "naked":
+            # The naked-put management rules (basis shortfall, the 10% line) do
+            # not apply to a defined-risk leg; the income monitor manages it.
+            import dataclasses
+            v = dataclasses.replace(
+                v, action="HOLD", urgency=0,
+                rule="defined-risk spread" if structure == "credit_spread" else "hedge leg",
+                why=(f"short {strike:g}P paired with long {long_strike:g}P ×{protected:g}: "
+                     + ("max loss is the width, managed by the income monitor (take profit 50%, swing-low exit)"
+                        if structure == "credit_spread" else
+                        "the financing leg of a bought put spread — the long leg above it carries the protection")))
         rows.append({
             "symbol": root, "contract": p.get("symbol"), "expiry": expiry,
             "strike": strike, "qty": -qty, "dte": dte,
+            "structure": structure, "long_strike": long_strike, "protected_qty": protected,
+            "obligation_usd": round(obligation, 2),
             "spot": spot.get(root), "credit": _f(p.get("costBasisPrice")),
             "mark": _f(p.get("markPrice")),
             "unrealised": _f(p.get("unrealizedPnl")),
@@ -248,8 +290,13 @@ def build(positions: list[dict], *, rules: ManageRules | None = None,
         "uploaded_by": "tradepro-live-risk",
         "artifact": {
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
+        # The Flex report is END-OF-DAY: this is the session the positions
+        # describe, which is what "fresh" means for this card (24 Nov 2026).
+        "report_date": max((str(p.get("reportDate") or "")[:10] for p in positions), default=None) or None,
         "counts": {
             "short_puts": len(rows),
+            "spreads": sum(1 for r in rows if r.get("structure") == "credit_spread"),
+            "hedge_legs": sum(1 for r in rows if r.get("structure") == "hedge_short_leg"),
             "close": sum(1 for r in rows if r["action"] == "CLOSE"),
             "watch": sum(1 for r in rows if r["action"] == "WATCH"),
             "hold": sum(1 for r in rows if r["action"] == "HOLD"),
@@ -349,7 +396,7 @@ def put_limits(rows: list[dict], *, nav_usd: float | None,
     sold? One answer every screen reads. Without an account value the answer
     is "unknown", and screens treat unknown as no new puts."""
     sectors = sectors or {}
-    total = sum((r.get("strike") or 0) * 100 * abs(r.get("qty") or 0) for r in rows)
+    total = sum(_obligation(r) for r in rows)
     if not nav_usd:
         return {"status": "unknown", "new_puts_allowed": False, "strike_value_usd": round(total),
                 "detail": "account value not supplied, so the limit cannot be checked — "
@@ -357,7 +404,7 @@ def put_limits(rows: list[dict], *, nav_usd: float | None,
     by_sector: dict[str, float] = defaultdict(float)
     by_name: dict[str, float] = defaultdict(float)
     for r in rows:
-        ob = (r.get("strike") or 0) * 100 * abs(r.get("qty") or 0)
+        ob = _obligation(r)
         by_sector[sectors.get(r.get("symbol")) or "unclassified"] += ob
         by_name[str(r.get("symbol") or "").upper()] += ob
     breaches = []
@@ -389,12 +436,12 @@ def exposures(rows: list[dict], equity: list[dict], *,
     """
     sectors = sectors or {}
     out: list[dict] = []
-    total = sum((r.get("strike") or 0) * 100 * abs(r.get("qty") or 0) for r in rows)
+    total = sum(_obligation(r) for r in rows)
 
     # 1. ONE THEME. The week's damage was a sector, not a name.
     by_sector: dict[str, float] = defaultdict(float)
     for r in rows:
-        ob = (r.get("strike") or 0) * 100 * abs(r.get("qty") or 0)
+        ob = _obligation(r)
         by_sector[sectors.get(r.get("symbol")) or "unclassified"] += ob
     for sec, ob in sorted(by_sector.items(), key=lambda kv: -kv[1]):
         if total and ob / total > MAX_SECTOR_SHARE:
@@ -440,6 +487,14 @@ def exposures(rows: list[dict], equity: list[dict], *,
                       f"could actually fund.",
         })
     return out
+
+
+def _obligation(r: dict) -> float:
+    """What a short-put row can be made to buy: the strike for a naked put,
+    the width for a credit spread, nothing for a hedge's financing leg."""
+    if r.get("obligation_usd") is not None:
+        return float(r["obligation_usd"])
+    return (r.get("strike") or 0) * 100 * abs(r.get("qty") or 0)
 
 
 def _f(v) -> float | None:
