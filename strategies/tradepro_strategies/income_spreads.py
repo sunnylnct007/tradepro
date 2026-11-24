@@ -289,7 +289,12 @@ def price_spread(short: dict, long: dict, s: dict) -> tuple[dict | None, str]:
     if sp_s > mx:
         return out, f"illiquid_leg: short leg spread {sp_s:.0%} > {mx:.0%}"
     oi = out["short_oi"]
-    if oi is None or int(oi) < int(s["min_open_interest_short_leg"]):
+    if oi is None:
+        # Unknown is not low. The live chain route served no open interest
+        # for KO on the first scheduled scan (24 Nov 2026) and the row read
+        # "low_oi: None < 100" — a data gap reported as a failed gate.
+        return out, "oi_unavailable: the chain served no open interest for the short leg (gate not computable)"
+    if int(oi) < int(s["min_open_interest_short_leg"]):
         return out, f"low_oi: short leg OI {oi} < {s['min_open_interest_short_leg']}"
     if out["credit_mid"] <= 0:
         return out, "no_credit"
