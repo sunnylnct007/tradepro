@@ -90,3 +90,11 @@ def test_the_image_installs_the_ibkr_extra_the_mac_lanes_run_with():
     from pathlib import Path
     df = (Path(__file__).resolve().parents[1] / "Dockerfile.lambda").read_text()
     assert "ib_insync" in df
+
+
+def test_the_live_book_refresh_job_reads_and_pushes_without_mail():
+    """24 Nov 2026 07:15: the live card was 8 h old because the lane ran once
+    a day at 22:50. The refresh job is the same read, pushed, never mailed."""
+    module, argv = H.JOBS["live_risk_refresh"]
+    assert module == H.JOBS["live_risk"][0]
+    assert "--push" in argv and "--via-api" in argv and "--email" not in argv
