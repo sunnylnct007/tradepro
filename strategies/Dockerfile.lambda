@@ -12,7 +12,12 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
     python -m pip install --no-cache-dir \
         "pandas>=2.0" "numpy>=1.26" "pyarrow>=15" "yfinance>=0.2.40" \
         "requests>=2.31" "curl_cffi>=0.6" "boto3>=1.34" "python-dateutil>=2.9" \
-        "lxml>=5.0" "beautifulsoup4>=4.12"
+        "lxml>=5.0" "beautifulsoup4>=4.12" \
+        "ib_insync>=0.9.86"
+# ib_insync = the `ibkr` extra the Mac lanes run with (`uv run --extra ibkr`).
+# Without it the paper session's account-state step logs "ib_insync genuinely
+# unavailable — skip" and the desk's IBKR account card stops updating (first
+# Fargate rotation tick, 23 Nov 2026 23:56 UTC). Parity with the Mac, nothing more.
 
 COPY tradepro_strategies ${LAMBDA_TASK_ROOT}/tradepro_strategies
 COPY lambda_handler.py   ${LAMBDA_TASK_ROOT}/

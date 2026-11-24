@@ -81,3 +81,12 @@ def test_the_rotation_lane_is_retired_on_lambda_and_lives_on_fargate():
     schedule with the EFS mirror."""
     assert "paper_momentum_rotation_ibkr" not in H.JOBS
     assert "rotation-tick" in H.RETIRED_JOBS["paper_momentum_rotation_ibkr"]
+
+
+def test_the_image_installs_the_ibkr_extra_the_mac_lanes_run_with():
+    """First Fargate rotation tick (23 Nov 2026): 'ib_insync genuinely
+    unavailable — skip' and the account-state push never happened. The Mac
+    runs `uv run --extra ibkr`; the image must carry the same extra."""
+    from pathlib import Path
+    df = (Path(__file__).resolve().parents[1] / "Dockerfile.lambda").read_text()
+    assert "ib_insync" in df
