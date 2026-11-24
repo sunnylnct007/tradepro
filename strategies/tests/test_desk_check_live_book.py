@@ -55,4 +55,5 @@ def test_the_live_risk_plist_is_no_longer_graded_but_the_card_still_is():
     # still checked by check_live_book (the tests above).
     assert "com.tradepro.live-risk" not in D.SCHEDULED_JOBS
     assert "com.tradepro.trade-alerts" not in D.SCHEDULED_JOBS
+    assert "com.tradepro.paper-momentum-rotation-ibkr" not in D.SCHEDULED_JOBS  # Fargate, 24 Nov 2026
     assert "com.tradepro.paper-momentum-rotation-weekly-t212" in D.SCHEDULED_JOBS

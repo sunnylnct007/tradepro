@@ -2563,6 +2563,16 @@ EFS mirror at `/tmp/.tradepro/bar_cache` (ccit-infra #4, OPEN — the classifier
 the red check; owner merges, then dispatch `terraform-apply` twice). Mac harvest plist stays loaded
 until a Fargate run matches the Mac's minutes. Detail: `strategies/LAMBDA_MIGRATION.md`.
 
+### 2026-11-24 07:01 UTC — ROTATION TICK CUT OVER TO FARGATE (atomic)
+Cold Fargate fill 79 min (22:37→23:56, same decision as the Mac, board published); warm run 7m41s
+exit 0. Image gained `ib_insync` (#469) because without it the account-state step logged
+"genuinely unavailable — skip". ccit-infra #6 set the schedule ENABLED (apply 07:01:16); the Mac
+plist `com.tradepro.paper-momentum-rotation-ibkr` was booted out at 07:01:34. ONE host ticks the
+book: `ccit-dev-tradepro-jobs-rotation-tick`, rate(15 minutes). desk_check no longer grades that
+plist. Lesson: never chain a local destructive step (bootout) after remote steps in one command —
+a network reset mid-chain would have unloaded the plist with the schedule still DISABLED; caught
+and stopped before the bootout.
+
 ### 2026-11-23 (night) — FIVE LANES OFF THE MAC; rotation tick → Fargate; EFS wiped; S3 repaired
 With the owner's SSO: S3 November partitions verified repaired by the Mac's 21:30 harvest (16 rows
 2–23 Nov per name); EFS mirror wiped (415 bad files). Lambda compare done for the day (run-log /
