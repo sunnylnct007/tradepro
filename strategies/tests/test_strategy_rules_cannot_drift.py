@@ -78,3 +78,18 @@ def test_an_unknown_strategy_is_a_gap_not_an_endorsement():
     assert "gap" in r["note"].lower(), (
         "absence must read as 'no rule exposed', never as 'nothing to worry "
         "about'")
+
+
+def test_every_rotation_constant_is_the_live_one():
+    """24 Nov 2026 review: 'get_strategy_rules does not know momentum_rotation'
+    — the core engine had no exposed rule. Now read from the live Params and
+    the paper strategy's trailing stop."""
+    from tradepro_strategies.momentum_rotation import Params
+    from tradepro_strategies.paper.strategies.momentum_rotation import MomentumRotationStrategy
+    r = get_strategy_rules("momentum_rotation")
+    c = r["rule"]["constants"]
+    p = Params()
+    assert c["top_n"] == p.top_n and c["lookbacks"] == list(p.lookbacks)
+    assert c["vol_target"] == p.vol_target and c["rebalance_day"] == p.rebalance_day
+    assert c["trailing_stop"] == MomentumRotationStrategy.TRAIL
+    assert "MARKET" in " ".join(r["rule"]["entry"])

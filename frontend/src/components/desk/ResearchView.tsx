@@ -17,7 +17,10 @@
  * are negative results, and they are the ones that saved real money.
  */
 import { useState } from "react";
-import studies from "../../data/studies.json";
+// ONE copy of the evidence register, inside the Python package so the MCP
+// image and the Lambda image ship it (the MCP tool returned "studies.json not
+// found" in production, 24 Nov 2026 review). The frontend reads the same file.
+import studies from "../../../../strategies/tradepro_strategies/data/studies.json";
 import { DailyEvaluationCard } from "./DailyEvaluationCard";
 import { IntradayShadowCard } from "./IntradayShadowCard";
 

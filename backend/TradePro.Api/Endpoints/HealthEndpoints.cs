@@ -98,25 +98,26 @@ public static class HealthEndpoints
                 })
                 .ToArray();
 
-            string workerLiveness = "down";
+            // THE MAC COMPARE WORKER IS RETIRED (desk cut, 10 Nov 2026: only
+            // /desk remains; the compare caches it filled are legacy). Until
+            // 24 Nov 2026 this verdict still said "needs_attention" because
+            // that worker had not pinged for 14 days — a reviewer read it as
+            // an outage. Every lane that matters now runs on AWS and is graded
+            // by the run log and the data-readiness endpoint, not by this ping.
+            // The heartbeat is REPORTED for the record and does not colour the
+            // verdict; neither do the compare caches.
+            string workerLiveness = "retired";
             int? sinceLastPing = null;
             if (hb is not null)
             {
                 var since = DateTime.UtcNow - hb.SentAtUtc;
                 sinceLastPing = (int)since.TotalSeconds;
-                workerLiveness =
-                    since.TotalMinutes <= 30 ? "alive"
-                    : since.TotalHours <= 24 ? "late"
-                    : "down";
             }
 
-            // Coarse 'is anything red' verdict for the badge at the top
-            // of the Health page.
-            var anyVeryStale = freshness.Any(f => f.tone == "very_stale");
-            var verdict =
-                workerLiveness == "down" || anyVeryStale ? "needs_attention"
-                : workerLiveness == "late" || freshness.Any(f => f.tone == "stale") ? "warn"
-                : "ok";
+            // Coarse 'is anything red' verdict for the badge at the top of the
+            // Health page: the API and the database (below). Lane health lives
+            // in /api/data-readiness and the desk check.
+            var verdict = "ok";
 
             // Postgres liveness ping — round-trip a trivial query so a
             // dead/migrating DB shows up red on the Health page rather

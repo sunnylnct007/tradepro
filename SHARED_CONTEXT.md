@@ -2563,6 +2563,31 @@ EFS mirror at `/tmp/.tradepro/bar_cache` (ccit-infra #4, OPEN — the classifier
 the red check; owner merges, then dispatch `terraform-apply` twice). Mac harvest plist stays loaded
 until a Fargate run matches the Mac's minutes. Detail: `strategies/LAMBDA_MIGRATION.md`.
 
+### 2026-11-24 — REVIEW TRIAGE (the owner's other agent reviewed TradePro over MCP at 08:45 London)
+Triage of its findings, with what was done:
+- "Mac worker DOWN 14 days, compare caches 16 days stale" → the compare worker and its caches were
+  RETIRED with the desk cut (10 Nov); the /health verdict still coloured red on its heartbeat. Fixed:
+  the worker is reported as `retired` and no longer drives the verdict; compare freshness does not
+  either. Lane health = /api/data-readiness + the desk check.
+- "Options screen dead since 20 Nov, 44 degraded runs" → that lane is retired (wheel failed its
+  backtest); options are the income engine. Readiness row removed.
+- "5-minute bars broken since 23 Nov" → the Lambda 5m lane was healthy (213 of 214 gold); ONE
+  symbol a bar short graded the run `partial` → "consecutive degraded". Status is now `ok` unless
+  a refresh was refused or >5% of the scope is short.
+- "studies.json not found" → the evidence register lived under frontend/src/data, which no image
+  copies. ONE copy now in `tradepro_strategies/data/studies.json`; the frontend imports it from
+  there; structural test forbids a second copy.
+- "get_strategy_rules does not know momentum_rotation" → added, read from the live Params + the
+  paper strategy's trailing stop; lookup prefers an exact name ("momentum" no longer resolves to
+  the rotation).
+- "get_paper_strategy_status 0 vs list 3" → status now returns the API's list (the host-local
+  registry is informational).
+- Income engine gaps quoted from my first-draft ledger strings → ledger gate text refreshed from
+  the spec's §10; settings seeded into settings-kv `income_engine` (editable, source = kv).
+- NOT changed: fill attribution / assumed fills (real, bigger: next), swing forward-test verdict
+  (owner ruled swing closed, scorecard only), rotation backtest over MCP timing out (needs an async
+  job), live FX (no balances route), Ichimoku's fate (owner decision; it stays STOPPED).
+
 ### 2026-11-24 07:01 UTC — ROTATION TICK CUT OVER TO FARGATE (atomic)
 Cold Fargate fill 79 min (22:37→23:56, same decision as the Mac, board published); warm run 7m41s
 exit 0. Image gained `ib_insync` (#469) because without it the account-state step logged
