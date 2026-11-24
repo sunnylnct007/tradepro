@@ -1195,6 +1195,8 @@ class BarStore:
         store on a local miss (read-through). Falls back to local-only when S3
         is disabled/unreachable, so an env with no S3 still works."""
         if path.exists():
+            if self._s3 is not None and _is_open_partition(path):
+                self._s3.refresh_if_newer(path)
             return True
         if self._s3 is not None and self._s3.download(path):
             return True
@@ -1614,6 +1616,24 @@ class BarStore:
 
 
 # ── Module helpers ─────────────────────────────────────────────────
+
+
+def _is_open_partition(path: Path) -> bool:
+    """A partition file of the CURRENT month (UTC), or of the previous month
+    during its first two days (the harvester may still be writing its last
+    session). Closed months never change; open ones change every session."""
+    from datetime import datetime, timezone
+    stem = Path(path).name.split(".")[0]          # 2026-11[.parquet|.manifest.json]
+    if len(stem) < 7 or not stem[:4].isdigit():
+        return False
+    now = datetime.now(timezone.utc)
+    cur = f"{now.year:04d}-{now.month:02d}"
+    if stem[:7] == cur:
+        return True
+    if now.day <= 2:
+        py, pm = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+        return stem[:7] == f"{py:04d}-{pm:02d}"
+    return False
 
 
 def _read_partition_file(path: Path) -> pa.Table:
