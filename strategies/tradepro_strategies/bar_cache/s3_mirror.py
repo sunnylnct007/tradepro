@@ -143,6 +143,37 @@ class S3Mirror:
             _log.warning("S3 upload failed for %s (kept local): %s", key, exc)
             return False
 
+    def refresh_if_newer(self, path: Path) -> bool:
+        """Re-download `path` when S3 holds a NEWER object than the local copy.
+
+        The read-through caches a partition forever once it is local. For a
+        CLOSED month that is right; for the OPEN month it is wrong: the
+        harvester rewrites that partition every session, and a warm mirror
+        (the Fargate EFS, 24 Nov 2026) kept the copy it fetched at 07:07 — no
+        5-minute bars for the day, and the evening tick would have judged its
+        stops on YESTERDAY's close. One HEAD per open partition per read; a
+        HEAD that fails leaves the local copy in place and says so."""
+        key = self._key(path)
+        p = Path(path)
+        if key is None or not p.exists():
+            return False
+        try:
+            head = self._s3().head_object(Bucket=self.bucket, Key=key)
+        except Exception as exc:  # noqa: BLE001
+            code = getattr(getattr(exc, "response", None), "get", lambda *_: None)("Error")
+            if not (isinstance(code, dict) and code.get("Code") in ("404", "NoSuchKey")):
+                _log.warning("S3 head failed for %s (local copy kept): %s", key, exc)
+            return False
+        remote = head.get("LastModified")
+        if remote is None:
+            return False
+        import datetime as _dt
+        local = _dt.datetime.fromtimestamp(p.stat().st_mtime, tz=_dt.timezone.utc)
+        if remote <= local:
+            return False
+        p.unlink(missing_ok=True)
+        return self.download(path)
+
     def list_names(self, directory: Path) -> Optional[list[str]]:
         """Names directly under a local cache directory, as S3 holds them.
 
