@@ -758,8 +758,14 @@ def main() -> int:
         # A run that was ASKED to re-source and served cache instead did not do
         # its job, so it may not log "ok" — the cockpit is where a silent
         # no-op has to become visible.
+        # "partial" means the lane did not do its job — a refresh refused, or
+        # more than 5% of the scope short of bars. ONE symbol a bar short of
+        # 214 (an illiquid name's missing 5-minute print) is a grade in the
+        # summary, not a degraded run: graded that way it produced "3
+        # consecutive degraded runs" on a healthy lane (24 Nov 2026 review).
+        _partial_tolerance = max(1, int(0.05 * len(symbols)))
         _rl_status = ("fail" if fail_count else
-                      "partial" if (partial_count or _refresh_denied) else "ok")
+                      "partial" if (_refresh_denied or partial_count > _partial_tolerance) else "ok")
         _rl_error = (f"{fail_count} symbol(s) missing" if fail_count else
                      (f"force-refresh not honoured for {len(_refresh_denied)} "
                       f"symbol(s) — cache served, bars unchanged"

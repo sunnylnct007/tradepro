@@ -448,9 +448,11 @@ public static class DataReadinessEndpoints
             // for the IBKR health probe in 3f252df. It sent an external reviewer
             // chasing a scheduling outage that did not exist while the REAL
             // fault (37 consecutive degraded runs) sat untouched.
-            await AddLaneAsync("options_screen", "Options screen",
-                "the wheel candidate board you trade from", "options-screen", "screened", 30,
-                weekdayOnly: true);
+            // The options screen lane (wheel candidates) is RETIRED: the wheel
+            // failed its backtest and the screen stopped running on 20 Nov 2026;
+            // options are now the income engine (today-setups/income_put_spreads,
+            // scans 13:45/16:30 London). A row that could only ever be red is not
+            // readiness information (24 Nov 2026 review: "dead 88 h, 44 degraded runs").
 
             var usableCount = rows.Count(r => (bool)r.GetType().GetProperty("usable")!.GetValue(r)!);
             var total = rows.Count;

@@ -2770,19 +2770,25 @@ def run_walk_forward(returns_list: list[float], dates_list: list[str],
 # ── Paper trading: strategy config & LLM gate ─────────────────────────
 
 def get_paper_strategy_status() -> dict:
-    """Return status of all configured paper trading strategies + LLM gate state."""
+    """Status of the paper strategies as the API knows them — the SAME list
+    `list_paper_strategies` returns, so the two tools cannot disagree.
+
+    Until 24 Nov 2026 this read a host-local registry (~/.tradepro/
+    strategy_configs.json): on the laptop it listed the lanes, in the MCP
+    container it listed nothing, and a reviewer found "0 strategies" beside
+    a list of 3. The host registry is reported, not relied on."""
+    out = list_paper_strategies()
+    if not out.get("ok", True) or out.get("error"):
+        return out
+    note = "host-local override registry not consulted (host-specific; the lanes run on AWS)"
     try:
         from ..paper.strategy_config import StrategyConfigRegistry
-        from ..paper.overrides import OverrideRegistry
-        reg = StrategyConfigRegistry()
-        ov = OverrideRegistry()
-        configs = reg.all_configs()
-        return {
-            "strategies": [reg.to_status_dict(c.strategy_name, ov) for c in configs],
-            "count": len(configs),
-        }
-    except Exception as e:  # noqa: BLE001
-        return _err("get_paper_strategy_status", str(e))
+        configs = StrategyConfigRegistry().all_configs()
+        note = f"host-local override registry holds {len(configs)} config(s) — informational only"
+    except Exception:  # noqa: BLE001
+        pass
+    out["local_registry"] = note
+    return out
 
 
 def update_paper_strategy_config(strategy_name: str, params: dict) -> dict:
@@ -3998,6 +4004,9 @@ def get_strategy_rules(strategy: str | None = None) -> dict:
     """
     from ..signals import mean_reversion as mr
     from ..signals import momentum_pullback as mom
+    from ..momentum_rotation import Params as _RotParams
+    from ..paper.strategies import momentum_rotation as prot
+    rot = _RotParams()
 
     def _universe_now() -> int:
         try:
@@ -4047,6 +4056,45 @@ def get_strategy_rules(strategy: str | None = None) -> dict:
                 "TRENDING markets (+1.56%). Published as context; nothing is "
                 "gated on it",
             ],
+        },
+        "momentum_rotation": {
+            "also_known_as": "Monthly momentum rotation — THE CORE ENGINE (owner, 12 Nov 2026)",
+            "direction": "long only; cash when the market filter is off",
+            "entry": [
+                f"universe = harvested names with a sector label, ≥ {rot.min_history} sessions, price ≥ {rot.min_price}, "
+                f"{rot.liquidity_window}-day traded value ≥ ${rot.min_traded_value/1e6:.0f}m",
+                f"score = blend of {rot.lookbacks}-day returns (score_mode={rot.score_mode}, skip_recent={rot.skip_recent})",
+                f"market filter {rot.market_filter}: no new names unless SPY is above its 200-day",
+                f"stock trend filter: close above its own 200-day = {rot.stock_trend_filter}",
+                f"rank, take the top {rot.top_n}, at most {rot.sector_cap} per sector",
+                f"size: base allocation {rot.base_allocation:.0%} of capital, vol-targeted to {rot.vol_target:.0%} "
+                f"annualised over {rot.vol_lookback} days",
+                f"rebalance {rot.rebalance_every} on day {rot.rebalance_day} of the month (offset {rot.rebalance_offset}); "
+                f"a kept holding is only traded beyond ±{rot.rebalance_band:.0%} of target",
+                "ENTRIES GO AT MARKET at the open after the decision (as the backtest assumes)",
+            ],
+            "exit": [
+                f"close ≤ highest close since entry × {1 - prot.MomentumRotationStrategy.TRAIL:.2f}   (trailing {100*prot.MomentumRotationStrategy.TRAIL:.0f}% stop, "
+                "evaluated on the SETTLED close; sold at the next open, MARKET)",
+                "OR dropped from the top list at a rebalance decision",
+                f"OR the market filter turns off (market_exit={rot.market_exit}; the control book holds through it)",
+                f"account drawdown {rot.alert_halve:.0%} halves the engine; {rot.alert_cash:.0%} goes to cash (alerts)",
+            ],
+            "constants": {
+                "lookbacks": list(rot.lookbacks), "top_n": rot.top_n, "sector_cap": rot.sector_cap,
+                "vol_target": rot.vol_target, "vol_lookback": rot.vol_lookback, "base_allocation": rot.base_allocation,
+                "rebalance_day": rot.rebalance_day, "rebalance_every": rot.rebalance_every,
+                "rebalance_band": rot.rebalance_band, "trailing_stop": prot.MomentumRotationStrategy.TRAIL, "market_filter": rot.market_filter,
+                "stock_trend_filter": rot.stock_trend_filter, "cost": rot.cost,
+            },
+            "not_in_the_rule": [
+                f"NO PROFIT TARGET (take_profit={rot.take_profit}); no relative-strength exit; no intraday stop — "
+                "an intraday breach shows on the board, the sell waits for a CLOSE below the stop",
+                "no sector-ETF filter (sector_etf_filter=None); no correlation cap",
+            ],
+            "gates_file": "MOMENTUM_ROTATION_SPEC.md / ROTATION_REBALANCE_EXITS.md",
+            "paper": "momentum_rotation_ibkr on IBKR paper from 16 Nov 2026; every 15 minutes on Fargate "
+                     "(ccit-dev-tradepro-jobs-rotation-tick) since 24 Nov 2026",
         },
         "momentum_pullback": {
             "also_known_as": "Momentum",
@@ -4126,8 +4174,12 @@ def get_strategy_rules(strategy: str | None = None) -> dict:
 
     if strategy:
         key = strategy.strip().lower()
-        hit = next((k for k in rules if key in k or key in rules[k]
-                    .get("also_known_as", "").lower()), None)
+        # Exact name first ("momentum" must not resolve to "momentum_rotation"
+        # just because it is a prefix — 24 Nov 2026), then the alias, then a
+        # substring of either.
+        hit = (key if key in rules else None) \
+            or next((k for k in rules if rules[k].get("also_known_as", "").lower() == key), None) \
+            or next((k for k in rules if key in k or key in rules[k].get("also_known_as", "").lower()), None)
         if hit is None:
             return {"error": f"unknown strategy {strategy!r}",
                     "known": sorted(rules),
@@ -4161,8 +4213,11 @@ def get_research_studies(verdict: str | None = None) -> dict:
     from pathlib import Path as _Path
     # Bundled with the desk rather than served by the API — the Research screen
     # imports this same file, so the MCP answer and the screen cannot disagree.
-    for base in (_Path(__file__).resolve().parents[3], _Path.cwd()):
-        f = base / "frontend" / "src" / "data" / "studies.json"
+    # The ONE copy lives inside the package (tradepro_strategies/data), so the
+    # MCP and Lambda images ship it; the frontend imports the same file.
+    for f in (_Path(__file__).resolve().parents[1] / "data" / "studies.json",
+              _Path(__file__).resolve().parents[3] / "frontend" / "src" / "data" / "studies.json",
+              _Path.cwd() / "frontend" / "src" / "data" / "studies.json"):
         if f.exists():
             data = _json.loads(f.read_text())
             items = data.get("studies") or []
