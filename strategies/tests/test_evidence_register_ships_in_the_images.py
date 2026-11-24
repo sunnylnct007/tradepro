@@ -18,10 +18,13 @@ def test_the_register_is_inside_the_package_and_parses():
     assert (data if isinstance(data, list) else data.get("studies")), "register is empty"
 
 
-def test_there_is_no_second_copy_under_the_frontend():
-    assert not (REPO / "frontend" / "src" / "data" / "studies.json").exists()
-    src = (REPO / "frontend" / "src" / "components" / "desk" / "ResearchView.tsx").read_text()
-    assert "strategies/tradepro_strategies/data/studies.json" in src
+def test_the_frontend_copy_is_byte_identical_to_the_canonical_one():
+    """The frontend image's Docker context is frontend/ alone, so it cannot
+    import the package copy (24 Nov 2026: built in CI, failed in the image).
+    It carries a copy; the copy may not drift."""
+    canonical = (PKG / "data" / "studies.json").read_bytes()
+    fe = REPO / "frontend" / "src" / "data" / "studies.json"
+    assert fe.exists() and fe.read_bytes() == canonical, "run: cp strategies/tradepro_strategies/data/studies.json frontend/src/data/"
 
 
 def test_the_mcp_tool_finds_it_from_the_package(monkeypatch):

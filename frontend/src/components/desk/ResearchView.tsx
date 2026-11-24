@@ -17,10 +17,12 @@
  * are negative results, and they are the ones that saved real money.
  */
 import { useState } from "react";
-// ONE copy of the evidence register, inside the Python package so the MCP
-// image and the Lambda image ship it (the MCP tool returned "studies.json not
-// found" in production, 24 Nov 2026 review). The frontend reads the same file.
-import studies from "../../../../strategies/tradepro_strategies/data/studies.json";
+// The evidence register's CANONICAL copy is strategies/tradepro_strategies/
+// data/studies.json (shipped in the MCP and Lambda images). The frontend's
+// Docker build sees only frontend/, so it carries a byte-identical copy here;
+// test_evidence_register_ships_in_the_images.py fails if the two drift.
+// (24 Nov 2026: an import across the repo built in CI and failed in the image.)
+import studies from "../../data/studies.json";
 import { DailyEvaluationCard } from "./DailyEvaluationCard";
 import { IntradayShadowCard } from "./IntradayShadowCard";
 
