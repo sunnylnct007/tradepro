@@ -103,7 +103,8 @@ SCHEDULED_JOBS = (
     # trade-alerts and live-risk left the Mac on 23 Nov 2026 (Lambda rules
     # tradepro-trade-alerts / tradepro-live-risk; plists unloaded after a
     # same-day compare). Grading an unloaded plist would be a false red.
-    "com.tradepro.paper-momentum-rotation-ibkr",
+    # The rotation tick (com.tradepro.paper-momentum-rotation-ibkr) left too,
+    # 24 Nov 2026 07:01 UTC: Fargate schedule ccit-dev-tradepro-jobs-rotation-tick.
     "com.tradepro.paper-momentum-ibkr",
     "com.tradepro.screener-daily",
     "com.tradepro.mac-deploy-sync",
