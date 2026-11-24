@@ -2563,6 +2563,23 @@ EFS mirror at `/tmp/.tradepro/bar_cache` (ccit-infra #4, OPEN — the classifier
 the red check; owner merges, then dispatch `terraform-apply` twice). Mac harvest plist stays loaded
 until a Fargate run matches the Mac's minutes. Detail: `strategies/LAMBDA_MIGRATION.md`.
 
+### 2026-11-23 (night) — FIVE LANES OFF THE MAC; rotation tick → Fargate; EFS wiped; S3 repaired
+With the owner's SSO: S3 November partitions verified repaired by the Mac's 21:30 harvest (16 rows
+2–23 Nov per name); EFS mirror wiped (415 bad files). Lambda compare done for the day (run-log /
+Lambda results): harvest_5m, ibkr_health_probe, refresh_universes, trade_alerts, live_risk all ran
+on Lambda today (live-risk published + mailed at 22:50) → the five Mac plists are UNLOADED
+(live-risk, bar-cache-harvest-5m, ibkr-health-probe, refresh-universes, trade-alerts) and
+desk_check no longer grades trade-alerts/live-risk. The ROTATION tick does NOT fit Lambda (hand
+invoke timed out at 900 s reading ~180 names' history from S3 cold) → retired there, rule deleted;
+it is the Fargate schedule `ccit-dev-tradepro-jobs-rotation-tick` (ccit-infra #5, rate(15m),
+DISABLED). First mirror-filling Fargate run started 22:37 UTC. Cutover = enable the schedule and
+bootout `com.tradepro.paper-momentum-rotation-ibkr` in the same minute, once a warm run shows the
+Mac's ~3 min. Income engine rules live: scans 13:45/16:30 London, monitor 21:15 (ran once, ok).
+MCP: income_scan / income_monitor / income_ledger (#467). News fallback fixed for the remote MCP
+container (#467). Still on the Mac: harvest-daily (Fargate schedule DISABLED until a warm run),
+option-chain-capture, screener-daily, resource-intraday, bar-cache-audit/mirror, desk-check,
+daily-digest, paper-momentum-ibkr, weekly-t212, job-runner, deploy-sync.
+
 ### 2026-11-23 (eve) — OPTIONS INCOME ENGINE built to the other agent's spec (PR open)
 Owner wants put-credit-spread income trades flagged before they are found by hand; a full spec
 arrived from the owner's other agent and is committed (account details scrubbed) as

@@ -49,6 +49,10 @@ def test_tonights_failure_shows_at_once_not_after_the_grace(monkeypatch, tmp_pat
     assert c.status == D.BROKEN and "403" in c.detail
 
 
-def test_the_live_risk_job_is_watched():
-    assert "com.tradepro.live-risk" in D.SCHEDULED_JOBS
+def test_the_live_risk_plist_is_no_longer_graded_but_the_card_still_is():
+    # 23 Nov 2026: live-risk runs on Lambda (22:50 UTC); the Mac plist is
+    # unloaded, so grading it would be a false red. The CARD's freshness is
+    # still checked by check_live_book (the tests above).
+    assert "com.tradepro.live-risk" not in D.SCHEDULED_JOBS
+    assert "com.tradepro.trade-alerts" not in D.SCHEDULED_JOBS
     assert "com.tradepro.paper-momentum-rotation-weekly-t212" in D.SCHEDULED_JOBS

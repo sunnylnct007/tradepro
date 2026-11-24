@@ -100,16 +100,16 @@ DORMANT_AFTER_DAYS = 10
 SCHEDULED_JOBS = (
     "com.tradepro.option-chain-capture",
     "com.tradepro.bar-cache-harvest-daily",
-    "com.tradepro.trade-alerts",
+    # trade-alerts and live-risk left the Mac on 23 Nov 2026 (Lambda rules
+    # tradepro-trade-alerts / tradepro-live-risk; plists unloaded after a
+    # same-day compare). Grading an unloaded plist would be a false red.
     "com.tradepro.paper-momentum-rotation-ibkr",
     "com.tradepro.paper-momentum-ibkr",
     "com.tradepro.screener-daily",
     "com.tradepro.mac-deploy-sync",
     "com.tradepro.paper-momentum-rotation-weekly-t212",
-    # The live card. Missing from this list until 18 Nov 2026: its 17 Nov run
-    # failed (AWS sign-in expired) and the owner found the card two sessions
-    # old by reading it — nothing on the desk said so.
-    "com.tradepro.live-risk",
+    # The live card (com.tradepro.live-risk) was here 18–23 Nov 2026; it now
+    # runs on Lambda at 22:50 UTC and its freshness is read from the artifact.
     # This check watches itself. A dead checker is the worst failure mode in
     # this file, because it is indistinguishable from a healthy desk unless
     # something says otherwise. Between this line and --always-mail in the
