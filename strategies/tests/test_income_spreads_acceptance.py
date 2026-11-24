@@ -124,6 +124,8 @@ def test_illiquid_leg_and_low_oi_reject():
     assert any(x.startswith("illiquid_leg") for x in _abbv(puts_for=lambda e: wide)["rejected"])
     thin = [dict(p, open_interest=50) if p["strike"] == 270 else p for p in ABBV_PUTS]
     assert any(x.startswith("low_oi") for x in _abbv(puts_for=lambda e: thin)["rejected"])
+    unknown = [dict(p, open_interest=None) if p["strike"] == 270 else p for p in ABBV_PUTS]
+    assert any(x.startswith("oi_unavailable") for x in _abbv(puts_for=lambda e: unknown)["rejected"])
 
 
 def test_monthly_expiry_window_as_specified():
