@@ -298,15 +298,29 @@ class MeanReversionSwingStrategy(Strategy):
             # happened to hold. Nothing was ever going to close the other 29.
             broker = str(self._p().get("broker") or "ibkr").lower()
             hdr = {"Authorization": f"Bearer {token}"} if token else {}
+            # ONE retry after a short pause (24 Nov 2026). A single attempt
+            # meant one connection reset at 18:52 held every exit for that
+            # tick ("hold-unconfirmed" on all ten names); the next tick read
+            # fine. A second read 3 s later is cheap; a 15-minute delay on a
+            # stop exit is not.
+            def _get_twice(url: str, params: dict):
+                """Two attempts. `params` carries {"fresh": "true"}: the positions
+                read must never be served from a cache (test_the_guard_must_not_read_a_cache)."""
+                last: Exception | None = None
+                for attempt in range(2):
+                    try:
+                        return requests.get(url, params=params, headers=hdr, timeout=30)
+                    except requests.RequestException as exc:
+                        last = exc
+                        if attempt == 0:
+                            import time as _t
+                            _t.sleep(3.0)
+                raise last  # type: ignore[misc]
+
             if broker.startswith("t212"):
-                r = requests.get(f"{base.rstrip('/')}/api/integrations/trading212/positions",
-                                 params={"account": "demo", "fresh": "true"},
-                                 headers=hdr, timeout=30)
+                r = _get_twice(f"{base.rstrip('/')}/api/integrations/trading212/positions", {"account": "demo", "fresh": "true"})
             elif broker.startswith("ibkr"):
-                r = requests.get(f"{base.rstrip('/')}/api/integrations/ibkr/positions",
-                                 params={"fresh": "true"},
-                                 headers=hdr,
-                                 timeout=30)
+                r = _get_twice(f"{base.rstrip('/')}/api/integrations/ibkr/positions", {"fresh": "true"})
             else:
                 _log.warning("no broker position read for broker=%r — treating the "
                              "broker as UNREADABLE (nothing managed, nothing flattened)",

@@ -221,9 +221,36 @@ public static class DataReadinessEndpoints
                 return hours;
             }
 
+            // Hours the US cash session was OPEN between two instants (weekdays,
+            // 14:00–21:30 UTC — the 5-minute lane's own window). An intraday lane
+            // graded on wall-clock hours read "has not run for 11h" every morning
+            // and all weekend (24 Nov 2026 review: "5-minute bars broken"); it had
+            // simply stopped at the close, as it should.
+            static double ExpectedSessionHours(DateTime from, DateTime to)
+            {
+                if (to <= from) return 0;
+                double hours = 0;
+                var cursor = from;
+                while (cursor < to)
+                {
+                    var dayStart = cursor.Date.AddHours(14);
+                    var dayEnd = cursor.Date.AddHours(21).AddMinutes(30);
+                    var next = cursor.Date.AddDays(1);
+                    if (next > to) next = to;
+                    if (cursor.DayOfWeek != DayOfWeek.Saturday && cursor.DayOfWeek != DayOfWeek.Sunday)
+                    {
+                        var a = cursor > dayStart ? cursor : dayStart;
+                        var b = next < dayEnd ? next : dayEnd;
+                        if (b > a) hours += (b - a).TotalHours;
+                    }
+                    cursor = next;
+                }
+                return hours;
+            }
+
             async Task AddLaneAsync(string key, string label, string purpose,
                                     string process, string match, double maxAgeH,
-                                    bool weekdayOnly = false)
+                                    bool weekdayOnly = false, bool sessionOnly = false)
             {
                 var lane = (await conn.QueryAsync(@"
                     SELECT status, summary, created_at_utc
@@ -254,7 +281,8 @@ public static class DataReadinessEndpoints
                 }
 
                 // Judge staleness against the schedule the lane ACTUALLY has.
-                var effectiveAgeH = weekdayOnly ? ExpectedRunHours(newest, now) : ageH;
+                var effectiveAgeH = sessionOnly ? ExpectedSessionHours(newest, now)
+                                  : weekdayOnly ? ExpectedRunHours(newest, now) : ageH;
                 var ranRecently = effectiveAgeH <= maxAgeH;
 
                 // GRADE THE DATA, NOT THE JOB'S STATUS WORD. The harvest
@@ -426,7 +454,7 @@ public static class DataReadinessEndpoints
             // the Mac slept between runs on a closed market.
             await AddLaneAsync("bars_5m", "Intraday bars (5m)",
                 "intraday strategies + microstructure", "bar-cache-harvest", "5m", 3,
-                weekdayOnly: true);
+                weekdayOnly: true, sessionOnly: true);
             // bars_1m RETIRED 20 Sep 2026 — owner's call, recorded here rather
             // than deleted quietly. The dataset had NO producer and NO consumer:
             // no 1-minute harvest job is loaded in launchd, and the only lane
