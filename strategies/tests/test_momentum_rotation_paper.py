@@ -86,6 +86,7 @@ def test_on_bar_exit_goes_through_the_chassis_broker_check(monkeypatch):
     s._entry_bar["AAPL"] = "2026-10-16"
     monkeypatch.setattr(s, "_history", lambda sym, bar: ([200.0] * 40, None))
     monkeypatch.setattr(s, "_broker_positions", lambda: {"AAPL": 10.0})
+    monkeypatch.setattr(s, "_working_sells", lambda: {})   # no SELL working at the OMS (25 Nov guard)
     bar = Bar(symbol="AAPL", timestamp=datetime(2026, 11, 16, 15, tzinfo=timezone.utc),
               open=200, high=200, low=200, close=200, volume=1, timeframe_seconds=86400)
     orders = s.on_bar(bar)
@@ -333,6 +334,7 @@ def _stop_bar_run(monkeypatch, closes, dates, held=10.0):
         return list(closes), None
     monkeypatch.setattr(s, "_history", hist)
     monkeypatch.setattr(s, "_broker_positions", lambda: {"NVDA": held})
+    monkeypatch.setattr(s, "_working_sells", lambda: {})   # no SELL working at the OMS (25 Nov guard)
     s._today = "2026-12-02"
     s._dec_cache["2026-12-02"] = DEC
     bar = Bar(symbol="NVDA", timestamp=datetime(2026, 12, 2, 15, tzinfo=timezone.utc),
