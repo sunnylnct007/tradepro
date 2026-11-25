@@ -56,6 +56,7 @@ def _drive(closes, held, broker_qty, fill_price, entry_days_ago=3,
     s._fill_price[symbol] = fill_price
     s._entry_bar[symbol] = dates[-1 - entry_days_ago]
     # The broker's answer — the thing the guard refuses to proceed without.
+    s._working_sells = lambda: {}   # no SELL already working at the OMS (25 Nov 2026 guard)
     s._broker_positions = lambda: (None if broker_qty is None
                                    else {symbol: float(broker_qty)})
     bar = Bar(symbol=symbol, timestamp=dt.datetime(2024, 12, 1, tzinfo=dt.UTC),

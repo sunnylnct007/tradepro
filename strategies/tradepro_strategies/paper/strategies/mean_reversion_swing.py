@@ -425,6 +425,60 @@ class MeanReversionSwingStrategy(Strategy):
                 if not (int(getattr(pos, "quantity", 0) or 0) != 0
                         and self.is_inherited(sym))}
 
+    # Live SELL states at the OMS: an exit in any of these is WORKING and the
+    # position must not be exited again.
+    WORKING_STATES = ("PENDING_APPROVAL", "APPROVED", "SUBMITTED", "WORKING", "PARTIALLY_FILLED")
+
+    def _working_sells(self) -> dict[str, dict] | None:
+        """Symbols with a SELL already working at the OMS for THIS strategy,
+        read once per run. None = the OMS could not be read.
+
+        ONE WORKING EXIT PER POSITION (25 Nov 2026). The rotation sleeve's
+        AMD stop exit was placed at 21:22 UTC and sat PreSubmitted at IBKR for
+        the next session (Thanksgiving in between). At 21:38 the daily bar had
+        rolled, the next tick re-decided the same exit, the idempotency key
+        (seeded from the bar) changed, the OMS's in-flight dedupe only looks
+        back 15 minutes, and a SECOND SELL 7 was enqueued. Had it been
+        approved on top of the first fill the sleeve would have been short 7
+        AMD — the 21 Sep ARWR and 1 Oct ESNT runaways in miniature. The
+        in-process `has_order_in_flight` cannot see this: the daemon is a new
+        process every 15 minutes. The OMS can.
+        """
+        if getattr(self, "_working_sells_cache", "unset") != "unset":
+            return self._working_sells_cache
+        out: dict[str, dict] | None
+        try:
+            import requests
+
+            from ...cli.push_to_api import load_credentials
+            base, token = load_credentials()
+            r = requests.get(f"{base.rstrip('/')}/api/oms/orders",
+                             params={"strategyId": self.strategy_id, "limit": 500},
+                             headers={"Authorization": f"Bearer {token}"} if token else {},
+                             timeout=20)
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            orders = r.json()
+            if isinstance(orders, dict):
+                orders = orders.get("orders") or orders.get("items") or []
+            out = {}
+            for o in orders:
+                if o.get("strategyId") != self.strategy_id:
+                    continue
+                if str(o.get("side") or "").upper() != "SELL":
+                    continue
+                if str(o.get("state") or "").upper() not in self.WORKING_STATES:
+                    continue
+                sym = str(o.get("symbol") or "").split("_")[0].upper()
+                if sym and sym not in out:
+                    out[sym] = o
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("could not read working sells from the OMS (%s) — exits HOLD this run",
+                         str(exc)[:110])
+            out = None
+        self._working_sells_cache = out
+        return out
+
     def _seed_from_oms(self) -> None:
         """Entry PRICES from the OMS; what we actually HOLD comes from the broker.
 
@@ -658,6 +712,26 @@ class MeanReversionSwingStrategy(Strategy):
                     reason=(f"{why}: close {closes[i]:.2f} vs target "
                             f"{self._fmt_target(closes, i)} / stop {self.SIGNALS.stop_price(fill):.2f}, "
                             f"held {bars_held} of {self.SIGNALS.MAX_HOLD} sessions"))
+                # ONE WORKING EXIT PER POSITION — see _working_sells. The decision
+                # above is logged either way; only the ORDER is withheld.
+                working = self._working_sells()
+                if working is None:
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp, action="hold-oms-unreadable",
+                        reason=("exit decided, but the OMS could not be read so a SELL "
+                                "already working there cannot be ruled out. HOLDING; a "
+                                "second sell on top of a working one is a short."))
+                    return []
+                if sym in working:
+                    w = working[sym]
+                    self.log_decision(
+                        symbol=sym, bar_ts=bar.timestamp, action="exit-already-working",
+                        reason=(f"exit decided, and a SELL {w.get('qty')} is already "
+                                f"{w.get('state')} at the OMS (id {str(w.get('id'))[:8]}, "
+                                f"broker id {w.get('brokerOrderId') or 'none yet'}, since "
+                                f"{str(w.get('createdAtUtc'))[:16]}). Not raising another: "
+                                f"one working exit per position."))
+                    return []
                 self.mark_order_in_flight(sym)
                 return [Order(strategy_id=self.strategy_id, symbol=sym,
                               side=OrderSide.SELL, quantity=held, type=OrderType.MARKET,
