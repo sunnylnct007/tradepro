@@ -2652,3 +2652,9 @@ same PR (`_live_session`: "today" only describes the live session).
 - **How to read a tick without CloudWatch:** `GET /api/paper/snapshots/<strategy>-<date>` carries `decisions`, `recent_rejections`, `recent_fills`. Decisions present + rejections empty + no OMS row = dropped between router and POST.
 - **Risk guardrails spec pre-registered:** `strategies/RISK_GUARDRAILS_V1.md` (owner's spec via another agent, scrubbed of account figures and positions). Live book is READ-ONLY; TradePro proposes, never places. Seven open owner decisions listed in §11. Build order proposed: repair check → hedge sizing → call manager → alerts.
 - Standing rule confirmed again: a lane's dependency list has ONE source (pyproject). Any Dockerfile that pins packages by hand is the allow-list failure shape.
+
+## 2026-11-25 (late) — the fixed tick placed the AMD exit, then nearly placed it twice
+
+- 21:22 UTC, first tick on the fixed image: SELL AMD ×7 reached the OMS (SUBMITTED, broker id 125427032, IBKR PreSubmitted for the next session — Thu 26 Nov is Thanksgiving). The path that was silent all day works.
+- 21:38: the daily bar rolled at the 21:30 harvest, the next tick re-decided the same exit, the client id (seeded from the bar) changed, the OMS in-flight dedupe only looked back 15 minutes, and a SECOND SELL 7 was enqueued (PENDING_APPROVAL, never reached the broker; rejected by hand). Two fixes: **#479** (chassis: one working exit per position — a live SELL at the OMS withholds another, `exit-already-working`) and this PR (OMS: a SUBMITTED/WORKING order is in flight however old; the 15-minute window applies to PENDING_APPROVAL only). Until #479 is live every tick creates a superseding pending duplicate; harmless while the market is shut, which is why both go in tonight.
+- Rule, again: the dedupe key was the BAR, the thing being protected was the POSITION. Idempotency must be keyed to what must happen once.

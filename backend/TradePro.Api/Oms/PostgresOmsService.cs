@@ -195,16 +195,26 @@ public sealed class PostgresOmsService : IOmsService
         // the same-signal-twice pattern returns the existing row and
         // OMS stays clean.
         //
-        // Window is bounded (15min) so an old in-flight order doesn't
-        // permanently block a fresh intent.
+        // The 15-minute window applies to PENDING_APPROVAL only — an intent
+        // nobody acted on goes stale and must not block a fresh one forever.
+        // An order that is SUBMITTED / WORKING / PARTIALLY_FILLED is LIVE AT
+        // THE BROKER however old it is. 25 Nov 2026: a SELL placed at 21:22
+        // sat PreSubmitted at IBKR for the next session (Thanksgiving in
+        // between); at 21:38 the same strategy re-emitted the same exit under
+        // a new client id, this window had expired, and a second SELL for the
+        // same 7 shares was enqueued. Approved on top of the first fill it
+        // would have left the sleeve short.
         var inflightId = await conn.QueryFirstOrDefaultAsync<Guid?>(@"
             SELECT id FROM oms_orders
-            WHERE state IN ('PENDING_APPROVAL', 'SUBMITTED', 'WORKING', 'PARTIALLY_FILLED')
-              AND broker = @Broker
+            WHERE broker = @Broker
               AND strategy_id = @StrategyId
               AND symbol = @Symbol
               AND side = @Side
-              AND created_at_utc >= NOW() - INTERVAL '15 minutes'
+              AND (
+                    state IN ('SUBMITTED', 'WORKING', 'PARTIALLY_FILLED')
+                 OR (state = 'PENDING_APPROVAL'
+                     AND created_at_utc >= NOW() - INTERVAL '15 minutes')
+              )
             ORDER BY created_at_utc DESC
             LIMIT 1;",
             intent, transaction: tx);
