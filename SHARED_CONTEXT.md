@@ -2645,3 +2645,10 @@ are removed. REPAIR = tonight's Mac 21:30 harvest merges full local partitions a
 rotation lane missed the whole session (lane healthy; first tick 18:09 clean, 0 orders, book
 matches IBKR); MU's board "today" showed FRIDAY's −13.9% beside a live +18% price — fixed in the
 same PR (`_live_session`: "today" only describes the live session).
+
+## 2026-11-25 (eve) — the Fargate tick decided an exit and sent nothing; risk-guardrails spec pre-registered
+
+- **Execution defect found and fixed (PR #477).** AMD closed below the rotation sleeve's trailing stop on 24 Nov. Every Fargate tick on 25 Nov decided `exit-trailing-stop`, logged `AUTO-OMS · SELL AMD`, and no order reached the OMS. Cause: `Dockerfile.lambda` hand-listed its packages and omitted `httpx`, which the OMS push imports; the ImportError was a warning + return and the success line printed anyway. Fix: the image installs pyproject's dependencies (core + `ibkr` extra) via tomllib; the OMS router refuses to start without httpx; `AUTO-OMS` prints only when the push happened; a structural test checks every third-party import on the paper path is declared. Merged after the close; the Fargate schedule pulls `:latest` at each launch. **Verify** the aws-lambda-jobs rollout and that the first post-deploy tick raises the AMD SELL (26 Nov is Thanksgiving — US closed; 27 Nov half-day).
+- **How to read a tick without CloudWatch:** `GET /api/paper/snapshots/<strategy>-<date>` carries `decisions`, `recent_rejections`, `recent_fills`. Decisions present + rejections empty + no OMS row = dropped between router and POST.
+- **Risk guardrails spec pre-registered:** `strategies/RISK_GUARDRAILS_V1.md` (owner's spec via another agent, scrubbed of account figures and positions). Live book is READ-ONLY; TradePro proposes, never places. Seven open owner decisions listed in §11. Build order proposed: repair check → hedge sizing → call manager → alerts.
+- Standing rule confirmed again: a lane's dependency list has ONE source (pyproject). Any Dockerfile that pins packages by hand is the allow-list failure shape.
