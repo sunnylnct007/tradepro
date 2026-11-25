@@ -230,6 +230,7 @@ def intraday(session: date) -> dict:
     return {"latest_session": a["latest_session"], "latest_session_final": a["latest_session_final"],
             "trades_today": [t for t in a["trades"] if t["date"] == str(session)],
             "records": {k: {"name": r["name"], "record": r["record"], "backtest_avg_pct": r["backtest"]["avg_pct"],
+                            "shorts": r.get("shorts"),
                             "by_day": r["by_day"], "by_breakout_volume": r.get("by_breakout_volume")}
                         for k, r in a["rules"].items()},
             "missing": a["missing"], "stale": a["stale"]}
@@ -330,12 +331,20 @@ def text_summary(e: dict) -> str:
                      + ("" if i["latest_session_final"] else " (not final)"))
         for t in i["trades_today"]:
             lines.append(f"  {t['rule']} {t['symbol']} {t['side']} {t['entry_time']} {t['entry']} -> {t['exit']} "
-                         f"{t['exit_why']} {t['pct']:+.2f}% ({t['usd']:+.0f} $)")
+                         f"{t['exit_why']} {t['pct']:+.2f}% ({t['usd']:+.0f} $)"
+                         + ("  [blackout: short after a down day into a break]" if t.get("blackout") else ""))
         for k, rr in i["records"].items():
             rec = rr["record"]
             lines.append(f"  {k} record: " + (f"{rec['trades']} trades, avg {rec['avg_pct']:+.3f}% "
                                                f"(backtest {rr['backtest_avg_pct']:+.2f}%), total {rec['total_usd']:+,.0f} $"
                                                if rec.get("trades") else "no finished trades yet"))
+            sh = rr.get("shorts") or {}
+            blk = sh.get("blackout_blocked") or {}
+            if blk.get("trades"):
+                al = sh.get("allowed") or {}
+                lines.append(f"    {sh.get('version')}: would have blocked {blk['trades']} short(s) "
+                             f"({blk['total_usd']:+,.0f} $, avg {blk['avg_pct']:+.2f}%); shorts allowed: "
+                             + (f"{al['trades']} at avg {al['avg_pct']:+.2f}%" if al.get("trades") else "none"))
         lines.append("")
     sb = e["strategies"].get("shadow_books")
     if sb:

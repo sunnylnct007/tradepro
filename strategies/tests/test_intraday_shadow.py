@@ -110,3 +110,67 @@ def test_a_trade_that_hit_its_target_is_settled_before_the_close(monkeypatch):
     t = a["trades"][0]
     assert t["exit_why"] == "target" and t["final"] is True
     assert a["rules"]["rule2"]["record"]["trades"] == 1
+
+
+# ── INTRADAY_SHORT_BLACKOUT_V1 ───────────────────────────────────────────────
+
+def test_the_session_before_thanksgiving_and_a_friday_are_breaks_a_tuesday_is_not():
+    assert S.into_break(date(2026, 11, 25))        # Thu 26 Nov 2026 is Thanksgiving
+    assert S.into_break(date(2026, 11, 20))        # Friday
+    assert not S.into_break(date(2026, 11, 24))    # Tuesday before a normal Wednesday
+    assert not S.into_break(date(2026, 11, 26))    # a holiday is not a session at all
+
+
+def _short_row(d: str, prior_closes: list[float]) -> tuple[dict, list]:
+    days = ["2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25"]
+    ss = []
+    for day, px in zip(days, prior_closes + [prior_closes[-1]]):
+        ss.append(_session(day, [px]))
+    row = {"rule": "rule2", "date": d, "symbol": "X", "side": "short"}
+    return row, ss
+
+
+def test_a_short_after_a_5pct_down_day_into_a_break_is_tagged_blackout():
+    row, ss = _short_row("2026-11-25", [100.0, 100.0, 92.0])   # 24 Nov closed -8%
+    S.tag_blackout(row, ss)
+    assert row["blackout"] is True and row["prior_day_pct"] == -8.0 and row["into_break"] is True
+    assert "INTRADAY_SHORT_BLACKOUT_V1" in row["blackout_why"]
+
+
+def test_a_small_down_day_or_a_normal_session_is_not_blacked_out():
+    row, ss = _short_row("2026-11-25", [100.0, 100.0, 98.0])   # -2%: not enough
+    S.tag_blackout(row, ss)
+    assert row["blackout"] is False
+    row, ss = _short_row("2026-11-24", [100.0, 92.0, 92.0])    # -8% but Tuesday
+    S.tag_blackout(row, ss)
+    assert row["blackout"] is False
+
+
+def test_a_long_is_never_blacked_out_and_the_rules_themselves_are_unchanged():
+    row, ss = _short_row("2026-11-25", [100.0, 100.0, 92.0])
+    row["side"] = "long"
+    S.tag_blackout(row, ss)
+    assert row["blackout"] is False
+    assert S.R2_GAP == -0.02 and S.R2_STOP == 0.015 and S.R7_VOLUME_X == 2.0
+
+
+def test_the_record_shows_the_shorts_split_by_blackout(monkeypatch):
+    """A rule-2 short on 25 Nov after an -8% day: counted in the rule's record
+    (pre-registered, unchanged) AND shown under blackout_blocked."""
+    hist_days = [str(d.date()) for d in pd.bdate_range("2026-10-26", "2026-11-24")]
+    x_hist = [_session(d, [100.0]) for d in hist_days[:-1]] + [_session(hist_days[-1], [92.0])]
+    # 25 Nov: gap down 3%, break of the opening range at 10:00 while below VWAP
+    closes = [89.0, 89.0, 89.0, 89.0, 89.0, 89.0, 88.0] + [86.0] * 100
+    d, g = _session("2026-11-25", closes)
+    g.iloc[0, 0] = 89.0
+    q_hist = [_session(dd, [500.0]) for dd in hist_days]
+    qc = [500.0] * 6 + [495.0] + [490.0] * 100
+    q_today = _session("2026-11-25", qc)
+    data = {"QQQ": q_hist + [q_today], "X": x_hist + [(d, g)]}
+    monkeypatch.setattr(S, "_sessions", lambda sym, lb: data[sym])
+    a = S.build(start="2026-11-16", symbols=["X"])
+    r2 = a["rules"]["rule2"]
+    assert r2["record"]["trades"] == 1
+    assert r2["shorts"]["blackout_blocked"]["trades"] == 1
+    assert r2["shorts"]["allowed"] == {"trades": 0}
+    assert a["trades"][0]["blackout"] is True

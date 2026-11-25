@@ -134,6 +134,11 @@ protective put spread (recovery expected, downside cover wanted).
 | Blackout | no new intraday shorts after a −5% day for the stock going into a holiday or the week's last session |
 | Alternative | prefer a short-dated put debit spread when a squeeze is likely |
 
+The blackout is pre-registered as `INTRADAY_SHORT_BLACKOUT_V1` on the intraday
+shadow record (`intraday_shadow.py`): every rule 2 / rule 7 short is tagged, the
+rules' own records are unchanged, and the evaluation shows the shorts split into
+blocked and allowed so the rule is judged on the same trades (built 25 Nov 2026).
+
 ## 7. Monitoring and alerts
 
 Alert only when there is something to act on, with a ready ticket; otherwise
