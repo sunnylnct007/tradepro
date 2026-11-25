@@ -84,11 +84,22 @@ function economics(shortK: number, longK: number | null,
   };
 }
 
+/** The chain route returns the N strikes nearest spot per side. The board's
+ *  put spreads sit 15-30% below spot (NVDA 125/105 on a 149 spot, 25 Nov
+ *  2026), so the default window of 20 never contained them and the panel
+ *  told the reader the strikes were "not in this expiry" while the ladder
+ *  showed five rows around the money. Load enough rows to reach the board's
+ *  long leg; each row costs one IBKR call, so this is bounded, not "all". */
+const LADDER_DEFAULT = 20;
+const LADDER_WIDE = 48;
+
 export function SpreadBuilder({
-  symbol, dte, initialShort, initialLong, onClose,
+  symbol, dte, initialExpiry, initialShort, initialLong, onClose,
 }: {
   symbol: string;
   dte?: number | null;
+  /** the expiry the board priced (YYYY-MM-DD or YYYYMMDD); opened on, not guessed */
+  initialExpiry?: string | null;
   initialShort?: number | null;
   initialLong?: number | null;
   onClose: () => void;
@@ -98,7 +109,9 @@ export function SpreadBuilder({
   const [loading, setLoading] = useState(true);
   const [shortK, setShortK] = useState<number | null>(initialShort ?? null);
   const [longK, setLongK] = useState<number | null>(initialLong ?? null);
-  const [expiry, setExpiry] = useState<string | null>(null);
+  const boardExpiry = initialExpiry ? initialExpiry.replace(/-/g, "") : null;
+  const [expiry, setExpiry] = useState<string | null>(boardExpiry);
+  const ladder = initialLong != null || initialShort != null ? LADDER_WIDE : LADDER_DEFAULT;
 
   useEffect(() => {
     let live = true;
@@ -106,12 +119,13 @@ export function SpreadBuilder({
     api.optionChain(symbol, {
       ...(expiry ? { expiry } : {}),
       ...(dte && !expiry ? { targetDte: dte } : {}),
+      maxStrikes: ladder,
     })
       .then((d) => { if (live) { setChain(d); setErr(d.error ?? null); } })
       .catch((e) => { if (live) setErr(e instanceof Error ? e.message : "chain unavailable"); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [symbol, expiry, dte]);
+  }, [symbol, expiry, dte, ladder]);
 
   const puts = useMemo(
     () => (chain?.legs ?? [])
@@ -295,9 +309,12 @@ export function SpreadBuilder({
                     ? "Nothing selected yet — click a strike to sell."
                     : absent
                       ? `The ${[shortK, longK].filter((k) => strikeMissing(k))
-                           .map((k) => k!.toString()).join(" and ")} strike(s) are not in `
-                        + `this expiry — the board picked them from a different one. `
-                        + `Choose from the ladder, or switch expiry above.`
+                           .map((k) => k!.toString()).join(" and ")} strike(s) are not among the `
+                        + `${puts.length} strikes loaded nearest spot for this expiry`
+                        + (boardExpiry && (expiry ?? boardExpiry) !== boardExpiry
+                           ? ` — the board priced ${boardExpiry.slice(4, 6)}-${boardExpiry.slice(6, 8)}; switch back to it above, `
+                           : ` — `)
+                        + `or choose from the ladder.`
                       : "These strikes are not quoting, so this cannot be priced. "
                         + "Shown as empty rather than estimated."}
                 </div>
