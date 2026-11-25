@@ -59,6 +59,56 @@ BACKTEST = {
 
 UNIVERSE_FILE = pathlib.Path(__file__).resolve().parent.parent / "universe" / "intraday_shadow.json"
 
+#: INTRADAY_SHORT_BLACKOUT_V1 (owner, RISK_GUARDRAILS_V1 §6, 25 Nov 2026): no new
+#: intraday short in a stock that fell >= 5% the prior session when the session
+#: is the last before a break (a market holiday or the week's end) — the 25 Nov
+#: NVDA short was stopped on pre-Thanksgiving short-covering. The rules above
+#: are NOT changed (their records are pre-registered); every short is TAGGED and
+#: the record is shown split, so the blackout is judged on the same trades.
+BLACKOUT_PRIOR_DROP = -0.05
+BLACKOUT_VERSION = "INTRADAY_SHORT_BLACKOUT_V1"
+
+
+def into_break(d: date) -> bool:
+    """True when the next NYSE session is not the next calendar day: the last
+    session before a holiday or the weekend. Calendar from exchange_calendars
+    (XNYS); without it, Friday is the only break known."""
+    try:
+        import exchange_calendars as xcals
+        cal = xcals.get_calendar("XNYS")
+        ts = pd.Timestamp(d)
+        if not cal.is_session(ts):
+            return False
+        nxt = cal.next_session(ts).date()
+        return (nxt - d).days > 1
+    except Exception:  # noqa: BLE001 — fail-safe: weekday logic only
+        return d.weekday() == 4
+
+
+def prior_session_drop(ss: list[tuple[date, pd.DataFrame]], d: date) -> float | None:
+    """The stock's prior session close-to-close return (fraction), or None."""
+    idx = next((i for i, (sd, _) in enumerate(ss) if sd == d), None)
+    if idx is None or idx < 2:
+        return None
+    p1, p2 = ss[idx - 1][1], ss[idx - 2][1]
+    try:
+        return float(p1.iloc[-1].close / p2.iloc[-1].close - 1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def tag_blackout(r: dict, ss: list[tuple[date, pd.DataFrame]]) -> None:
+    """Mark a SHORT row that the blackout would have blocked. Longs: False."""
+    d = date.fromisoformat(r["date"])
+    drop = prior_session_drop(ss, d)
+    r["prior_day_pct"] = None if drop is None else round(drop * 100, 2)
+    brk = into_break(d)
+    r["into_break"] = brk
+    r["blackout"] = bool(r["side"] == "short" and brk and drop is not None and drop <= BLACKOUT_PRIOR_DROP)
+    if r["blackout"]:
+        r["blackout_why"] = (f"short after a {drop * 100:+.1f}% day into a break — "
+                             f"{BLACKOUT_VERSION} would have blocked it")
+
 
 def universe() -> list[str]:
     return list(json.loads(UNIVERSE_FILE.read_text()))
@@ -205,12 +255,14 @@ def build(start: str = RECORD_START, symbols: list[str] | None = None) -> dict:
     qqq = {d: (g, _vwap(g)) for d, g in qss}
     tags = day_tags(qss)
     r7, r2sig, missing, stale = [], [], [], []
+    ss_by_sym: dict[str, list] = {}
     q_last = qss[-1][0] if qss else None
     for s in syms:
         ss = _sessions(s, lookback)
         if not ss:
             missing.append(s)
             continue
+        ss_by_sym[s] = ss
         if q_last and ss[-1][0] < q_last:
             # Its 5m bars stopped arriving: a name that cannot fire must be
             # NAMED, not silently counted as "no signal today".
@@ -225,6 +277,7 @@ def build(start: str = RECORD_START, symbols: list[str] | None = None) -> dict:
     complete = {str(d) for d, g in qss if g.index[-1].strftime("%H:%M") == "15:55"}
     for r in r7 + r2:
         r["day"] = tags.get(r["date"])
+        tag_blackout(r, ss_by_sym.get(r["symbol"], []))
         r["final"] = r["date"] in complete or r["exit_why"] in ("stop", "target")
         if not r["final"]:
             r["exit_why"] = "in progress (session not over)"
@@ -238,6 +291,12 @@ def build(start: str = RECORD_START, symbols: list[str] | None = None) -> dict:
                       "by_day": {t: summarise([r for r in done if r["day"] == t]) for t in ("Up", "Flat", "Down")},
                       "by_breakout_volume": ({v: summarise([r for r in done if r.get("breakout_volume") == v])
                                               for v in ("high", "low")} if key == "rule7" else None),
+                      # The blackout judged on the rule's own shorts: what it would have
+                      # blocked, and the record of the shorts it would have allowed.
+                      "shorts": {"version": BLACKOUT_VERSION,
+                                 "all": summarise([r for r in done if r["side"] == "short"]),
+                                 "blackout_blocked": summarise([r for r in done if r.get("blackout")]),
+                                 "allowed": summarise([r for r in done if r["side"] == "short" and not r.get("blackout")])},
                       "latest_session": [r for r in rows if r["date"] == latest]}
     return {"as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "record_start": start, "sessions": len(sessions), "latest_session": latest,
