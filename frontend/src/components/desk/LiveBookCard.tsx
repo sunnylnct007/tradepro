@@ -111,8 +111,14 @@ export function LiveBookCard() {
             guess which they are looking at. */}
         {age != null && (
           <span style={{ fontSize: 11, color: age > 24 ? TONE.watch : TONE.muted }}>
-            {art.report_date ? `IBKR report of ${art.report_date} · ` : ""}
-            {age < 1 ? "read just now" : `read ${Math.round(age)}h ago`}
+            {/* The source is IBKR's Flex statement, which is END-OF-DAY: the
+                newest one on any afternoon is yesterday's close, and today's
+                is published by IBKR overnight and picked up at 07:20 UTC.
+                "report of yesterday · read just now" read as stale when it was
+                the freshest statement there is (owner, 25 Nov 2026). Say what
+                it is. */}
+            {art.report_date ? `positions at IBKR's close of ${art.report_date} (end-of-day statement; today's arrives overnight) · ` : ""}
+            {age < 1 ? "refreshed just now" : `refreshed ${Math.round(age)}h ago`}
             {age > 24 ? " — STALE" : ""}
           </span>
         )}
