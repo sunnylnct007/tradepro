@@ -99,7 +99,8 @@ DORMANT_AFTER_DAYS = 10
 # "not scheduled at all" the same evening, which is exactly its job.
 SCHEDULED_JOBS = (
     "com.tradepro.option-chain-capture",
-    "com.tradepro.bar-cache-harvest-daily",
+    # com.tradepro.bar-cache-harvest-daily — moved to the Fargate schedule
+    # ccit-dev-tradepro-jobs-harvest-daily on 25 Nov 2026 (plist moved aside).
     # trade-alerts and live-risk left the Mac on 23 Nov 2026 (Lambda rules
     # tradepro-trade-alerts / tradepro-live-risk; plists unloaded after a
     # same-day compare). Grading an unloaded plist would be a false red.
