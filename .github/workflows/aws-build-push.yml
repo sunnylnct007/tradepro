@@ -63,6 +63,34 @@ jobs:
     environment: aws-prod
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the "what changed" diff below needs the parent commit
+
+      # BUILD ONLY WHAT CHANGED (25 Nov 2026). Every push rebuilt all three
+      # images; each API image carries a fresh BACKEND_COMMIT, so its digest
+      # always changed and the redeploy recreated the API container — a ~70 s
+      # outage of the whole site for a merge that touched only strategies/
+      # (seen by the owner at 23:19 UTC as "backend unavailable" on every
+      # card). An image whose context did not change is not rebuilt, so the
+      # redeploy's `compose up` leaves that container alone. A manual run
+      # builds everything.
+      - name: What changed
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ -z "${{ github.event.before }}" ] \
+             || ! git cat-file -e "${{ github.event.before }}" 2>/dev/null; then
+            echo "backend=true"    >> "$GITHUB_OUTPUT"
+            echo "frontend=true"   >> "$GITHUB_OUTPUT"
+            echo "strategies=true" >> "$GITHUB_OUTPUT"
+            echo "manual run or no parent: building every image"
+            exit 0
+          fi
+          FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+          echo "$FILES"
+          hit() { echo "$FILES" | grep -qE "$1" && echo true || echo false; }
+          echo "backend=$(hit '^backend/|^\.github/workflows/aws-build-push\.yml$|^docker-compose\.aws\.yaml$')"    >> "$GITHUB_OUTPUT"
+          echo "frontend=$(hit '^frontend/|^\.github/workflows/aws-build-push\.yml$')"                                >> "$GITHUB_OUTPUT"
+          echo "strategies=$(hit '^strategies/|^\.github/workflows/aws-build-push\.yml$')"                            >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4.1.0
@@ -89,6 +117,7 @@ jobs:
           echo "mcp_latest=${ECR_REGISTRY}/${MCP_REPO}:latest"             >> "$GITHUB_OUTPUT"
 
       - name: Build + push API image (linux/arm64)
+        if: steps.changed.outputs.backend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -109,6 +138,7 @@ jobs:
           cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.API_REPO }}:cache,mode=max
 
       - name: Build + push frontend image (linux/arm64)
+        if: steps.changed.outputs.frontend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
@@ -132,6 +162,7 @@ jobs:
           uv run pytest tests/test_mcp_read_only_surface.py -q
 
       - name: Build + push MCP image (linux/arm64)
+        if: steps.changed.outputs.strategies == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./strategies
