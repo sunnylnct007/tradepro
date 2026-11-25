@@ -439,3 +439,16 @@ def test_the_lane_passes_its_schedule_to_the_strategy():
     monthly = _build_strategy(_parse_args(argv), ["MU"])
     assert weekly._every() == "weekly" and weekly.board_name == "momentum_rotation_weekly"
     assert monthly._every() == "monthly" and monthly.board_name == "momentum_rotation"
+
+
+def test_the_board_shows_the_working_exit_not_the_newest_dead_duplicate():
+    """25 Nov 2026: SUBMITTED at 21:22, a duplicate REJECTED at 21:38 — the
+    board said "paper: rejected" beside a sell working at IBKR."""
+    from tradepro_strategies.paper.strategies.momentum_rotation import pick_order_to_show
+    sub = {"state": "SUBMITTED", "createdAtUtc": "2026-11-25T21:22:23Z", "brokerOrderId": "125427032"}
+    dup = {"state": "REJECTED", "createdAtUtc": "2026-11-25T21:38:43Z", "brokerOrderId": None}
+    assert pick_order_to_show([sub, dup]) is sub
+    assert pick_order_to_show([dup]) is dup            # nothing alive: show what there is
+    assert pick_order_to_show([]) is None
+    filled = {"state": "FILLED", "createdAtUtc": "2026-11-27T14:30:05Z"}
+    assert pick_order_to_show([sub, dup, filled]) is filled

@@ -239,7 +239,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             mine = [o for o in orders if self._sym(o) == sym
                     and str(o.get("side") or "").upper() == side
                     and str(o.get("createdAtUtc") or "")[:10] >= since]
-            return max(mine, key=lambda o: str(o.get("createdAtUtc") or "")) if mine else None
+            return pick_order_to_show(mine)
 
         def status(o: dict | None, waiting: str) -> str:
             if not o:
@@ -489,6 +489,21 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                           base.rstrip("/"), token)   # default retries ~63 s: outlasts an API redeploy
         except Exception as exc:  # noqa: BLE001 — publishing never breaks a run
             _log.warning("could not publish the momentum signal board: %s", str(exc)[:120])
+
+
+LIVE_OR_DONE = ("FILLED", "PARTIALLY_FILLED", "SUBMITTED", "WORKING", "PENDING_APPROVAL", "APPROVED")
+
+
+def pick_order_to_show(mine: list[dict]) -> dict | None:
+    """The order that describes the trade: a filled or working one beats a
+    dead one, however new the dead one is. 25 Nov 2026: the AMD exit was
+    SUBMITTED at IBKR and a later duplicate was REJECTED; "newest row" put
+    "paper: rejected" on the board beside a sell that was working."""
+    if not mine:
+        return None
+    alive = [o for o in mine if str(o.get("state") or "").upper() in LIVE_OR_DONE]
+    pool = alive or mine
+    return max(pool, key=lambda o: str(o.get("createdAtUtc") or ""))
 
 
 def _live_session(closes) -> "str | None":
