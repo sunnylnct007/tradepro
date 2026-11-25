@@ -293,3 +293,34 @@ def test_an_absent_autobook_record_is_not_a_claim():
     i = src.index("options-autobook")
     assert "except Exception" in src[i:i + 500]
     assert "absent record is not a claim" in src[i - 400:i + 500]
+
+
+def test_a_working_exit_with_dead_duplicates_is_not_a_broken_lane(monkeypatch):
+    """25 Nov 2026: AMD's stop exit SUBMITTED (broker id, PreSubmitted for the
+    next session) + two later duplicates superseded/rejected. The check read
+    "exits 0/2 — never CLOSED one". A working exit is placed, not failed; a
+    superseded or operator-rejected duplicate was never an attempt."""
+    sub = dict(_order("s1", "SELL", "SUBMITTED", "125427032"), symbol="AMD_US_EQ")
+    dup1 = dict(_order("s1", "SELL", "CANCELLED", None), symbol="AMD_US_EQ", cancelledReason="superseded by newer order")
+    dup2 = dict(_order("s1", "SELL", "REJECTED", None), symbol="AMD_US_EQ", cancelledReason="duplicate of SUBMITTED 72b0c1bf")
+    orders = [_order("s1", "BUY", "FILLED", "b")] * 10 + [sub, dup1, dup2]
+    (c,) = _exec_checks(monkeypatch, orders)
+    assert c.status == OK, f"{c.status}: {c.detail} / {c.fix}"
+    assert "11 orders" in c.detail and "exits 0/1" in c.detail
+    assert "1 working at the broker" in c.detail
+
+
+def test_a_dead_exit_that_was_a_real_attempt_still_counts(monkeypatch):
+    """Only superseded/duplicate rows are discounted — an exit the router lost
+    (no broker id, our own short error code) is still a miss."""
+    lost = dict(_order("s1", "SELL", "CANCELLED", None), cancelledReason="expired_no_broker_ack")
+    orders = [_order("s1", "BUY", "FILLED", "b")] * 10 + [lost]
+    (c,) = _exec_checks(monkeypatch, orders)
+    assert c.status == BROKEN and "never CLOSED one" in c.fix
+
+
+def test_a_superseded_row_with_no_working_sibling_is_still_a_miss(monkeypatch):
+    sup = dict(_order("s1", "SELL", "CANCELLED", None), symbol="X", cancelledReason="superseded by newer order")
+    orders = [_order("s1", "BUY", "FILLED", "b")] * 5 + [sup] * 3
+    (c,) = _exec_checks(monkeypatch, orders)
+    assert c.status == BROKEN and "exits 0/3" in c.detail

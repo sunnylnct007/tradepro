@@ -739,13 +739,42 @@ def check_execution(base: str, token: str | None) -> list[Check]:
         # or a JSON error body ("no bridge", "expired_no_broker_ack").
         return bool(why) and len(why) > 60 and not why.lstrip().startswith("{")
 
+    def _key(o: dict) -> tuple:
+        return (str(o.get("strategyId")), str(o.get("symbol") or "").split("_")[0].upper(),
+                str(o.get("side") or "").upper())
+
+    # (strategy, symbol, side) that has a FILLED or broker-working order: a
+    # superseded/duplicate row beside one of these never was an attempt.
+    covered = {_key(o) for o in orders
+               if str(o.get("state") or "").upper() == "FILLED"
+               or (o.get("brokerOrderId") and str(o.get("state") or "").upper()
+                   in ("SUBMITTED", "WORKING", "PARTIALLY_FILLED"))}
+
+    def _dead_duplicate(o: dict) -> bool:
+        """A row that never was an attempt: the OMS superseded it with a newer
+        intent for the same trade, or an operator rejected it as a duplicate —
+        AND the same trade has a filled or working order. Without that sibling
+        a superseded row is still an order that never left (the window test).
+        25 Nov 2026: the AMD stop exit was SUBMITTED (working at IBKR for the
+        next session) and two later ticks enqueued the same exit again; those
+        rows were superseded/rejected, and this check graded the lane
+        "exits 0/2 — never CLOSED one" over a working exit."""
+        if str(o.get("state") or "").upper() not in ("CANCELLED", "REJECTED"):
+            return False
+        why = str(o.get("cancelledReason") or "").lower()
+        return ("superseded" in why or "duplicate" in why) and _key(o) in covered
+
+    def _working_at_broker(o: dict) -> bool:
+        return bool(o.get("brokerOrderId")) and str(o.get("state") or "").upper() in (
+            "SUBMITTED", "WORKING", "PARTIALLY_FILLED")
+
     out = []
     for sid in LIVE_STRATEGIES:
         everything = [o for o in orders if o.get("strategyId") == sid]
         if not everything:
             continue
         mine = [o for o in everything
-                if (_age_days(o) or 0) <= EXEC_WINDOW_DAYS]
+                if (_age_days(o) or 0) <= EXEC_WINDOW_DAYS and not _dead_duplicate(o)]
         if not mine:
             # NOT FAILING — NOT TRADING. Say which.
             ages = [a for a in (_age_days(o) for o in everything) if a is not None]
@@ -763,17 +792,24 @@ def check_execution(base: str, token: str | None) -> list[Check]:
         filled = [o for o in mine if str(o.get("state")) == "FILLED"]
         sells = [o for o in mine if str(o.get("side", "")).upper() == "SELL"]
         sells_filled = [o for o in sells if str(o.get("state")) == "FILLED"]
+        # An exit the broker holds for the next session (after hours, a
+        # holiday ahead) is placed, not failed. It is neither a fill nor a
+        # miss until that session; it is reported and left out of the rate.
+        sells_working = [o for o in sells if _working_at_broker(o)]
         detail = (f"last {EXEC_WINDOW_DAYS}d: {len(mine)} orders · "
                   f"{len(reached)} reached the broker"
                   + (f" ({len(refused)} of them REFUSED by it)" if refused else "")
-                  + f" · {len(filled)} filled · exits {len(sells_filled)}/{len(sells)}")
+                  + f" · {len(filled)} filled · exits {len(sells_filled)}/{len(sells)}"
+                  + (f" ({len(sells_working)} working at the broker, awaiting the session)"
+                     if sells_working else ""))
         reach_rate = len(reached) / len(mine)
-        exit_rate = (len(sells_filled) / len(sells)) if sells else None
+        judged_sells = len(sells) - len(sells_working)
+        exit_rate = (len(sells_filled) / judged_sells) if judged_sells > 0 else None
         if not reached:
             out.append(Check(f"Execution · {sid}", BROKEN,
                              detail + " — NOTHING has ever reached the broker",
                              "brokerOrderId is null on every order"))
-        elif sells and not sells_filled:
+        elif sells and not sells_filled and not sells_working:
             # The exact shape that hid for weeks: entries fill, exits never do,
             # so the book can only accumulate.
             out.append(Check(f"Execution · {sid}", BROKEN, detail,
