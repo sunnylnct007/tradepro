@@ -35,6 +35,17 @@ dependencies = [
     # so non-viz code paths don't pay the import cost.
     "plotly>=6.0",
     "exchange-calendars>=4.13.2",
+    # Imported directly by the order push (paper/brokers/t212.py), the finnhub
+    # source and the legacy gateway path. It arrived only transitively (mcp,
+    # anthropic) and the jobs image, built from a hand list, had none — see
+    # Dockerfile.lambda, 25 Nov 2026.
+    "httpx>=0.27",
+    # pandas.read_html for the universe refresh (Wikipedia tables) and the
+    # Yahoo session (curl_cffi impersonation). Declared here so the image,
+    # which installs THIS list, carries them.
+    "lxml>=5.0",
+    "beautifulsoup4>=4.12",
+    "curl_cffi>=0.6",
 ]
 
 [project.optional-dependencies]

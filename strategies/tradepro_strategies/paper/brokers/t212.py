@@ -113,6 +113,23 @@ class T212OrderRouter(OrderRouter):
             self.mode = env_mode
         if self.base_url is None:
             self.base_url = T212_LIVE_BASE if self.mode == "live" else T212_DEMO_BASE
+        # THE OMS PATH NEEDS httpx AND MUST SAY SO BEFORE THE FIRST BAR.
+        # 25 Nov 2026: the Fargate image shipped without it. `_push_pending`
+        # caught the ImportError, logged a warning and returned, and the
+        # rotation sleeve's first trailing-stop exit (AMD) was decided on
+        # every tick and sent on none. A router that cannot send an order
+        # must not start; a session that cannot start shows red in the run
+        # log instead of green for a day.
+        if self.placement_mode in ("auto", "manual"):
+            try:
+                import httpx  # noqa: F401
+            except ImportError as exc:
+                raise RuntimeError(
+                    f"{self.broker_label_override or 'T212'} order router in "
+                    f"{self.placement_mode} mode needs httpx to reach "
+                    f"/api/oms/orders and it is not installed ({exc}). Refusing "
+                    f"to start: decisions would be made and no order sent."
+                ) from exc
 
     def _live_orders_enabled(self) -> bool:
         """Two-key safety gate. Demo mode always-on. Live mode requires
@@ -202,7 +219,14 @@ class T212OrderRouter(OrderRouter):
         # for human review on the Paper page. Fire-and-forget — the
         # API records, UI surfaces, human clicks Approve, API places it.
         if self.placement_mode == "manual":
-            await self._push_pending(order, approval)
+            if not await self._push_pending(order, approval):
+                log.error(
+                    "T212 MANUAL-PENDING NOT SENT · sid=%s · %s %s qty=%s tag=%s "
+                    "— the OMS push did not complete; see the error above.",
+                    order.strategy_id, order.side.value, order.symbol,
+                    order.quantity, order.tag,
+                )
+                return
             log.info(
                 "T212 MANUAL-PENDING · sid=%s · %s %s qty=%s tag=%s "
                 "(awaiting UI approval)",
@@ -224,12 +248,23 @@ class T212OrderRouter(OrderRouter):
         # push, but the .NET side routes to IGClient instead of
         # Trading212DemoClient based on the label.
         if self.placement_mode == "auto":
-            await self._push_pending(order, approval)
+            sent = await self._push_pending(order, approval)
+            label = (self.broker_label_override or
+                     ("T212_DEMO" if self.mode == "demo" else "T212_LIVE"))
+            if not sent:
+                # This line used to print whether or not the push happened,
+                # so a dropped order read as a placed one (25 Nov 2026).
+                log.error(
+                    "%s ORDER NOT SENT · sid=%s · %s %s qty=%s tag=%s — the OMS "
+                    "push did not complete; see the error above. The decision "
+                    "stands and the next run re-raises it.",
+                    label, order.strategy_id,
+                    order.side.value, order.symbol, order.quantity, order.tag,
+                )
+                return
             log.info(
                 "%s AUTO-OMS · sid=%s · %s %s qty=%s tag=%s",
-                self.broker_label_override or
-                ("T212_DEMO" if self.mode == "demo" else "T212_LIVE"),
-                order.strategy_id,
+                label, order.strategy_id,
                 order.side.value, order.symbol, order.quantity, order.tag,
             )
             return
@@ -365,26 +400,34 @@ class T212OrderRouter(OrderRouter):
             commission=0.0,
         )
 
-    async def _push_pending(self, order, approval) -> None:
-        """Manual-mode: push the order intent to the API's pending
-        queue so the UI can show it for approval. The API stores it
-        and (when a human clicks Approve) places it against T212 from
-        its own side using SM-managed credentials — no Mac round-trip
-        needed for the approval path."""
+    async def _push_pending(self, order, approval) -> bool:
+        """Push the order intent to /api/oms/orders (and approve it in auto
+        mode). The API stores it and places it against the broker from its
+        own side using SM-managed credentials — no Mac round-trip needed.
+
+        Returns True only when the OMS accepted the intent. False means the
+        order was NOT sent, and the caller must say so — this used to return
+        None on every path and the caller logged success regardless."""
         from ...secrets import get_secret
         try:
             import httpx
-        except ImportError:
-            log.warning("httpx not installed; manual-mode push skipped")
-            return
+        except ImportError as exc:
+            log.error(
+                "httpx not installed — the OMS push for %s %s CANNOT run and "
+                "the order is NOT sent (%s). The router refuses to start "
+                "without it; reaching this line means the check was bypassed.",
+                order.side.value, order.symbol, exc,
+            )
+            return False
         api_base = get_secret("api-base-url")
         api_token = get_secret("api-token")
         if not api_base or not api_token:
-            log.warning(
-                "manual-mode push needs api-base-url + api-token "
-                "(env / SM / ~/.tradepro/credentials); skipping"
+            log.error(
+                "OMS push for %s %s needs api-base-url + api-token "
+                "(env / SM / ~/.tradepro/credentials) — NOT sent",
+                order.side.value, order.symbol,
             )
-            return
+            return False
         # OMS Phase 2a: push the intent to /api/oms/orders so the
         # operator approves it on the new /oms page (single placement
         # surface) instead of the legacy PA Reports pending queue.
@@ -501,7 +544,7 @@ class T212OrderRouter(OrderRouter):
                 "strategy universe.",
                 order.side.value, broker_symbol, broker_label, first_line(_why),
             )
-            return
+            return False
 
         url = f"{api_base.rstrip('/')}/api/oms/orders"
         try:
@@ -583,6 +626,8 @@ class T212OrderRouter(OrderRouter):
                 "human won't see this on /oms page",
                 order.symbol,
             )
+            return False
+        return True
 
     def _auth_headers(self) -> dict:
         """Pick Basic vs raw-Authorization based on whether a secret
