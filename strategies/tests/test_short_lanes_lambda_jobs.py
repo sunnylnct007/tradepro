@@ -58,8 +58,10 @@ def test_the_lambda_names_itself_in_the_run_log():
 def test_the_image_can_parse_wikipedia_tables():
     """refresh_universes is pandas.read_html; the image installed no HTML
     parser until this lane moved."""
+    deps = (ROOT / "pyproject.toml").read_text()
     docker = (ROOT / "Dockerfile.lambda").read_text()
-    assert "lxml" in docker and "beautifulsoup4" in docker
+    assert "lxml" in deps and "beautifulsoup4" in deps
+    assert "pyproject.toml" in docker  # the image installs THAT list (25 Nov 2026)
 
 
 def test_refresh_universes_returns_zero_when_it_has_pushed(monkeypatch):
@@ -89,7 +91,9 @@ def test_the_image_installs_the_ibkr_extra_the_mac_lanes_run_with():
     runs `uv run --extra ibkr`; the image must carry the same extra."""
     from pathlib import Path
     df = (Path(__file__).resolve().parents[1] / "Dockerfile.lambda").read_text()
-    assert "ib_insync" in df
+    # Since 25 Nov 2026 the image installs pyproject's list; the extra is
+    # named in the install step rather than the package.
+    assert "['ibkr']" in df
 
 
 def test_the_live_book_refresh_job_reads_and_pushes_without_mail():
