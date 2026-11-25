@@ -842,7 +842,7 @@ export const api = {
    *  Used by the spread builder, which has to price strikes the screen did
    *  not pick. Quote fields are null outside market hours; the caller must
    *  say so rather than render a spread it cannot price. */
-  optionChain: (symbol: string, opts?: { expiry?: string; targetDte?: number }) =>
+  optionChain: (symbol: string, opts?: { expiry?: string; targetDte?: number; maxStrikes?: number }) =>
     get<{
       symbol: string;
       spot: number | null;
@@ -867,6 +867,7 @@ export const api = {
       right: "P",
       ...(opts?.expiry ? { expiry: opts.expiry } : {}),
       ...(opts?.targetDte ? { targetDte: opts.targetDte } : {}),
+      ...(opts?.maxStrikes ? { maxStrikes: opts.maxStrikes } : {}),
     }),
 
   optionsCandidates: () =>

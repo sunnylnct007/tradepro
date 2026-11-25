@@ -72,7 +72,7 @@ type Act = {
   /** The full sentences behind `notes`, for the tooltip. */
   noteDetail?: string;
   /** Enough to open the spread builder on this row's actual contract. */
-  build?: { symbol: string; dte: number | null; shortK: number | null; longK: number | null };
+  build?: { symbol: string; dte: number | null; expiry: string | null; shortK: number | null; longK: number | null };
   strategy: string;
   gated: boolean;
   /** Expectancy per cycle, % of collateral, net of the measured spread.
@@ -194,6 +194,10 @@ export function ActionBoard() {
           out.push({
             build: {
               symbol: c.symbol, dte: dte ?? null,
+              // THE EXPIRY THE BOARD PRICED. Without it the builder asked for
+              // the expiry nearest the DTE, which is not always the same
+              // contract, and then reported the board's strikes as missing.
+              expiry: c.expiry ? String(c.expiry) : null,
               shortK: econ?.short_strike ?? c.suggested_strike ?? null,
               longK: econ?.long_strike ?? null,
             },
@@ -316,7 +320,7 @@ export function ActionBoard() {
 
       {building && (
         <SpreadBuilder
-          symbol={building.symbol} dte={building.dte}
+          symbol={building.symbol} dte={building.dte} initialExpiry={building.expiry}
           initialShort={building.shortK} initialLong={building.longK}
           onClose={() => setBuilding(null)}
         />
