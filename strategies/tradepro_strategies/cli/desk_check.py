@@ -306,9 +306,12 @@ def check_deployed_api(base: str) -> list[Check]:
     """Was the API on AWS built from the code on main?
 
     The API reports the commit it was built from. A different SHA is NOT drift
-    by itself: build-push only runs when backend, frontend or compose files
-    change, so a python-only merge leaves the API on an older commit with
-    identical code. Drift is when those paths DIFFER between the two commits.
+    by itself: since 25 Nov 2026 the API image is rebuilt only when backend/,
+    the compose file or the Caddyfile change, so any other merge leaves the
+    API on an older commit with identical API code. Drift is when THOSE paths
+    differ. The frontend ships as its own image and bakes no commit, so it is
+    not graded here; it used to be in this diff, which read a frontend-only
+    deploy as "the site runs code that is not on main".
     """
     import subprocess
 
@@ -326,7 +329,7 @@ def check_deployed_api(base: str) -> list[Check]:
         subprocess.run(["git", "-C", repo, "fetch", "-q", "origin"], timeout=60)
         diff = subprocess.run(
             ["git", "-C", repo, "diff", "--name-only", built, "origin/main", "--",
-             "backend", "frontend", "docker-compose.aws.yaml", "Caddyfile"],
+             "backend", "docker-compose.aws.yaml", "Caddyfile"],   # the frontend bakes no commit; see docstring
             capture_output=True, text=True, timeout=30)
     except Exception as exc:  # noqa: BLE001
         return [Check("Deployed API", UNKNOWN, f"could not diff {built} ({str(exc)[:60]})")]
@@ -744,12 +747,19 @@ def check_execution(base: str, token: str | None) -> list[Check]:
         return (str(o.get("strategyId")), str(o.get("symbol") or "").split("_")[0].upper(),
                 str(o.get("side") or "").upper())
 
-    # (strategy, symbol, side) that has a FILLED or broker-working order: a
-    # superseded/duplicate row beside one of these never was an attempt.
-    covered = {_key(o) for o in orders
-               if str(o.get("state") or "").upper() == "FILLED"
-               or (o.get("brokerOrderId") and str(o.get("state") or "").upper()
-                   in ("SUBMITTED", "WORKING", "PARTIALLY_FILLED"))}
+    # (strategy, symbol, side) -> when its earliest FILLED or broker-working
+    # order was raised. A superseded/duplicate row beside one of these never
+    # was an attempt; a dead sell raised AFTER one of these is the same exit
+    # again. A dead sell raised BEFORE the one that eventually worked is a real
+    # miss (ichimoku_equity_ibkr, Sep 2026: 24 exits lost before 3 filled).
+    covered: dict = {}
+    for o in orders:
+        st = str(o.get("state") or "").upper()
+        if st == "FILLED" or (o.get("brokerOrderId") and st in ("SUBMITTED", "WORKING", "PARTIALLY_FILLED")):
+            when = str(o.get("createdAtUtc") or o.get("createdAt") or "")
+            k = _key(o)
+            if k not in covered or (when and when < covered[k]):
+                covered[k] = when
 
     def _dead_duplicate(o: dict) -> bool:
         """A row that never was an attempt: the OMS superseded it with a newer
@@ -762,8 +772,21 @@ def check_execution(base: str, token: str | None) -> list[Check]:
         "exits 0/2 — never CLOSED one" over a working exit."""
         if str(o.get("state") or "").upper() not in ("CANCELLED", "REJECTED"):
             return False
+        if _key(o) not in covered:
+            return False
         why = str(o.get("cancelledReason") or "").lower()
-        return ("superseded" in why or "duplicate" in why) and _key(o) in covered
+        if "superseded" in why or "duplicate" in why:
+            return True
+        # A dead SELL with no broker id beside a working/filled SELL of the
+        # same name: these sleeves are long-only, so it can only be the same
+        # exit again. The operator's reject reason lives in the order's EVENT,
+        # not on the row, so the reason text alone cannot be relied on.
+        if _reached_broker(o):
+            return False                      # a broker refusal is a real attempt
+        raised = str(o.get("createdAtUtc") or o.get("createdAt") or "")
+        since = covered.get(_key(o)) or ""
+        return (str(o.get("side") or "").upper() == "SELL"
+                and bool(raised) and bool(since) and raised > since)
 
     def _working_at_broker(o: dict) -> bool:
         return bool(o.get("brokerOrderId")) and str(o.get("state") or "").upper() in (

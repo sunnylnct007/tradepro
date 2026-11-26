@@ -324,3 +324,36 @@ def test_a_superseded_row_with_no_working_sibling_is_still_a_miss(monkeypatch):
     orders = [_order("s1", "BUY", "FILLED", "b")] * 5 + [sup] * 3
     (c,) = _exec_checks(monkeypatch, orders)
     assert c.status == BROKEN and "exits 0/3" in c.detail
+
+
+def test_an_operator_rejected_sell_with_no_reason_on_the_row_is_still_a_duplicate(monkeypatch):
+    """RejectAsync stores the reason in the order's event, not cancelledReason;
+    the row reads REJECTED with an empty reason. Beside a working SELL for the
+    same name it is the same exit again, not a lost order."""
+    sub = dict(_order("s1", "SELL", "SUBMITTED", "125427032"), symbol="AMD_US_EQ",
+               createdAtUtc="2026-11-25T21:22:23Z")
+    dup = dict(_order("s1", "SELL", "REJECTED", None), symbol="AMD_US_EQ", cancelledReason="",
+               createdAtUtc="2026-11-25T21:38:43Z")
+    orders = [_order("s1", "BUY", "FILLED", "b")] * 10 + [sub, dup, dict(dup, createdAtUtc="2026-11-25T22:06:24Z")]
+    (c,) = _exec_checks(monkeypatch, orders)
+    assert c.status == OK, f"{c.status}: {c.detail}"
+    assert "11 orders" in c.detail and "exits 0/1" in c.detail
+
+
+def test_a_dead_BUY_beside_a_filled_buy_is_not_discounted(monkeypatch):
+    """Only sells get the structural reading: a second buy can be a real
+    (failed) re-entry."""
+    ok = dict(_order("s1", "BUY", "FILLED", "b"), symbol="X")
+    lost = dict(_order("s1", "BUY", "CANCELLED", None), symbol="X", cancelledReason="")
+    orders = [ok] * 2 + [lost] * 8
+    (c,) = _exec_checks(monkeypatch, orders)
+    assert c.status == WARN and "10 orders" in c.detail
+
+
+def test_a_lost_sell_raised_BEFORE_the_one_that_filled_is_still_a_miss(monkeypatch):
+    lost = dict(_order("s1", "SELL", "CANCELLED", None), symbol="X", cancelledReason="",
+                createdAtUtc="2026-11-20T15:00:00Z")
+    done = dict(_order("s1", "SELL", "FILLED", "b"), symbol="X", createdAtUtc="2026-11-21T15:00:00Z")
+    orders = [_order("s1", "BUY", "FILLED", "b")] * 2 + [lost] * 6 + [done]
+    (c,) = _exec_checks(monkeypatch, orders)
+    assert c.status == WARN and "exits 1/7" in c.detail
