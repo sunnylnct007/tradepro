@@ -69,6 +69,24 @@ BLACKOUT_PRIOR_DROP = -0.05
 BLACKOUT_VERSION = "INTRADAY_SHORT_BLACKOUT_V1"
 
 
+def last_bar_start(d: date) -> str:
+    """Start time (New York, HH:MM) of the session's last 5-minute bar: 15:55
+    on a full day, 12:55 on an early close (the day after Thanksgiving,
+    Christmas Eve). Read from the XNYS calendar; without it, 15:55. 27 Nov
+    2026: the half-day's record was "not final" all evening because the rule
+    waited for a 15:55 bar that never comes."""
+    try:
+        import exchange_calendars as xcals
+        cal = xcals.get_calendar("XNYS")
+        ts = pd.Timestamp(d)
+        if not cal.is_session(ts):
+            return "15:55"
+        close = cal.session_close(ts).tz_convert("America/New_York")
+        return (close - pd.Timedelta(minutes=5)).strftime("%H:%M")
+    except Exception:  # noqa: BLE001
+        return "15:55"
+
+
 def into_break(d: date) -> bool:
     """True when the next NYSE session is not the next calendar day: the last
     session before a holiday or the weekend. Calendar from exchange_calendars
@@ -274,7 +292,7 @@ def build(start: str = RECORD_START, symbols: list[str] | None = None) -> dict:
     # that, "exit at the close" would be whatever bar came last — a mid-day
     # price recorded as a result. Trades on an unfinished session are shown as
     # IN PROGRESS and kept out of the record.
-    complete = {str(d) for d, g in qss if g.index[-1].strftime("%H:%M") == "15:55"}
+    complete = {str(d) for d, g in qss if g.index[-1].strftime("%H:%M") == last_bar_start(d)}
     for r in r7 + r2:
         r["day"] = tags.get(r["date"])
         tag_blackout(r, ss_by_sym.get(r["symbol"], []))

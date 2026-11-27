@@ -352,6 +352,21 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
             for k, sym in enumerate(picks, 1):
                 if sym in held:
                     continue
+                sold = last_order(sym, "SELL")
+                if sold and str(sold.get("state") or "").upper() == "FILLED":
+                    # STOPPED OUT THIS CYCLE: a pick that was bought and then
+                    # sold by the trailing stop stays in cash until the next
+                    # decision (_sold_this_cycle). Showing it as "BUY · filled
+                    # @ entry" after the sale (AMD, 27 Nov 2026) read as an
+                    # instruction to buy it back.
+                    rows.append({"action": "STOPPED OUT", "symbol": sym,
+                                 "sector": dec.get("sectors", {}).get(sym),
+                                 "why": (f"sold {int(float(sold.get('filledQty') or sold.get('qty') or 0))} sh "
+                                         f"at {float(sold.get('avgFillPrice') or 0):.2f} on "
+                                         f"{str(sold.get('createdAtUtc') or '')[:10]} (trailing stop); "
+                                         f"in cash until the next decision {dec.get('next_signal_date')}"),
+                                 "paper": status(sold, "")})
+                    continue
                 rows.append({"action": "BUY", "symbol": sym, "sector": dec.get("sectors", {}).get(sym),
                              "why": f"rank {k} of 10 by 3/6/12-month momentum (score {dec.get('scores', {}).get(sym)})",
                              "paper": status(last_order(sym, "BUY"), waiting)})
@@ -447,8 +462,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                 "today": today,
                 "signal_date": dec.get("signal_date"), "order_date": dec.get("order_date"),
                 "next_signal_date": dec.get("next_signal_date"),
-                "market": ("SPY above its 200-day average: invested" if dec.get("market_ok")
-                           else "SPY below its 200-day average: cash"),
+                "market": market_line(dec, today),
                 "allocation_pct": round(float(dec.get("allocation") or 0) * 100, 1),
                 "per_name_pct": round(float(dec.get("weight_each") or 0) * 100, 2),
                 "error": dec.get("error"), "rows": rows, "book": book, "gauges": gauges,
@@ -492,6 +506,26 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
 
 
 LIVE_OR_DONE = ("FILLED", "PARTIALLY_FILLED", "SUBMITTED", "WORKING", "PENDING_APPROVAL", "APPROVED")
+
+
+def market_line(dec: dict, today: "dict | None") -> str:
+    """The market rule is checked at a DECISION, so the sleeve stays invested
+    between decisions whatever SPY does — that is the rule, not a fault. But a
+    header that only repeats the decision-day reading ("above its 200-day:
+    invested") while today's close is below it (SPY under its 200-day since
+    20 Nov 2026, header unchanged for a week) is a settled row shown as
+    current. Say both, and what the next decision would do."""
+    at_decision = ("SPY above its 200-day average on the decision close: invested"
+                   if dec.get("market_ok") else
+                   "SPY below its 200-day average on the decision close: cash")
+    if not today or today.get("market_ok") is None or today.get("market_ok") == dec.get("market_ok"):
+        return at_decision
+    nxt = dec.get("next_signal_date") or "the next decision"
+    if today.get("market_ok"):
+        return (f"{at_decision} · today ({today.get('as_of')}) SPY is back ABOVE its 200-day — "
+                f"the decision on {nxt} would invest")
+    return (f"{at_decision} · today ({today.get('as_of')}) SPY is BELOW its 200-day — "
+            f"the decision on {nxt} goes to cash unless it recovers; no exit before then (by rule)")
 
 
 def pick_order_to_show(mine: list[dict]) -> dict | None:

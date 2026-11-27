@@ -2665,3 +2665,11 @@ same PR (`_live_session`: "today" only describes the live session).
 - **Deploys** (#482): `aws-build-push` builds only the images whose context changed; `aws-redeploy` no longer `--force-recreate`s. A strategies-only merge should leave the API container up — verify on the next one (#484) that `/health/details` gitSha does NOT move.
 - **Owner screenshots, 23:19–23:23:** the 502 was the redeploy restart (fixed above). The desk check's "EXECUTION BROKEN — exits 0/2" and the board's "SELL AMD · paper: rejected" were both reading dead duplicate rows beside a sell working at IBKR (#484). The spread builder opened on the wrong expiry with a 20-strike window that could not contain the board's legs (#483).
 - Fargate on the full-dependency image: tasks start 31–40 s after launch; the 15-minute tick cadence held.
+
+## 2026-11-27 (Fri, half-day) — first stop exit end to end; SPY under its 200-day; half-day record "not final"
+
+- **AMD stop exit filled at the open** and came back confirmed (OMS FILLED with a broker id). The three dead rows beside it from Wednesday night were the pre-guard duplicates: none reached IBKR, one superseded by the OMS, two rejected by hand. Guards #479/#480 have been live since.
+- **Harvest ran on Fargate for the first time** (schedule 21:30 London): readiness ALL CURRENT, 207/207 from IBKR, evaluation published 21:40 with the 27 Nov closes. Mac plist stays unloaded.
+- **SPY has closed BELOW its 200-day since 20 Nov.** The core engine checks the market only at a decision (next 15 Dec), so it stays invested by rule; the biweekly/weekly models decided on 27 Nov with an EMPTY list = cash. The board header still said "above its 200-day: invested" from the 13 Nov decision — it now states both readings and what 15 Dec would do (this PR). The daily ranking shows all ten names "leaving".
+- **Board showed AMD as a BUY row after the sale** — a stopped-out pick now reads "STOPPED OUT · in cash until 15 Dec". The strategy itself never re-bought (sold-this-cycle guard; orders today 0).
+- **Intraday record read "not final" all evening** on the half-day: completeness waited for a 15:55 bar; now the session's own close from the XNYS calendar (12:55 on early closes).
