@@ -174,3 +174,21 @@ def test_the_record_shows_the_shorts_split_by_blackout(monkeypatch):
     assert r2["shorts"]["blackout_blocked"]["trades"] == 1
     assert r2["shorts"]["allowed"] == {"trades": 0}
     assert a["trades"][0]["blackout"] is True
+
+
+def test_a_half_day_session_is_complete_at_its_own_close():
+    assert S.last_bar_start(date(2026, 11, 27)) == "12:55"   # day after Thanksgiving
+    assert S.last_bar_start(date(2026, 11, 24)) == "15:55"
+    assert S.last_bar_start(date(2026, 11, 26)) == "15:55"   # holiday: not a session, default
+
+
+def test_a_half_day_record_is_final_when_its_last_bar_is_1255(monkeypatch):
+    hist_days = [str(d.date()) for d in pd.bdate_range("2026-10-26", "2026-11-25")]
+    x_hist = [_session(d, [100.0]) for d in hist_days]
+    d, g = _session("2026-11-27", [100.5, 101.5, 102.0], vol0=3000, first=(100.0, 101.0, 99.5, 100.8), end="12:55")
+    q_hist = [_session(dd, [500.0]) for dd in hist_days]
+    q_today = _session("2026-11-27", [500.0], end="12:55")
+    data = {"QQQ": q_hist + [q_today], "X": x_hist + [(d, g)]}
+    monkeypatch.setattr(S, "_sessions", lambda sym, lb: data[sym])
+    a = S.build(start="2026-11-16", symbols=["X"])
+    assert a["latest_session"] == "2026-11-27" and a["latest_session_final"] is True

@@ -330,11 +330,13 @@ def test_an_operator_rejected_sell_with_no_reason_on_the_row_is_still_a_duplicat
     """RejectAsync stores the reason in the order's event, not cancelledReason;
     the row reads REJECTED with an empty reason. Beside a working SELL for the
     same name it is the same exit again, not a lost order."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.UTC)
     sub = dict(_order("s1", "SELL", "SUBMITTED", "125427032"), symbol="AMD_US_EQ",
-               createdAtUtc="2026-11-25T21:22:23Z")
+               createdAtUtc=(now - _dt.timedelta(hours=3)).isoformat())
     dup = dict(_order("s1", "SELL", "REJECTED", None), symbol="AMD_US_EQ", cancelledReason="",
-               createdAtUtc="2026-11-25T21:38:43Z")
-    orders = [_order("s1", "BUY", "FILLED", "b")] * 10 + [sub, dup, dict(dup, createdAtUtc="2026-11-25T22:06:24Z")]
+               createdAtUtc=(now - _dt.timedelta(hours=2)).isoformat())
+    orders = [_order("s1", "BUY", "FILLED", "b")] * 10 + [sub, dup, dict(dup, createdAtUtc=(now - _dt.timedelta(hours=1)).isoformat())]
     (c,) = _exec_checks(monkeypatch, orders)
     assert c.status == OK, f"{c.status}: {c.detail}"
     assert "11 orders" in c.detail and "exits 0/1" in c.detail
@@ -351,9 +353,14 @@ def test_a_dead_BUY_beside_a_filled_buy_is_not_discounted(monkeypatch):
 
 
 def test_a_lost_sell_raised_BEFORE_the_one_that_filled_is_still_a_miss(monkeypatch):
+    # Relative timestamps: a hardcoded date aged out of the 7-day window two
+    # days after this test was written (27 Nov 2026).
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.UTC)
     lost = dict(_order("s1", "SELL", "CANCELLED", None), symbol="X", cancelledReason="",
-                createdAtUtc="2026-11-20T15:00:00Z")
-    done = dict(_order("s1", "SELL", "FILLED", "b"), symbol="X", createdAtUtc="2026-11-21T15:00:00Z")
+                createdAtUtc=(now - _dt.timedelta(days=2)).isoformat())
+    done = dict(_order("s1", "SELL", "FILLED", "b"), symbol="X",
+                createdAtUtc=(now - _dt.timedelta(days=1)).isoformat())
     orders = [_order("s1", "BUY", "FILLED", "b")] * 2 + [lost] * 6 + [done]
     (c,) = _exec_checks(monkeypatch, orders)
     assert c.status == WARN and "exits 1/7" in c.detail

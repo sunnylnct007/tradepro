@@ -452,3 +452,14 @@ def test_the_board_shows_the_working_exit_not_the_newest_dead_duplicate():
     assert pick_order_to_show([]) is None
     filled = {"state": "FILLED", "createdAtUtc": "2026-11-27T14:30:05Z"}
     assert pick_order_to_show([sub, dup, filled]) is filled
+
+
+def test_the_market_line_says_what_today_says_not_only_the_decision_day():
+    from tradepro_strategies.paper.strategies.momentum_rotation import market_line
+    dec = {"market_ok": True, "next_signal_date": "2026-12-15"}
+    assert market_line(dec, None).endswith("invested")
+    assert market_line(dec, {"market_ok": True, "as_of": "2026-11-27"}).endswith("invested")
+    line = market_line(dec, {"market_ok": False, "as_of": "2026-11-27"})
+    assert "BELOW its 200-day" in line and "2026-12-15" in line and "no exit before then" in line
+    back = market_line({"market_ok": False, "next_signal_date": "2026-12-15"}, {"market_ok": True, "as_of": "2026-12-01"})
+    assert "back ABOVE" in back and "would invest" in back
