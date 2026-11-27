@@ -363,7 +363,7 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                                  "sector": dec.get("sectors", {}).get(sym),
                                  "why": (f"sold {int(float(sold.get('filledQty') or sold.get('qty') or 0))} sh "
                                          f"at {float(sold.get('avgFillPrice') or 0):.2f} on "
-                                         f"{str(sold.get('createdAtUtc') or '')[:10]} (trailing stop); "
+                                         f"{str(sold.get('lastStateChangeAtUtc') or sold.get('createdAtUtc') or '')[:10]} (trailing stop); "
                                          f"in cash until the next decision {dec.get('next_signal_date')}"),
                                  "paper": status(sold, "")})
                     continue
