@@ -150,7 +150,7 @@ after 20:00 ET count toward the next trade date. **Options are unchanged:
 regular hours only.**
 
 Checked in the repo on 27 Nov: nothing routes to OVERNIGHT, and IBKR history
-requests use `outsideRth=false`, so daily bars stay RTH. Three things need
+requests use `outsideRth=false`, so daily bars stay RTH. Four things need
 work:
 
 - **Option-chain capture window.** `cli/option_chain_capture.py` captures
