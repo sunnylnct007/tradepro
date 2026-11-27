@@ -140,6 +140,39 @@ direction, not the broker's label.
 
 ---
 
+### 11. US stocks 23x5 from 6 Dec 2026 (IBKR notice, 27 Nov)
+IBKR extends US stock trading to 23 hours a day, 5 days a week from Sunday
+6 Dec 2026 (subject to final regulatory readiness). Stocks trade 21:00 ET to
+20:00 ET the next day (London 02:00 to 01:00), with a 20:00-21:00 ET pause
+where only IBEOS / Blue Ocean trade; the dedicated OVERNIGHT venue is
+retired (orders sent to it are rejected; SMART routes overnight); trades
+after 20:00 ET count toward the next trade date. **Options are unchanged:
+regular hours only.**
+
+Checked in the repo on 27 Nov: nothing routes to OVERNIGHT, and IBKR history
+requests use `outsideRth=false`, so daily bars stay RTH. Three things need
+work:
+
+- **Option-chain capture window.** `cli/option_chain_capture.py` captures
+  between 16:30 and 04:00 ET on the assumption that pre-market repopulates
+  the chain at 04:00 ET. If the source now refreshes at the 21:00 ET
+  pre-market start, captures after that come back with OI/bid/ask dark.
+  After 6 Dec, verify when the chain repopulates and move
+  `CAPTURE_SHUT_ET` (probably to 21.0) if needed; keep the
+  `MIN_OI_COVERAGE` guard as the detector.
+- **Overnight move labelled with its volume.** "Pre-market price" now exists
+  from 02:00 London. Every brief/alert that shows an overnight or pre-market
+  move shows the volume behind it and labels thin moves, so a 03:00 print on
+  low volume is not read as a signal for the 14:30 open.
+- **Stock marks live, option marks frozen.** Overnight, net liquidation and
+  position P&L move on stock prices while option marks stay at the last RTH
+  close. Label option marks stale outside 14:30-21:00 London (extends
+  item 10), and measure the floor, milestones and daily P&L on the RTH close.
+- **Trade date.** Ledger and P&L date any fill after 20:00 ET to the next
+  trade date.
+
+---
+
 ## Stock signals — what to change
 
 - **Index and sector context on every signal (basic 7).** Each stock view
