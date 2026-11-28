@@ -591,6 +591,43 @@ no long setup (below 50-DMA, at resistance); JNJ shows income put spread as
 best fit with the low-volatility credit rule; MU shows covered call
 (held, covered) and gate BLOCKED for any new bullish setup (sector cap).
 
+### 20. Macro inputs in the decision gate — index futures, Treasury yields, VIX, credit
+Owner, 28 Nov: "have we considered stock index futures, Treasury yields etc.
+in our strategy decisions?" Partly. `market_context.py` already computes a
+`risk_mode` (GREEN/AMBER/RED) from VIX, the 10-year yield (^TNX) and HYG
+drawdown for the swing models — but the options lane, the income engine and
+this week's hand-made decisions never read it, and futures were only checked
+by eye.
+
+- **Wire `risk_mode` into the three-check gate** (operating model C, check
+  1) for every options proposal, repair and covered call. Show the inputs
+  with their numbers, not just the colour.
+- **Yields.** Add the 2-year yield (Fed expectations) beside the 10-year;
+  show level, 20-day change in basis points and the 2s10s spread. A fast rise
+  in yields (e.g. 10-year +25 bp in 20 days) is a headwind flag for
+  long-duration growth and tech — the segment this book is concentrated in.
+  Record whether yields rose through Sep–Nov 2026 alongside the hike odds
+  (item 14) and test the flag on that period before it gates anything.
+- **Index futures.** ES and NQ as first-class inputs: overnight move with
+  volume (item 11), position vs the prior RTH close and vs their own
+  20/50-DMA, and the gap implied for the cash open. Used by the pre-market
+  brief, the intraday panel (item 8) and the symbol header (item 15).
+- **Volatility regime.** VIX level and its term structure (VIX vs 3-month
+  VIX): backwardation = stress, do not open new short-premium positions;
+  steep contango = normal.
+- **Credit and dollar** as context lines only: HYG drawdown (already
+  computed) and the dollar index trend.
+- **One macro strip** on the book dashboard (item 18) and above every
+  symbol page: `risk_mode`, ES/NQ, 2y/10y and change, VIX and term
+  structure, rate odds — each with a green/amber/red state and its number.
+
+House rule: each new input is display-only until a pre-registered gates
+doc shows what it would have done in Sep–Nov 2026.
+
+Accept when: the macro strip for late October 2026 shows the regime inputs
+as they were, and every income or repair row carries the `risk_mode` it was
+evaluated under.
+
 ---
 
 ## Stock signals — what to change
