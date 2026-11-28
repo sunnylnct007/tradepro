@@ -128,6 +128,11 @@ export const api = {
   strategies: () => get<StrategyCatalogResponse>("/api/simulations/strategies"),
   candles: (params: { symbol: string; provider?: string; interval?: string; from?: string; to?: string }) =>
     get<CandleSeries>("/api/marketdata/candles", params),
+  /** The earnings store for one symbol (the same read the python events
+   *  window makes): confirmed/estimated prints with their session. */
+  earningsCalendar: (symbol: string, back = 0, ahead = 90) =>
+    get<{ events: Array<{ report_date: string; session?: string | null; source?: string; confirmed?: boolean }>; store?: Record<string, unknown> }>(
+      `/api/earnings-calendar/${encodeURIComponent(symbol)}`, { back: String(back), ahead: String(ahead) }),
   /** Live market-data probe. IBKR grants ONE market-data session per account,
    *  so opening the IBKR portal or TWS silently takes it from the desk: auth
    *  stays valid, contracts still resolve, prices go dark. This lets the UI

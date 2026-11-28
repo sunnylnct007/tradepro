@@ -17,6 +17,11 @@
  */
 import { useEffect, useState, type CSSProperties } from "react";
 import { CandleIchimokuChart } from "./CandleIchimokuChart";
+import { ComparisonPanel } from "./ComparisonPanel";
+import { SymbolContextHeader, useDailyCandles, useSymbolEvents } from "./SymbolContextHeader";
+import { sectorEtfFor } from "./sectorEtf";
+
+const WINDOW_DAYS: Record<string, number> = { "1D": 1, "5D": 5, "1M": 31, "3M": 93, "6M": 186, "1Y": 365, "5Y": 365 * 5 };
 import { RES_OPTS, TF_FOR_RES, rangeFor } from "./chartResolutions";
 
 const KEY_RES = "tradepro.chart.res";
@@ -73,6 +78,14 @@ export function SymbolChartCard({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // CONTEXT (review item 15): the symbol against its sector ETF, QQQ and SPY,
+  // the regimes, the momentum read and the next events — fetched once per
+  // symbol from the golden daily store, shared by the header and the panel.
+  const etf = sectorEtfFor(symbol).etf;
+  const ctxCandles = useDailyCandles([symbol, etf, "QQQ", "SPY"]);
+  const events = useSymbolEvents(symbol, 90);
+  const compareDays = Math.max(31, WINDOW_DAYS[tf] ?? 93);
+
   const pickRes = (r: string) => {
     setRes(r); remember(KEY_RES, r);
     const t = rangeFor(r, tf);
@@ -122,16 +135,22 @@ export function SymbolChartCard({
         </button>
       </div>
 
+      <SymbolContextHeader symbol={symbol} candles={ctxCandles} events={events} />
+
       <CandleIchimokuChart
         symbol={symbol}
         timeframe={tf}
         resolution={res}
-        height={expanded ? Math.max(360, vh - 150) : height}
+        height={expanded ? Math.max(360, vh - 330) : height}
         entryPrice={entryPrice}
         entryDate={entryDate}
         fills={fills}
         strategyId={strategyId}
+        events={events}
       />
+
+      {/* Second panel, not a crowded first one: relative performance. */}
+      <ComparisonPanel symbol={symbol} etf={etf} candles={ctxCandles} days={compareDays} height={expanded ? 180 : 130} />
     </div>
   );
 
