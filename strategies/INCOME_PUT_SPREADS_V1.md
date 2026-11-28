@@ -357,3 +357,9 @@ names that already pass every §4.1 gate.
   stays `min_credit_to_width` (owner-settable in `income_engine`).
 - **Held list freshness.** `held_live_as_of` on the scan: the Flex statement
   date and read time behind `held_live`.
+
+- **28 Nov 2026, owner:** `index_scan_enabled` = on, `low_vol_rule` = on (the
+  owner chose to skip the shadow period), `credit_rule_source` = owner_by_class
+  (the engine's credit gate is now the owner's class minimum: index / HV30 <
+  40% → 20%, volatile → ⅓; `min_credit_to_width` remains the fallback when the
+  owner's rule is unset). Every row still shows both figures and which one gated.
