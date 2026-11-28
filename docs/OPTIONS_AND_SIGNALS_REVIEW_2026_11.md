@@ -273,6 +273,31 @@ axis:
   plus item 13's beta, correlation and relative-strength numbers;
 - markers for events in the window (earnings, FOMC, CPI) from item 3.
 
+**Clarity rules (owner: "the chart should be clear looking at any stock").**
+More context must not mean more clutter:
+
+- **One answer at a glance.** A one-line header above the chart reads, e.g.,
+  "MU −4.1% today · SMH −3.2% · QQQ −1.1% · NQ −0.9% · sector below
+  50-DMA · earnings in 18 days". If the reader stops there, they have the
+  picture.
+- **Two panels, not one crowded one.** Top: the stock's own candles with its
+  50/200-DMA and support/resistance levels. Bottom: the normalised
+  comparison lines (stock, sector ETF, SPY, QQQ). Volume as a thin strip.
+- **Four lines at most** in the comparison panel; the stock line is the
+  boldest, the others thin and muted. Futures appear as a figure in the
+  header, not as another line.
+- **Colour means one thing.** Green/red only for up/down; one fixed colour per
+  benchmark across every chart (SPY always the same grey, QQQ the same blue).
+- **Direct labels** at the right edge of each line ("MU −38%", "SMH −21%")
+  instead of a legend to decode.
+- **Events as small markers** on the time axis (E = earnings, F = FOMC,
+  C = CPI), with a tooltip, never as text over the price.
+- **Sensible default window** (6 months daily), with 1M / 3M / 1Y switches;
+  the comparison panel rebases to 100 at the start of whatever window is
+  shown.
+- **Works on a phone.** The header and the top panel must read clearly at
+  phone width; the comparison panel can sit below.
+
 Accept when: the MU chart for Sep–Nov 2026 shows MU vs SMH vs SPY vs QQQ
 normalised, the October SMH breakdown is visible against MU, and the FOMC
 and MU earnings dates are marked.
