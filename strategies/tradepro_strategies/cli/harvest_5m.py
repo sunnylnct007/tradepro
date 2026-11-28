@@ -55,6 +55,18 @@ def candidate_symbols(base: str, token: str) -> set[str]:
                     out.add(s)
         except Exception as exc:  # noqa: BLE001
             log.warning("%s board unreadable (%s) — not in scope this run", lane, str(exc)[:80])
+    out |= held_symbols(base, token)
+    return out
+
+
+def held_symbols(base: str, token: str) -> set[str]:
+    """The paper book's names. Harvested FIRST: on Lambda the lane was killed at
+    900 s partway down an alphabetical list, so TGT's 5-minute bars ended on
+    Monday while the screen on Saturday 28 Nov 2026 said "not in yet". A run
+    that cannot finish must at least cover what we hold."""
+    import requests
+    H = {"Authorization": f"Bearer {token}"} if token else {}
+    out: set[str] = set()
     try:
         # This read only widens the HARVEST SCOPE (which names get 5m bars); it
         # informs no trading or reconciliation decision, and a fresh IBKR call
@@ -78,8 +90,13 @@ def scope(base: str, token: str, store_dir=None) -> list[str]:
     if not flagged:
         raise RuntimeError("harvest_symbols() returned nothing — refusing to harvest an empty scope")
     cands = candidate_symbols(base, token)
-    syms = sorted(flagged | cands)
-    log.info("scope: %d candidate/held ∪ %d harvest-flagged = %d symbols for 5m", len(cands), len(flagged), len(syms))
+    held = held_symbols(base, token)
+    rest = (flagged | cands) - held
+    # HELD FIRST, then everything else alphabetically. The union is unchanged;
+    # only the order is, so a run cut short still covers the book.
+    syms = sorted(held) + sorted(rest)
+    log.info("scope: %d held first, then %d candidate ∪ harvest-flagged = %d symbols for 5m",
+             len(held), len(rest), len(syms))
     return syms
 
 

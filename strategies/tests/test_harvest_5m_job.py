@@ -13,8 +13,12 @@ import lambda_handler as H  # noqa: E402
 from tradepro_strategies.cli import harvest_5m as J  # noqa: E402
 
 
-def test_registered_with_no_argv_of_its_own():
-    assert H.JOBS["harvest_5m"] == ("tradepro_strategies.cli.harvest_5m", [])
+def test_the_5m_lane_is_retired_on_lambda_and_lives_on_fargate():
+    """28 Nov 2026: the 900 s ceiling cut the 214-name scope short every session;
+    held names late in the alphabet went days without 5-minute bars."""
+    assert "harvest_5m" not in H.JOBS and "harvest_5m_repair" not in H.JOBS
+    assert "harvest-5m" in H.RETIRED_JOBS["harvest_5m"]
+    assert "harvest-5m-repair" in H.RETIRED_JOBS["harvest_5m_repair"]
 
 
 def test_argv_is_the_mac_lanes_5m_call_with_a_two_day_window_and_a_7_day_repair():
@@ -24,13 +28,13 @@ def test_argv_is_the_mac_lanes_5m_call_with_a_two_day_window_and_a_7_day_repair(
     assert a[-1] == "QQQ,AMD"
     r = J.harvest_argv(["QQQ"], today=date(2026, 11, 21), window_days=J.REPAIR_WINDOW_DAYS)
     assert r[r.index("--from") + 1] == "2026-11-14"
-    assert H.JOBS["harvest_5m_repair"] == ("tradepro_strategies.cli.harvest_5m", ["--window-days", "7"])
 
 
 def test_scope_is_the_union_and_refuses_an_empty_universe(monkeypatch):
     import tradepro_strategies.universe as U
     monkeypatch.setattr(U, "harvest_symbols", lambda d=None: ["AAPL", "QQQ"])
     monkeypatch.setattr(J, "candidate_symbols", lambda b, t: {"AMD", "QQQ"})
+    monkeypatch.setattr(J, "held_symbols", lambda b, t: set())
     assert J.scope("http://x", "t") == ["AAPL", "AMD", "QQQ"]
     monkeypatch.setattr(U, "harvest_symbols", lambda d=None: [])
     try:
@@ -61,3 +65,12 @@ def test_movers_is_its_own_job_not_a_follow_up():
     5m37s of cold S3 reads after a 4m20s harvest)."""
     assert "tradepro-market-movers" not in [n for n, _, _ in J.FOLLOW_UPS]
     assert H.JOBS["market_movers"] == ("tradepro_strategies.cli.market_movers", ["--push"])
+
+
+def test_held_names_are_harvested_first(monkeypatch):
+    """A run killed partway must still have covered the book."""
+    import tradepro_strategies.universe as U
+    monkeypatch.setattr(U, "harvest_symbols", lambda d=None: ["AAPL", "QQQ", "ZTS"])
+    monkeypatch.setattr(J, "candidate_symbols", lambda b, t: {"AMD", "TGT"})
+    monkeypatch.setattr(J, "held_symbols", lambda b, t: {"TGT", "VLO"})
+    assert J.scope("http://x", "t") == ["TGT", "VLO", "AAPL", "AMD", "QQQ", "ZTS"]

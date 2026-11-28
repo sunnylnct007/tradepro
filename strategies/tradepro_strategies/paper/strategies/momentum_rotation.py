@@ -311,6 +311,10 @@ class MomentumRotationStrategy(MeanReversionSwingStrategy):
                 if m5 is not None and len(m5):
                     et = m5.index.tz_convert("America/New_York")
                     session = et[-1].date()
+                    # Always stated, live session or not, so the screen can say
+                    # "5-min bars end 11-23" instead of "not in yet" for a name
+                    # the lane has not reached for days.
+                    out["bars_5m_to"] = str(session)
                     today_bars = m5[[d == session for d in et.date]]
                     prior = closes[[str(t)[:10] < str(session) for t in closes.index]]
                     if str(session) != _live_session(closes):

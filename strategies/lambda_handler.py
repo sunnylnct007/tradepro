@@ -200,9 +200,9 @@ JOBS: dict[str, tuple[str, list[str]]] = {
     # intraday shadow record, the setups board and the market movers, so the
     # intraday screens refresh from AWS, not from a laptop lid. Schedule every
     # 10 minutes through the US session (the Mac did 30).
-    "harvest_5m": ("tradepro_strategies.cli.harvest_5m", []),
+    # harvest_5m — RETIRED here 28 Nov 2026 (Fargate schedule); see RETIRED_JOBS.
     # Once after the close, a 7-day window heals any gap a killed cycle left.
-    "harvest_5m_repair": ("tradepro_strategies.cli.harvest_5m", ["--window-days", "7"]),
+    # harvest_5m_repair — RETIRED here 28 Nov 2026 (Fargate schedule); see RETIRED_JOBS.
     # Movers reads 400 days of closes for every harvested name — 5m37s cold on
     # the first Lambda run. Its own job so the harvest never shares its budget
     # with a reader; scheduled a few minutes after each harvest.
@@ -375,6 +375,15 @@ def _report_provenance(job: str) -> dict:
 #: A retired job returns ok=True and says why. When the rule is finally removed
 #: this entry goes with it.
 RETIRED_JOBS: dict[str, str] = {
+    "harvest_5m": (
+        "Moved to the Fargate schedule ccit-dev-tradepro-jobs-harvest-5m on 28 Nov 2026: "
+        "the 900 s ceiling killed the run partway down a 214-name scope every session, "
+        "so held names reached late in the alphabet went days without 5-minute bars "
+        "(TGT: Mon 23 on Sat 28) while readiness read 'all 100 symbols covered'. A rule "
+        "that still names this job returns here so two hosts never write the 5m store."),
+    "harvest_5m_repair": (
+        "Moved to the Fargate schedule ccit-dev-tradepro-jobs-harvest-5m-repair on 28 Nov "
+        "2026, with harvest_5m (same ceiling, same store)."),
     "paper_momentum_rotation_ibkr": (
         "Moved to the Fargate schedule ccit-dev-tradepro-jobs-rotation-tick on 23 Nov 2026: "
         "on Lambda the first tick timed out at 900 s reading the bar store cold. A rule "
