@@ -114,6 +114,10 @@ type Props = {
    *  fired one bar earlier (3 Oct 2026). Unknown/absent => no timing strip,
    *  because a verdict from the wrong rule is worse than no verdict. */
   strategyId?: string | null;
+  /** Dated events inside the window (earnings E, FOMC F, CPI C, jobs J…) →
+   *  small markers on the time axis, never text over the price (review item
+   *  15, 28 Nov 2026). */
+  events?: { on: string; kind: string; title: string }[];
 };
 
 type IchiPoint = { time: UTCTimestamp; value: number };
@@ -130,7 +134,7 @@ type IndState = { vol: boolean; sma50: boolean; sma200: boolean; vwap: boolean; 
 const IND_DEFAULTS: IndState = { vol: true, sma50: true, sma200: true, vwap: true, rsi: false, ich: false, obv: false };
 const IND_KEY = "tp-chart-indicators";
 
-export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills, strategyId }: Props) {
+export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", height = 360, ccy, entryPrice, entryDate, fills, strategyId, events, }: Props) {
   const [ind, setInd] = useState<IndState>(() => {
     try { return { ...IND_DEFAULTS, ...JSON.parse(localStorage.getItem(IND_KEY) ?? "{}") }; }
     catch { return IND_DEFAULTS; }
@@ -719,6 +723,20 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       }
     }
 
+    // EVENT MARKERS: a letter below the bar on the event's date (E earnings,
+    // F FOMC, C CPI, J jobs, S sector sell-off); the title is the tooltip.
+    if (events?.length && candles.length) {
+      const byDay = new Map<string, UTCTimestamp>();
+      for (const c of candles) byDay.set(String(c.timestamp).slice(0, 10), toTime(String(c.timestamp)));
+      const days = [...byDay.keys()].sort();
+      for (const e of events) {
+        const day = days.find((d) => d >= e.on) ?? null;   // the first bar on/after the event
+        if (!day) continue;
+        const letter = e.kind === "earnings" ? "E" : e.kind === "fomc" ? "F" : e.kind === "cpi" ? "C" : e.kind === "jobs" ? "J" : e.kind === "sector_selloff" ? "S" : (e.kind[0] || "•").toUpperCase();
+        markers.push({ time: byDay.get(day)!, position: "belowBar" as const, color: e.kind === "earnings" ? "#d29922" : "#8b949e",
+                       shape: "square" as const, text: letter, size: 0.6 } as SeriesMarker<Time>);
+      }
+    }
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     // Markers are keyed to REAL bar times; Renko's axis is a synthetic brick
     // sequence, so a fill would land on an arbitrary brick. Omitted rather
@@ -901,7 +919,7 @@ export function CandleIchimokuChart({ symbol, timeframe, resolution = "1d", heig
       chart.remove();
       chartRef.current = null;
     };
-  }, [series, height, windowDays, entryPrice, entryDate, fills, renko, ind, resolution]);
+  }, [series, height, windowDays, entryPrice, entryDate, fills, renko, ind, resolution, events]);
 
   // ---- States ------------------------------------------------------------
   const noData = !loading && !err && (series?.candles?.length ?? 0) === 0;
