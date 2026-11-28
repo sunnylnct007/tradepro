@@ -363,6 +363,39 @@ tool calls and no hand-built scripts.
 
 ---
 
+## Cut or park — make room for the build
+
+Owner, 28 Nov: "we can also cut stuff from TradePro that is not worth
+pursuing." Criteria: a strategy whose pre-registered study failed, or a
+surface that produces trade ideas nobody acts on, is **parked**: its result
+doc stays (it is the learning record), but its candidate feed comes off the
+screens, the emails and the scheduled jobs, so it stops costing compute,
+data and attention.
+
+Candidates to park (verdicts as recorded in the repo):
+
+- **Equity trend** — `EQUITY_TREND_GATES_V1_RESULT.md`: FAILED.
+- **News shock** — `NEWS_SHOCK_GATES_V1.md`: FAILS.
+- **Post-earnings puts / wheel funding** — `POST_EARNINGS_PUT_GATES_V1.md`:
+  does not license funding; wheel v3 verdict DO NOT FUND stands.
+- **Earnings v2** — `EARNINGS_GATES_V2_RESULT.md`: failed.
+- **Early entry** — `EARLY_ENTRY_GATES_V1.md`: REJECTED.
+- **Buy-the-sell-off playbook** — O3 NOT SUPPORTED (SELLOFF_PLAYBOOK_GATES_V1),
+  apart from the high-beta tercile.
+- **Congress trades (Quiver)** — `QUIVER_CONGRESS_GATES_V1.md`: fails.
+- **Small intraday scalps/shorts** with £100–200 payoffs — the owner does not
+  want them (23 Nov); keep only setups whose realistic target is ≥ £1k.
+- **Short-side strategy** — already parked (`SHORT_STRATEGY_PARKED.md`).
+
+Keep and focus on: the defined-risk income engine, momentum rotation (in
+forward test), the live-risk lane, and this review's items 1–5 and 12–16.
+**Pause new strategy studies for 2–3 months** while the forward tests run.
+
+Before removing anything, list each parked strategy's live touch-points
+(scheduled jobs, email digest sections, MCP tools, UI panels) and switch them
+off by config where possible, so a revival is a settings change, not a
+rewrite.
+
 ## Out of scope this weekend
 
 New strategies, new data vendors, and anything that places or prepares live
