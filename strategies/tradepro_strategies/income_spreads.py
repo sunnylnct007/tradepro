@@ -444,6 +444,18 @@ def _bars(sym: str, sessions: int = 320) -> pd.DataFrame | None:
     return None if df is None or len(df) < 60 else df
 
 
+def events_in_life(base: str, sym: str, expiry: str) -> dict:
+    """Every known dated event between today and the expiry — the symbol's
+    earnings and catalysts plus FOMC / CPI / jobs from the market calendar —
+    as events.py reports them (`verified` + `gaps` carried, never dropped)."""
+    try:
+        from .events import window_for_contract
+        return window_for_contract(sym, expiry, api_base=base).to_dict()
+    except Exception as exc:  # noqa: BLE001 — a named gap, not a silent pass
+        return {"events": [], "count": 0, "verified": False,
+                "gaps": [f"events check failed: {str(exc)[:120]}"], "names": "events not checked"}
+
+
 def _earnings(base: str, token: str, sym: str, expiry: str | None = None, s: dict | None = None) -> tuple[str | None, str]:
     """Next report date. Three honest answers:
     1. a SCHEDULED date in the store → that date;
@@ -641,6 +653,21 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
                            fx_gbp_per_usd=fx, s=s, today=today, csp_open_notional_gbp=csp_open)
             row["quote_source"] = quote_notes
             row["spot_basis"] = f"settled close {tech.get('as_of')}"
+            # EVENTS INSIDE THE LIFE (options review item 3, 28 Nov 2026): the
+            # earnings gate above is the pre-registered rule; FOMC / CPI / jobs
+            # and the symbol's own catalysts are SHOWN on the row and raise a
+            # warning, so a spread across the 9 Dec FOMC is never proposed
+            # silently. Not a gate until pre-registered (house rule).
+            if row.get("expiry"):
+                row["events"] = events_in_life(base, sym, row["expiry"])
+                macro = [e for e in (row["events"].get("events") or [])
+                         if e.get("kind") in ("fomc", "cpi") or "FOMC" in str(e.get("title")) or "CPI" in str(e.get("title"))]
+                if macro:
+                    row.setdefault("warnings", []).append(
+                        "macro_event_inside_expiry: " + " · ".join(str(e.get("title")) for e in macro[:3]))
+                if row["events"].get("verified") is False:
+                    row.setdefault("warnings", []).append(
+                        "events_unverified: " + "; ".join(row["events"].get("gaps") or [])[:160])
         except Exception as exc:  # noqa: BLE001 — one name's failure is named, never hidden
             row = {"symbol": sym, "sector": sector, "bucket": bucket, "rejected": [f"error: {exc}"[:200]]}
         rows.append(row)
@@ -654,7 +681,7 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
             "rejected": [{"symbol": r["symbol"], "reasons": r["rejected"], "gates": r.get("gates"), "warnings": r.get("warnings"),
                           "expiry": r.get("expiry"), "short_strike": r.get("short_strike"), "long_strike": r.get("long_strike"),
                           "credit_mid": r.get("credit_mid"), "p_full_profit_iv": r.get("p_full_profit_iv"),
-                          "quote_source": r.get("quote_source")}
+                          "quote_source": r.get("quote_source"), "events": r.get("events")}
                          for r in rows if r.get("rejected")],
             "held_live": sorted(held), "placed_orders": 0,
             "note": "TradePro creates no order. Stage G (the IBKR instruction) is on approval, by the owner's agent."}

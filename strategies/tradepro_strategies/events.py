@@ -386,8 +386,65 @@ def window_for_dte(symbol: str, dte: int, *, api_base: str,
     return events_between(symbol, t, t + timedelta(days=max(0, int(dte))), api_base=api_base, **kw)
 
 
+def earnings_moves(symbol: str, *, api_base: str, back_days: int = 760,
+                   bars=None, report_dates: list[date] | None = None) -> dict:
+    """The symbol's own moves ON ITS PAST PRINTS: |close(T+1)/close(T−1) − 1|
+    per report date from the earnings store, over the settled daily bars.
+    Keyed to report dates, so a non-earnings shock (a management change, a
+    sector day) can never pollute the "typical earnings move" — the review's
+    item 3 (28 Nov 2026). `bars` / `report_dates` are injectable for tests."""
+    from statistics import median
+    sym = symbol.upper().strip()
+    out: dict = {"symbol": sym, "moves_pct": [], "n": 0, "median_pct": None, "max_pct": None,
+                 "report_dates": [], "verified": True, "gaps": []}
+    try:
+        if report_dates is None:
+            from .earnings import _calendar_store_events
+            data = _calendar_store_events(sym, api_base, timeout=10.0, back=back_days) \
+                if "back" in _calendar_store_events.__code__.co_varnames else _calendar_store_events(sym, api_base, timeout=10.0)
+            rows = (data or {}).get("events") or []
+            report_dates = []
+            for ev in one_row_per_print(rows):
+                try:
+                    d = date.fromisoformat(str(ev.get("report_date"))[:10])
+                except (TypeError, ValueError):
+                    continue
+                if d < date.today():
+                    report_dates.append(d)
+            if not rows:
+                out["verified"] = False
+                out["gaps"].append("earnings store returned no past prints")
+    except Exception as exc:  # noqa: BLE001
+        out["verified"] = False
+        out["gaps"].append(f"earnings store unreachable: {str(exc)[:100]}")
+        report_dates = []
+    try:
+        if bars is None:
+            from .daily_bars import load_bars
+            bars = load_bars(sym, "1d", lookback_days=back_days + 10)
+        if bars is None or len(bars) == 0:
+            out["verified"] = False
+            out["gaps"].append("no settled daily bars")
+            return out
+        bar_dates = [d.date() if hasattr(d, "date") else d for d in bars.index]
+        closes = [float(x) for x in bars["close"].tolist()]
+    except Exception as exc:  # noqa: BLE001
+        out["verified"] = False
+        out["gaps"].append(f"bars unreadable: {str(exc)[:100]}")
+        return out
+    from .cli.straddle_scan import realized_print_moves
+    moves = realized_print_moves(bar_dates, closes, sorted(report_dates))
+    out.update({"moves_pct": [round(m, 2) for m in moves], "n": len(moves),
+                "median_pct": round(median(moves), 2) if moves else None,
+                "max_pct": round(max(moves), 2) if moves else None,
+                "report_dates": [d.isoformat() for d in sorted(report_dates)],
+                "how": "|close(T+1)/close(T-1) - 1| on each report date from the earnings store; "
+                       "days that are not prints are never counted"})
+    return out
+
+
 __all__ = [
     "Event", "EventsWindow", "KINDS", "MARKET_SYMBOL", "MARKET_CALENDAR_PATH",
-    "MARKET_CALENDAR_SOURCE", "clear_cache", "events_between", "load_market_calendar",
+    "MARKET_CALENDAR_SOURCE", "clear_cache", "earnings_moves", "events_between", "load_market_calendar",
     "window_for_contract", "window_for_dte",
 ]
