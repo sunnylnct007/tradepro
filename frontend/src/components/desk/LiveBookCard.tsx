@@ -278,6 +278,55 @@ export function LiveBookCard() {
       {art.exposure?.error && (
         <div style={{ fontSize: 12, color: TONE.watch, marginTop: 8 }}>Exposure by segment: {art.exposure.error}</div>
       )}
+      {/* MACRO-EVENT STRESS (options review item 14, 28 Nov 2026): the book
+          through base / hawkish shock / dovish relief against the owner's
+          floor — delta and gamma terms per segment — with the next FOMC/CPI
+          dates and the index implied move to just after the next FOMC.
+          "Would a hawkish 9 Dec put us at the floor?" answered without a
+          click; gaps named, nothing guessed. */}
+      {art.stress && !art.stress.error && (
+        <div style={{ marginTop: 10, padding: "8px 10px", border: `1px solid ${(art.stress.flags ?? []).length ? TONE.act : "var(--border)"}`, borderRadius: 6 }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "baseline", fontSize: 12 }}>
+            <b>Stress — the book into the next macro event</b>
+            <span style={{ color: TONE.dim }}>
+              {(art.stress.events ?? []).slice(0, 3).map((e: any) => `${e.title} in ${e.days}d`).join(" · ") || "no dated macro events ahead"}
+            </span>
+            {Object.entries(art.stress.implied_moves ?? {}).map(([k, v]: [string, any]) => (
+              <span key={k} style={{ color: TONE.dim }} title={v.note ?? ""}>{k} implied ±{v.move_pct != null ? `${v.move_pct}%` : "—"}{v.expiry ? ` to ${String(v.expiry).slice(4, 6)}-${String(v.expiry).slice(6, 8)}` : ""}</span>
+            ))}
+            {art.stress.hike_odds?.available && <span style={{ color: TONE.dim }}>hike odds {art.stress.hike_odds.hike_odds_pct}% (owner input {art.stress.hike_odds.as_of})</span>}
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, marginTop: 6 }}>
+            <thead>
+              <tr style={{ color: TONE.muted }}>
+                <th style={{ textAlign: "left", padding: "2px 4px" }}>scenario</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>index</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>book P&L</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>NLV after</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>cushion to floor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(art.stress.scenarios ?? {}).map(([k, r]: [string, any]) => (
+                <tr key={k} style={{ borderTop: "1px solid var(--border)", color: r.breaches_floor ? TONE.act : r.thin_cushion ? TONE.watch : undefined }}
+                    title={(r.segments ?? []).map((sg: any) => `${sg.segment} ${sg.move_pct}% → ${usd(sg.pnl_usd)} (delta ${usd(sg.first_order_usd)}, gamma ${usd(sg.gamma_usd)})`).join("\n")}>
+                  <td style={{ padding: "3px 4px" }}>{r.label ?? k}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right" }}>{r.index_move_pct > 0 ? "+" : ""}{r.index_move_pct}%</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{usd(r.pnl_usd)}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{r.nav_after_usd != null ? usd(r.nav_after_usd) : "—"}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>
+                    {r.cushion_to_floor_gbp != null ? `£${Math.round(r.cushion_to_floor_gbp).toLocaleString()}` : "—"}{r.breaches_floor ? " BELOW" : r.thin_cushion ? " thin" : ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(art.stress.flags ?? []).map((f: string, i: number) => <div key={i} style={{ fontSize: 11.5, color: TONE.act, marginTop: 4 }}>{f}</div>)}
+          {(art.stress.gaps ?? []).length > 0 && <div style={{ fontSize: 11, color: TONE.watch, marginTop: 4 }}>{art.stress.gaps.join(" · ")}</div>}
+          <div style={{ fontSize: 10.5, color: TONE.muted, marginTop: 4 }}>{art.stress.how}</div>
+        </div>
+      )}
+      {art.stress?.error && <div style={{ fontSize: 12, color: TONE.watch, marginTop: 8 }}>Stress test: {art.stress.error}</div>}
       {/* PUT-BOOK MANAGER (options review item 17, 28 Nov 2026): the owner's
           hold / accept / repair / close policy on every short put, with its
           rule; cheap-exit triggers (close INTO a bounce, never on a sector

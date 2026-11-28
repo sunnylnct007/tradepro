@@ -643,10 +643,10 @@ def _exposure_for(positions: list[dict], base: str, token: str | None, *,
     H = {"Authorization": f"Bearer {token}"} if token else {}
     chain_cache: dict[tuple, dict[float, float]] = {}
 
-    def delta_for(root: str, expiry: str, right: str, strike: float) -> float | None:
+    def greeks_for(root: str, expiry: str, right: str, strike: float) -> dict | None:
         key = (root, expiry, right)
         if key not in chain_cache:
-            table: dict[float, float] = {}
+            table: dict[float, dict] = {}
             try:
                 r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{root}",
                                  params={"expiry": expiry.replace("-", ""), "right": right, "maxStrikes": 60},
@@ -654,13 +654,16 @@ def _exposure_for(positions: list[dict], base: str, token: str | None, *,
                 if r.status_code == 200:
                     for leg in (r.json().get("legs") or []):
                         if str(leg.get("right") or "").upper().startswith(right) and leg.get("delta") is not None:
-                            table[float(leg["strike"])] = float(leg["delta"])
-            except Exception as exc:  # noqa: BLE001 — the mark-solved delta is the fallback
-                log.info("%s %s %s: chain delta unavailable (%s)", root, expiry, right, str(exc)[:60])
+                            iv = leg.get("impliedVolPct")
+                            table[float(leg["strike"])] = {"delta": float(leg["delta"]),
+                                                           "gamma": (float(leg["gamma"]) if leg.get("gamma") is not None else None),
+                                                           "iv": (float(iv) / 100.0 if iv is not None else None)}
+            except Exception as exc:  # noqa: BLE001 — the mark-solved greeks are the fallback
+                log.info("%s %s %s: chain greeks unavailable (%s)", root, expiry, right, str(exc)[:60])
             chain_cache[key] = table
         return chain_cache[key].get(float(strike))
 
-    legs = legs_from_positions(positions, spots=spots, delta_for=delta_for, cfg=cfg)
+    legs = legs_from_positions(positions, spots=spots, delta_for=None, greeks_for=greeks_for, cfg=cfg)
     gbp = None
     try:
         fx = _kv_get(base, token or "", "income_engine") or {}
@@ -714,6 +717,68 @@ def _put_book_for(rows: list[dict], positions: list[dict], base: str, token: str
     out = put_book(rows, positions=positions, kv=kv if isinstance(kv, dict) else {}, nav_usd=nav_usd,
                    bars_for=bars_for, sector_down_pct_of=sector_down_pct_of)
     return out
+
+
+def _stress_for(exposure: dict, base: str, token: str | None, *, nav_usd: float | None) -> dict:
+    """Scenarios from settings-kv (defaults in stress_test), floor and betas from
+    `risk_guardrails`, FX from the income settings, the next FOMC/CPI from the
+    market calendar, implied moves from the ATM straddle on QQQ and SPY for
+    the expiry just after the next FOMC (chain route), hike odds from the
+    owner's kv input if any."""
+    from ..events import load_market_calendar
+    from ..income_spreads import _kv_get
+    from ..stress_test import implied_move_from_straddle, stress
+
+    def _kv(key):
+        try:
+            v = _kv_get(base, token or "", key) or {}
+            v = v.get("value", v) if isinstance(v, dict) else v
+            return json.loads(v) if isinstance(v, str) else (v or {})
+        except Exception:  # noqa: BLE001
+            return {}
+    rg, ie, macro = _kv("risk_guardrails"), _kv("income_engine"), _kv("macro")
+    gbp = float(ie.get("fx_gbp_per_usd_fallback") or 0) or None
+    today = date.today()
+    events = []
+    try:
+        for e in load_market_calendar():
+            if e.kind in ("fomc", "cpi", "jobs") and e.on >= today:
+                events.append({"on": e.on.isoformat(), "kind": e.kind, "title": e.title, "days": (e.on - today).days})
+    except Exception as exc:  # noqa: BLE001
+        events.append({"on": None, "kind": "gap", "title": f"market calendar unreadable: {str(exc)[:80]}"})
+    events.sort(key=lambda x: x.get("on") or "9999")
+    nxt = next((e for e in events if e.get("kind") == "fomc"), None)
+    implied: dict = {}
+    if nxt and nxt.get("on"):
+        H = {"Authorization": f"Bearer {token}"} if token else {}
+        dte = max(2, int(nxt["days"]) + 2)
+        for idx in ("QQQ", "SPY"):
+            try:
+                r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{idx}", params={"targetDte": dte, "maxStrikes": 6},
+                                 headers=H, timeout=(5, 90))
+                d = r.json() if r.status_code == 200 else {}
+                spot = d.get("spot"); legs = d.get("legs") or []
+                if spot and legs:
+                    atm = min({float(l["strike"]) for l in legs}, key=lambda k: abs(k - float(spot)))
+                    def mid(right):
+                        for l in legs:
+                            if float(l["strike"]) == atm and str(l.get("right", "")).upper().startswith(right) and l.get("bid") is not None and l.get("ask") is not None:
+                                return (float(l["bid"]) + float(l["ask"])) / 2
+                        return None
+                    exp = next((str(l.get("maturityDate")) for l in legs if l.get("maturityDate")), None)
+                    implied[idx] = {"expiry": exp, "atm_strike": atm, "move_pct": implied_move_from_straddle(mid("C"), mid("P"), float(spot)),
+                                    "note": None if mid("C") and mid("P") else "ATM straddle not quoted (closed market or cold stream)"}
+                else:
+                    implied[idx] = {"move_pct": None, "note": d.get("error") or "no chain"}
+            except Exception as exc:  # noqa: BLE001
+                implied[idx] = {"move_pct": None, "note": str(exc)[:80]}
+    odds = macro.get("fomc_hike_odds_pct")
+    hike = ({"available": True, "hike_odds_pct": odds, "as_of": macro.get("fomc_hike_odds_as_of"), "source": "settings-kv macro (owner input)"}
+            if odds is not None else None)
+    return stress(exposure, nav_usd=nav_usd, floor_gbp=rg.get("account_floor_gbp"), gbp_per_usd=gbp,
+                  scenarios=rg.get("stress_scenarios") or None, betas=rg.get("segment_beta") or {},
+                  segment_to_etf=rg.get("segment_hedge_etf") or {},
+                  cushion_min_gbp=rg.get("stress_cushion_min_gbp"), events=events, implied_moves=implied, hike_odds=hike, today=today)
 
 
 def _env_float(name: str) -> float | None:
@@ -813,6 +878,13 @@ def main() -> int:
                                                     nav_usd=a.nav_usd)
     except Exception as exc:  # noqa: BLE001
         art["artifact"]["put_book"] = {"error": f"put book not computed: {str(exc)[:160]}"}
+    # MACRO-EVENT STRESS TEST (options review item 14): the exposure block run
+    # through base / hawkish shock / dovish relief against the owner's floor,
+    # with the next FOMC/CPI dates and the index implied moves to just after them.
+    try:
+        art["artifact"]["stress"] = _stress_for(art["artifact"].get("exposure") or {}, base, token, nav_usd=a.nav_usd)
+    except Exception as exc:  # noqa: BLE001
+        art["artifact"]["stress"] = {"error": f"stress test not computed: {str(exc)[:160]}"}
     c = art["artifact"]["counts"]
     print(f"{c['short_puts']} short puts · {c['close']} CLOSE · {c['watch']} watch "
           f"· {c['hold']} hold · {c['unknown']} unknown")
@@ -834,6 +906,21 @@ def main() -> int:
         for m in (pb.get("cash_calendar") or {}).get("months") or []:
             if m.get("status") == "SHORT":
                 print(f"            cash {m['month']}: assignment ${m['assignment_usd']:,.0f} vs free ${m['free_cash_usd']:,.0f} — SHORT by ${m['short_by_usd']:,.0f}; close ahead: {', '.join(m.get('propose_closing_ahead') or [])}")
+    st = art["artifact"].get("stress") or {}
+    if st.get("error"):
+        print(f"  STRESS    {st['error']}")
+    elif st:
+        for k, r in (st.get("scenarios") or {}).items():
+            print(f"  STRESS    {k:14s} P&L ${r['pnl_usd']:>10,.0f}"
+                  + (f"  NAV after ${r['nav_after_usd']:,.0f}" if r.get("nav_after_usd") is not None else "")
+                  + (f"  cushion £{r['cushion_to_floor_gbp']:,.0f}" if r.get("cushion_to_floor_gbp") is not None else "")
+                  + ("  BREACHES FLOOR" if r.get("breaches_floor") else "  thin" if r.get("thin_cushion") else ""))
+        for f in st.get("flags") or []:
+            print(f"  FLAG      {f}")
+        for e in (st.get("events") or [])[:3]:
+            print(f"            event {e.get('on')} {e.get('title')}")
+        for k, v in (st.get("implied_moves") or {}).items():
+            print(f"            implied move {k}: {v.get('move_pct')}% to {v.get('expiry')}" if isinstance(v, dict) else f"            implied move {k}: {v}")
     ex = art["artifact"].get("exposure") or {}
     if ex.get("error"):
         print(f"  DELTA-$   {ex['error']}")

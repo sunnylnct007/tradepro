@@ -415,6 +415,13 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.earnings_moves(symbol, back_days))
 
     @mcp.tool()
+    @instrumented("fomc_stress")
+    def fomc_stress() -> str:
+        """Live book under base / hawkish / dovish scenarios vs the floor,
+        next FOMC/CPI dates, index implied moves. Read-only."""
+        return _json(t.fomc_stress())
+
+    @mcp.tool()
     @instrumented("put_book")
     def put_book() -> str:
         """Live short puts classified by the owner's policy (close / repair /
