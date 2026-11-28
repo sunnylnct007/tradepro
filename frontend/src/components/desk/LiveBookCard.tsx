@@ -219,6 +219,65 @@ export function LiveBookCard() {
           account was "a major drawdown like this cannot be predicted but
           overall exposures could have been avoided" — so the thing that could
           have helped goes ABOVE the thing that could not. */}
+      {/* EXPOSURE BY SEGMENT, OPTION-ADJUSTED (options review item 1, 28 Nov
+          2026). The obligation figure above counts short puts only; this is
+          the whole book in dollar-delta — shares, short puts, calls and the
+          index-ETF hedges — so a book that is net long most of the account
+          reads as such. Legs whose delta or spot could not be obtained are
+          GAPS, named below, never zero. */}
+      {art.exposure && !art.exposure.error && (
+        <div style={{ marginTop: 10, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "baseline", fontSize: 12 }}>
+            <b>Exposure by segment</b>
+            <span style={{ color: TONE.dim }}>
+              net <b style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{usd(art.exposure.net_usd)}</b>
+              {art.exposure.net_pct_of_nav != null ? ` (${art.exposure.net_pct_of_nav > 0 ? "+" : ""}${art.exposure.net_pct_of_nav}% of NLV)` : ""}
+              {" "}· gross long {usd(art.exposure.gross_long_usd)} · hedges {usd(art.exposure.hedges_usd)}
+              {" "}· a 1% move ≈ {usd(art.exposure.one_pct_move_usd)}
+            </span>
+            <span style={{ color: TONE.muted, fontSize: 11 }}>
+              {art.exposure.legs_priced}/{art.exposure.legs_total} legs priced
+              {art.exposure.legs_missing ? <b style={{ color: TONE.watch }}> · {art.exposure.legs_missing} GAP{art.exposure.legs_missing > 1 ? "S" : ""}</b> : null}
+            </span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, marginTop: 6 }}>
+            <thead>
+              <tr style={{ color: TONE.muted }}>
+                <th style={{ textAlign: "left", padding: "2px 4px" }}>segment</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>long</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>hedge</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>net</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>% of gross</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>cover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(art.exposure.segments ?? []).map((sg: any) => (
+                <tr key={sg.segment} title={(sg.names ?? []).join(", ")}
+                    style={{ borderTop: "1px solid var(--border)", color: sg.over_cap ? TONE.act : undefined }}>
+                  <td style={{ padding: "3px 4px" }}>{sg.segment.replace(/_/g, " ")}{sg.over_cap ? <b> · over the {art.exposure.cap_pct}% cap</b> : null}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{usd(sg.long_usd)}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{usd(sg.hedge_usd)}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{usd(sg.net_usd)}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right" }}>{sg.share_of_gross_long_pct}%</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right" }}>{sg.hedge_cover_pct ? `${sg.hedge_cover_pct}%` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(art.exposure.gaps ?? []).length > 0 && (
+            <div style={{ fontSize: 11, color: TONE.watch, marginTop: 4 }}>
+              not priced: {art.exposure.gaps.map((g: any) => `${g.symbol} (${g.missing})`).join(", ")} — excluded from the totals, not counted as zero
+            </div>
+          )}
+          <div style={{ fontSize: 10.5, color: TONE.muted, marginTop: 4 }}>
+            delta-dollars = qty × delta × multiplier × spot · deltas from the live chain ({art.exposure.delta_sources?.chain ?? 0}), solved from the mark ({art.exposure.delta_sources?.["black_scholes(mark)"] ?? 0}) · segment map: {art.exposure.segment_map_source}
+          </div>
+        </div>
+      )}
+      {art.exposure?.error && (
+        <div style={{ fontSize: 12, color: TONE.watch, marginTop: 8 }}>Exposure by segment: {art.exposure.error}</div>
+      )}
       {Array.isArray(art.exposures) && art.exposures.length > 0 && (
         <div style={{ margin: "8px 0 10px", padding: "8px 10px",
                       border: `1px solid ${TONE.act}`, borderRadius: 6,

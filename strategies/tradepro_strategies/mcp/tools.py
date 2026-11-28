@@ -416,6 +416,28 @@ def income_scan(mode: str = "latest", symbols: str | None = None) -> dict:
             "settings_source": (art.get("settings") or {}).get("source")}
 
 
+def live_book_exposure() -> dict:
+    """Live (real, read-only) book in dollar-delta by segment — options review
+    item 1 (28 Nov 2026): gross long, hedges, net, net % of NAV, a 1%-move
+    figure, per-segment long/hedge/net with the sector-cap flag, and the
+    GAPS (legs whose delta or spot could not be obtained — listed, not
+    zeroed). Read from the latest live-risk publish (07:20 / 13:30 UTC)."""
+    try:
+        d = _get("/api/today-setups/live-book-risk/latest")
+    except Exception as e:  # noqa: BLE001
+        return _err("live_book_exposure", str(e))
+    art = d.get("artifact") or {}
+    ex = art.get("exposure")
+    if not ex:
+        return _err("live_book_exposure", "the latest live-risk artifact carries no exposure block yet "
+                    "(published before 28 Nov 2026, or the lane has not run since)",
+                    as_of_utc=art.get("as_of_utc"), report_date=art.get("report_date"))
+    return {"_source": "api://today-setups/live-book-risk/latest#exposure", "fetched_at": _now_iso(), "ok": True,
+            "as_of_utc": art.get("as_of_utc"), "report_date": art.get("report_date"),
+            "statement_note": "positions at IBKR's close of report_date (end-of-day Flex statement)",
+            "exposure": ex, "placed_orders": 0}
+
+
 def income_monitor(mode: str = "latest") -> dict:
     """Income engine stage H (spec §6 `income_monitor`): every open spread
     in the ledger with its settled close, exit level (the 30-day closing low

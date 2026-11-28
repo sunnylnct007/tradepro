@@ -401,6 +401,14 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.income_scan(mode, symbols or None))
 
     @mcp.tool()
+    @instrumented("live_book_exposure")
+    def live_book_exposure() -> str:
+        """Live book in dollar-delta by segment (gross long, hedges, net, % of
+        NAV, 1% move, per-segment cap flags, named gaps). Read-only; from the
+        latest live-risk publish."""
+        return _json(t.live_book_exposure())
+
+    @mcp.tool()
     @instrumented("income_monitor")
     def income_monitor(mode: str = "latest") -> str:
         """Income engine monitor: open spreads with exit level, spread mid as
