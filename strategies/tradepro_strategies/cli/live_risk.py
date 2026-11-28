@@ -613,6 +613,67 @@ def flex_credentials(env: "dict | None" = None,
     return t2, q2, ""
 
 
+def _exposure_for(positions: list[dict], base: str, token: str | None, *,
+                  nav_usd: float | None) -> dict:
+    """Dollar-delta by segment for the live book. Deltas from the API's IBKR
+    chain route per (root, expiry, right); Black-Scholes from the option's
+    mark when the chain has none (labelled); a leg with neither is a named
+    gap. Segment map and cap from settings-kv `risk_guardrails`."""
+    from ..income_spreads import _kv_get
+    from ..live_exposure import ExposureConfig, exposure, legs_from_positions
+    from ..quant_engine.options.manage import parse_occ
+
+    try:
+        kv = _kv_get(base, token or "", "risk_guardrails") or {}
+        if isinstance(kv, dict) and "value" in kv and isinstance(kv["value"], (dict, str)):
+            kv = kv["value"]
+        if isinstance(kv, str):
+            kv = json.loads(kv)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("risk_guardrails not readable (%s) — sector map only", str(exc)[:80])
+        kv = {}
+    cfg = ExposureConfig.from_kv(kv if isinstance(kv, dict) else {}, sector_of=_sector_map())
+
+    roots = set()
+    for p in positions:
+        occ = parse_occ(str(p.get("symbol") or ""))
+        roots.add(occ[0] if occ else str(p.get("symbol") or "").upper())
+    spots = _spots({r for r in roots if r})
+
+    H = {"Authorization": f"Bearer {token}"} if token else {}
+    chain_cache: dict[tuple, dict[float, float]] = {}
+
+    def delta_for(root: str, expiry: str, right: str, strike: float) -> float | None:
+        key = (root, expiry, right)
+        if key not in chain_cache:
+            table: dict[float, float] = {}
+            try:
+                r = requests.get(f"{base.rstrip('/')}/api/ibkr/chain/{root}",
+                                 params={"expiry": expiry.replace("-", ""), "right": right, "maxStrikes": 60},
+                                 headers=H, timeout=(5, 90))
+                if r.status_code == 200:
+                    for leg in (r.json().get("legs") or []):
+                        if str(leg.get("right") or "").upper().startswith(right) and leg.get("delta") is not None:
+                            table[float(leg["strike"])] = float(leg["delta"])
+            except Exception as exc:  # noqa: BLE001 — the mark-solved delta is the fallback
+                log.info("%s %s %s: chain delta unavailable (%s)", root, expiry, right, str(exc)[:60])
+            chain_cache[key] = table
+        return chain_cache[key].get(float(strike))
+
+    legs = legs_from_positions(positions, spots=spots, delta_for=delta_for, cfg=cfg)
+    gbp = None
+    try:
+        fx = _kv_get(base, token or "", "income_engine") or {}
+        fx = fx.get("value", fx) if isinstance(fx, dict) else fx
+        if isinstance(fx, dict) and fx.get("fx_gbp_per_usd_fallback"):
+            gbp = float(fx["fx_gbp_per_usd_fallback"])
+    except Exception:  # noqa: BLE001
+        gbp = None
+    out = exposure(legs, cfg=cfg, nav_usd=nav_usd, gbp_per_usd=gbp)
+    out["segment_map_source"] = "settings-kv risk_guardrails" if cfg.segments else "sector map (no risk_guardrails.segments)"
+    return out
+
+
 def _env_float(name: str) -> float | None:
     v = (os.environ.get(name) or "").strip()
     try:
@@ -694,6 +755,13 @@ def main() -> int:
         return window_for_contract(sym, expiry, api_base=base).to_dict()
 
     art = build(positions, nav_usd=a.nav_usd, events_for=_events_for)
+    # EXPOSURE BY SEGMENT, OPTION-ADJUSTED (options review item 1, 28 Nov 2026).
+    # Computed here, not in build(), so build() stays pure; a failure here is
+    # reported inside the artifact, never allowed to sink the close verdicts.
+    try:
+        art["artifact"]["exposure"] = _exposure_for(positions, base, token, nav_usd=a.nav_usd)
+    except Exception as exc:  # noqa: BLE001
+        art["artifact"]["exposure"] = {"error": f"exposure not computed: {str(exc)[:160]}"}
     c = art["artifact"]["counts"]
     print(f"{c['short_puts']} short puts · {c['close']} CLOSE · {c['watch']} watch "
           f"· {c['hold']} hold · {c['unknown']} unknown")
@@ -706,6 +774,21 @@ def main() -> int:
             return rc
     for x in art["artifact"].get("exposures") or []:
         print(f"  EXPOSURE  {x['detail'][:104]}")
+    ex = art["artifact"].get("exposure") or {}
+    if ex.get("error"):
+        print(f"  DELTA-$   {ex['error']}")
+    elif ex:
+        print(f"  DELTA-$   net ${ex['net_usd']:,.0f}"
+              + (f" ({ex['net_pct_of_nav']:+.0f}% of NAV)" if ex.get("net_pct_of_nav") is not None else "")
+              + f" · gross long ${ex['gross_long_usd']:,.0f} · hedges ${ex['hedges_usd']:,.0f}"
+              + f" · {ex['legs_priced']}/{ex['legs_total']} legs priced"
+              + (f" · GAPS {ex['legs_missing']}" if ex.get("legs_missing") else ""))
+        for sg in ex.get("segments") or []:
+            print(f"            {sg['segment']:22s} long ${sg['long_usd']:>10,.0f}  hedge ${sg['hedge_usd']:>10,.0f}"
+                  f"  net ${sg['net_usd']:>10,.0f}  {sg['share_of_gross_long_pct']:>5.1f}% of gross"
+                  + ("  OVER CAP" if sg.get("over_cap") else ""))
+        for f in ex.get("flags") or []:
+            print(f"  FLAG      {f}")
     if art["artifact"].get("exposures"):
         print()
     for row in art["artifact"]["positions"]:
