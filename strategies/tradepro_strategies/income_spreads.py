@@ -96,6 +96,11 @@ DEFAULTS: dict = {
     "low_vol_rule": "shadow",
     "low_vol_hv_threshold": 0.30,
     "low_vol_min_delta": 0.10,
+    # Which credit/width minimum GATES: "engine" = min_credit_to_width (one
+    # number); "owner_by_class" = risk_guardrails.credit_to_width_min by
+    # volatility class (index / low-vol 20%, volatile ⅓). Owner switched to
+    # owner_by_class on 28 Nov 2026; the row shows both either way.
+    "credit_rule_source": "engine",
 }
 
 
@@ -323,7 +328,7 @@ def pick_strikes(puts: list[dict], swing_low: float, s: dict, *, min_delta: floa
 
 # ── Stage C ───────────────────────────────────────────────────────────────
 
-def price_spread(short: dict, long: dict, s: dict) -> tuple[dict | None, str]:
+def price_spread(short: dict, long: dict, s: dict, *, min_credit_to_width: float | None = None) -> tuple[dict | None, str]:
     """§4.3 — mids, natural, leg liquidity, OI, credit/width. Quotes must be
     present (stale ones are rejected BEFORE this by the fetcher)."""
     for name, leg in (("short", short), ("long", long)):
@@ -359,8 +364,10 @@ def price_spread(short: dict, long: dict, s: dict) -> tuple[dict | None, str]:
         return out, f"low_oi: short leg OI {oi} < {s['min_open_interest_short_leg']}"
     if out["credit_mid"] <= 0:
         return out, "no_credit"
-    if out["credit_to_width"] < float(s["min_credit_to_width"]):
-        return out, f"thin_credit: {out['credit_to_width']:.1%} of width < {float(s['min_credit_to_width']):.0%}"
+    floor = float(min_credit_to_width) if min_credit_to_width is not None else float(s["min_credit_to_width"])
+    out["min_credit_to_width_applied"] = floor
+    if out["credit_to_width"] < floor:
+        return out, f"thin_credit: {out['credit_to_width']:.1%} of width < {floor:.0%}"
     return out, "priced"
 
 
@@ -501,7 +508,11 @@ def _evaluate_expiry(sym: str, expiry: str, why_e: str, *, bucket: str, sector: 
         row["rejected"].append(f"no_strike: {why_k}"); return row
     legs["short"] = dict(legs["short"], symbol=sym)
     row.update({k: legs[k] for k in ("short_strike", "long_strike", "width")})
-    px, why_p = price_spread(legs["short"], legs["long"], s)
+    gate_min = None
+    if str(s.get("credit_rule_source") or "engine") == "owner_by_class" and row["credit_rule_owner"].get("min_credit_to_width") is not None:
+        gate_min = float(row["credit_rule_owner"]["min_credit_to_width"])
+        row["credit_rule_owner"]["gates"] = True
+    px, why_p = price_spread(legs["short"], legs["long"], s, min_credit_to_width=gate_min)
     if px:
         row["warnings"] = row.get("warnings", []) + px.pop("warnings", [])
         row.update(px)

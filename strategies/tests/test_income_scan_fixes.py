@@ -104,3 +104,22 @@ def test_held_live_as_of_reads_the_statement_date(monkeypatch):
     monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
     out = I.held_live_as_of("http://x", "t")
     assert out["report_date"] == "2026-11-27" and "end-of-day" in out["note"]
+
+
+def test_the_owner_class_minimum_gates_when_the_source_says_so():
+    kv = {"credit_to_width_min": {"index_or_low_vol": 0.20, "volatile": 0.3333, "hv30_volatile_threshold_pct": 40}}
+    base = dict(dte_min=25, dte_max=50, expiries_to_try=1, min_credit_to_width=0.15, min_pop_full_credit=0.0,
+                min_open_interest_short_leg=1, max_leg_bid_ask_pct=0.5, spread_width_preference=[10], _risk_guardrails=kv)
+    # 2.0 credit on a 10 width = 20%: passes the engine's 15% and the low-vol 20%, fails the volatile third
+    quiet = I.evaluate("AAA", bucket="single", sector="x", spot=100.0, tech=dict(_tech(), hv_30d=0.25), expiries=EXPS,
+                       puts_for=lambda e: _legs(2.2, 0.2), next_earnings="2027-06-01", earnings_basis="scheduled", held=set(),
+                       sector_open_gbp=0.0, total_open_gbp=0.0, fx_gbp_per_usd=0.79, s=_s(**base, credit_rule_source="owner_by_class"), today=TODAY)
+    assert not quiet["rejected"] and quiet["min_credit_to_width_applied"] == 0.20 and quiet["credit_rule_owner"]["gates"] is True
+    wild = I.evaluate("BBB", bucket="single", sector="x", spot=100.0, tech=dict(_tech(), hv_30d=0.60), expiries=EXPS,
+                      puts_for=lambda e: _legs(2.2, 0.2), next_earnings="2027-06-01", earnings_basis="scheduled", held=set(),
+                      sector_open_gbp=0.0, total_open_gbp=0.0, fx_gbp_per_usd=0.79, s=_s(**base, credit_rule_source="owner_by_class"), today=TODAY)
+    assert any(x.startswith("thin_credit") and "33%" in x for x in wild["rejected"])
+    engine = I.evaluate("BBB", bucket="single", sector="x", spot=100.0, tech=dict(_tech(), hv_30d=0.60), expiries=EXPS,
+                        puts_for=lambda e: _legs(2.2, 0.2), next_earnings="2027-06-01", earnings_basis="scheduled", held=set(),
+                        sector_open_gbp=0.0, total_open_gbp=0.0, fx_gbp_per_usd=0.79, s=_s(**base, credit_rule_source="engine"), today=TODAY)
+    assert not engine["rejected"] and engine["min_credit_to_width_applied"] == 0.15
