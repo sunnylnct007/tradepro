@@ -171,6 +171,62 @@ work:
 - **Trade date.** Ledger and P&L date any fill after 20:00 ET to the next
   trade date.
 
+### 12. Income engine: why the 27 Nov scan found 0 of 14
+The latest `income_scan` (published 27 Nov, bars to 25 Nov) returned no
+candidates. Half the rejections are correct (JPM, GOOGL, UNH, CAT, PEP, XOM,
+MRK below the 200-DMA or the cloud; UNH and CAT flagged falling knives). The
+rest are design gaps:
+
+- **Low-volatility names can never pass.** JNJ, PG and HD are in clean
+  uptrends, but "short strike below the 30-day low" plus "short delta
+  0.15–0.30" is unsatisfiable for quiet stocks (strikes below the 30-day low
+  sit at Δ 0.05–0.09). Fix: for names with 30-day HV below ~30%, use the
+  20-day low, or let the delta floor drop to 0.10 when the strike is below
+  the swing low. Pre-register the change (house rule) before it gates.
+- **The index half of the engine is not scanned.** The spec says 50% index
+  options (QQQ, XSP, IWM); none appear in the scan. IWM and XSP are the
+  diversified, non-AI legs this book needs most. Add them (ETF options must
+  be closed before expiry for this account — see item 5).
+- **One expiry only.** Every row tried 15 Jan. Try the next two monthlies
+  (e.g. Jan and Feb) and keep the best that clears events; V failed on thin
+  credit (11.6% < 15%) and would likely pass at a later expiry.
+- **Stale held list.** `held_live` still listed MDB and PLTR on 28 Nov,
+  after both were closed on 27 Nov. Note the Flex snapshot time on the scan.
+- **Owner's credit rule.** The live rule since 25 Nov is credit ≥ ⅓ of
+  width for put spreads; the engine's `min_credit_to_width` is 0.15. Show
+  both on the row and let the owner set the value in settings-kv.
+
+Accept when: a rescan of the same names on Monday's quotes tries two
+expiries and the index ETFs, and every rejection still names its number.
+
+### 13. Stock vs sector vs market — correlated stats on every decision
+Owner, 28 Nov: decisions must check the stock against its sector index and
+SPY, with correlation statistics, not the stock's own price alone (owner
+basics 7). `relative_context.py` and `sector_rs.py` already compute
+21/63-session relative strength vs the sector ETF and SPY, display-only.
+Extend that to:
+
+- **Beta and correlation** to the sector ETF and to SPY (60 and 120
+  sessions), so a stock's move is split into "market", "sector" and "own".
+- **Sector regime line** for the sector ETF itself: above/below 50-DMA and
+  200-DMA, lower-lows flag, 20-day return — the check that would have caught
+  the October semis breakdown (SMH) before more puts were sold.
+- **Market regime line** for SPY and QQQ: the same fields.
+- **Relative strength rank** within the sector (stock's 63-day return minus
+  the sector ETF's), so "MU lagging its bucket while STX ripped" is a number.
+- **Shown on every surface that proposes or manages a trade:** income scan
+  rows, the repair board (item 2), covered calls (item 4), swing candidates.
+
+Gating: the sector regime check becomes a GATE for new short puts and put
+spreads ("no new short puts while the sector ETF is below its 50-DMA and
+making lower lows"), but only after a pre-registered gates doc and a replay
+on the Sep–Nov 2026 semis period shows it would have blocked the October
+entries without blocking the summer ones.
+
+Accept when: on the 27 Nov book, MU, SNDK, STX and WDC rows each show beta,
+correlation and RS vs SMH and SPY, and SMH's regime line reads correctly
+for October (below 50-DMA, lower lows) and late November.
+
 ---
 
 ## Stock signals — what to change
