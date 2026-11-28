@@ -20,6 +20,40 @@ concentration, assignment), `quant_engine/options/manage.py` (ManageRules),
 
 ---
 
+## Build order — keep it small enough to trade (owner, 28 Nov)
+
+"We need to be careful of not spreading in too many directions, else we will
+not even trade." Twenty items is a backlog, not a weekend. **Trading does not
+wait for the build**: the weekly routine below runs by hand (agent + IBKR)
+from Monday, and each stage replaces a manual step when it ships.
+
+**Stage 1 — this weekend (three things, in this order):**
+1. Item 1 — exposure by segment, option-adjusted.
+2. Item 3 — event calendar inside every option's life.
+3. Item 17 — put-book manager (uses 1 and 3; needs the effective-cost part
+   of item 16 only).
+
+**Stage 2 — next two weeks:** item 12 (income scan fixes, so income trades
+resume), item 4 (covered-call manager), item 14 (stress test, before or just
+after 9 Dec), and the daily analysis pack from item 18.
+
+**Stage 3 — later, one at a time:** everything else (charts and trade-fit
+panel 15/18/19, macro strip 20, correlated stats 13, hedge module 5, call
+spreads 7, the rest). Nothing in stage 3 starts until stage 2 is in daily
+use.
+
+**Rules for the build:** one item in progress at a time; an item is done
+when its "Accept when" check passes on the 27 Nov book; no new items are
+added to this document until stage 2 ships — new ideas go to a parking list.
+
+**Weekly trading routine (runs regardless of the build):**
+- Daily, 14:45 London: book check — floor, triggers, anything expiring or
+  reporting within 7 days.
+- 1–2 new income trades a week through the three-check gate.
+- Covered calls and repairs on green days only.
+- Friday: net liquidation vs milestone, exposure by segment, next week's
+  events.
+
 ## Operating model — owner-agreed summary (28 Nov 2026)
 
 This is the frame every item below serves. Agreed with the owner on
