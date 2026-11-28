@@ -415,6 +415,14 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.earnings_moves(symbol, back_days))
 
     @mcp.tool()
+    @instrumented("put_book")
+    def put_book() -> str:
+        """Live short puts classified by the owner's policy (close / repair /
+        hold-accept / hold), cheap-exit triggers, cash calendar by month vs
+        the reserve, hedge coverage gap. Read-only."""
+        return _json(t.put_book())
+
+    @mcp.tool()
     @instrumented("live_book_exposure")
     def live_book_exposure() -> str:
         """Live book in dollar-delta by segment (gross long, hedges, net, % of

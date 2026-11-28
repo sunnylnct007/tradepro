@@ -416,6 +416,26 @@ def income_scan(mode: str = "latest", symbols: str | None = None) -> dict:
             "settings_source": (art.get("settings") or {}).get("source")}
 
 
+def put_book() -> dict:
+    """The owner's assignment-or-repair policy on every live short put
+    (review item 17): effective cost, gap, conviction flag, policy
+    (CLOSE / REPAIR / HOLD-ACCEPT / HOLD) with its rule, cheap-exit triggers,
+    floor proposals, the cash calendar by expiry month against the reserve,
+    and the hedge coverage gap. Read-only; from the latest live-risk publish."""
+    try:
+        d = _get("/api/today-setups/live-book-risk/latest")
+    except Exception as e:  # noqa: BLE001
+        return _err("put_book", str(e))
+    art = d.get("artifact") or {}
+    pb = art.get("put_book")
+    if not pb:
+        return _err("put_book", "the latest live-risk artifact carries no put_book block yet",
+                    as_of_utc=art.get("as_of_utc"), report_date=art.get("report_date"))
+    return {"_source": "api://today-setups/live-book-risk/latest#put_book", "fetched_at": _now_iso(), "ok": True,
+            "as_of_utc": art.get("as_of_utc"), "report_date": art.get("report_date"), "put_book": pb,
+            "placed_orders": 0}
+
+
 def live_book_exposure() -> dict:
     """Live (real, read-only) book in dollar-delta by segment — options review
     item 1 (28 Nov 2026): gross long, hedges, net, net % of NAV, a 1%-move

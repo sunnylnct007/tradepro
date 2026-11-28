@@ -674,6 +674,48 @@ def _exposure_for(positions: list[dict], base: str, token: str | None, *,
     return out
 
 
+def _put_book_for(rows: list[dict], positions: list[dict], base: str, token: str | None, *,
+                  nav_usd: float | None) -> dict:
+    """The owner's put policy on the live rows. Technicals (10/20-day lows,
+    20-day average) from the golden daily store; the sector ETF's day from the
+    same store; flags and cash figures from settings-kv `risk_guardrails`."""
+    from ..income_spreads import _kv_get
+    from ..put_book import put_book
+
+    try:
+        kv = _kv_get(base, token or "", "risk_guardrails") or {}
+        kv = kv.get("value", kv) if isinstance(kv, dict) else kv
+        if isinstance(kv, str):
+            kv = json.loads(kv)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("risk_guardrails not readable for the put book (%s)", str(exc)[:80])
+        kv = {}
+
+    def bars_for(sym: str) -> dict | None:
+        from ..daily_bars import load_bars
+        df = load_bars(sym, "1d", lookback_days=60)
+        if df is None or len(df) < 21:
+            return None
+        c = df["close"].astype(float)
+        lo = df["low"].astype(float) if "low" in df.columns else c
+        return {"close": float(c.iloc[-1]), "prev_close": float(c.iloc[-2]),
+                "low_10d": float(lo.tail(10).min()), "low_20d": float(lo.tail(20).min()),
+                "sma20": float(c.tail(20).mean())}
+
+    def sector_down_pct_of(sym: str) -> float | None:
+        try:
+            from ..sector_rs import get_sector_etf
+            etf, _fallback = get_sector_etf(sym)
+            t = bars_for(etf)
+            return round((t["close"] / t["prev_close"] - 1) * 100, 2) if t and t.get("prev_close") else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    out = put_book(rows, positions=positions, kv=kv if isinstance(kv, dict) else {}, nav_usd=nav_usd,
+                   bars_for=bars_for, sector_down_pct_of=sector_down_pct_of)
+    return out
+
+
 def _env_float(name: str) -> float | None:
     v = (os.environ.get(name) or "").strip()
     try:
@@ -762,6 +804,15 @@ def main() -> int:
         art["artifact"]["exposure"] = _exposure_for(positions, base, token, nav_usd=a.nav_usd)
     except Exception as exc:  # noqa: BLE001
         art["artifact"]["exposure"] = {"error": f"exposure not computed: {str(exc)[:160]}"}
+    # PUT-BOOK MANAGER (options review item 17, 28 Nov 2026): the owner's
+    # hold / accept / repair / close policy on the rows above, the cash
+    # calendar by expiry month and the hedge coverage gap. Same contract as
+    # the exposure block: computed beside build(), failures reported inside.
+    try:
+        art["artifact"]["put_book"] = _put_book_for(art["artifact"]["positions"], positions, base, token,
+                                                    nav_usd=a.nav_usd)
+    except Exception as exc:  # noqa: BLE001
+        art["artifact"]["put_book"] = {"error": f"put book not computed: {str(exc)[:160]}"}
     c = art["artifact"]["counts"]
     print(f"{c['short_puts']} short puts · {c['close']} CLOSE · {c['watch']} watch "
           f"· {c['hold']} hold · {c['unknown']} unknown")
@@ -774,6 +825,15 @@ def main() -> int:
             return rc
     for x in art["artifact"].get("exposures") or []:
         print(f"  EXPOSURE  {x['detail'][:104]}")
+    pb = art["artifact"].get("put_book") or {}
+    if pb.get("error"):
+        print(f"  PUT-BOOK  {pb['error']}")
+    elif pb:
+        print(f"  PUT-BOOK  {pb.get('counts')} · cheap exits now: {', '.join(pb.get('cheap_exits_now') or []) or 'none'}"
+              + (f" · {pb['hedge_coverage'].get('note')}" if pb.get("hedge_coverage") else ""))
+        for m in (pb.get("cash_calendar") or {}).get("months") or []:
+            if m.get("status") == "SHORT":
+                print(f"            cash {m['month']}: assignment ${m['assignment_usd']:,.0f} vs free ${m['free_cash_usd']:,.0f} — SHORT by ${m['short_by_usd']:,.0f}; close ahead: {', '.join(m.get('propose_closing_ahead') or [])}")
     ex = art["artifact"].get("exposure") or {}
     if ex.get("error"):
         print(f"  DELTA-$   {ex['error']}")
