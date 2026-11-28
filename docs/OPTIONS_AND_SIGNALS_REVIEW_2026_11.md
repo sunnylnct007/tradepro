@@ -491,6 +491,59 @@ WDC (gap ≥ 0); HOLD/ACCEPT — AMD (−3%), HOOD (−8%), NVDA (owner decision
 REPAIR — GOOGL 315 (single-name cap), SKHY (−11%), MRVL (−20%), DELL 420
 (−19%); CLOSE — CRDO (earnings 1 Dec); and the January cash shortfall.
 
+### 18. Analytic, interactive screens — and a daily analysis pack
+Owner, 28 Nov: screens should be "more analytic and interactive", graphs
+"very obvious", and TradePro should "do the donkey work" so the agent's
+analysis starts from finished numbers. Use the charting libraries already in
+`frontend/package.json` (lightweight-charts for price, recharts/plotly for
+the rest); no new library.
+
+**Screens**
+- **Book dashboard (the landing page).** Net liquidation vs the floor and
+  milestones (line); exposure by segment, long vs hedges (bars, item 1);
+  assignment-cash calendar by month (item 17); events in the next 21 days;
+  triggers fired today; the three-check gate's current market/sector state.
+  One screen answers "are we safe, and what needs a decision?"
+- **Put-book board.** Sortable table from item 17 (class, gap to effective
+  cost, days to expiry, events). Selecting a row opens a **payoff chart**:
+  P&L at expiry for hold / close / floor, with a price slider and the
+  support level, effective cost and current price marked.
+- **Symbol page.** Item 15's chart, interactive: timeframe switch, indicator
+  toggles, crosshair with values, tappable event markers. **Our own levels
+  drawn on the price**: short strikes, effective cost, stop, covered-call
+  strike, collar put — so a position is read against the chart, not from a
+  table.
+- **What-if panel.** Sliders for "QQQ −x%" and "sector −y%" (beta-applied,
+  gamma-adjusted) showing net liquidation against the floor live; presets
+  for the item 14 scenarios.
+- **Income board.** Candidates and rejections with the gate numbers, open
+  spreads with % of credit captured, days to expiry and exit triggers.
+
+**Obvious-graph rules** (extend item 15): one question per chart, stated in
+its title ("Are we too concentrated?"); the answer visible without hovering;
+direct labels, fixed colours, thresholds drawn as lines (floor, cap, stop);
+red only for a breached limit; phone width first.
+
+**Daily analysis pack (the donkey work).** After the RTH close and again
+pre-market, TradePro writes one JSON pack and exposes it as a single MCP
+tool: book exposure and stress, every position with effective cost, stop,
+class and events, technicals and relative strength for every held and
+watched symbol and its sector ETF, volatility context, triggers fired,
+income candidates, data-freshness flags. The agent reads the pack and
+discusses decisions; it does not rebuild any of it from broker calls.
+
+**Data: nothing to buy now.** Current sources (IBKR + OPRA, Yahoo, Finnhub,
+Polygon, Quiver, the nightly chain capture) cover every item above. The one
+candidate for a paid feed later is **historical options data** (IV history
+and past chains, e.g. ORATS or a Polygon options plan) — only if the nightly
+capture proves too fragile for IV rank and spread backtests. Decide after two
+weeks of items 6 and 12 running; free sources cover rate odds (CME FedWatch /
+prediction-market APIs) and macro dates.
+
+Accept when: on the 27 Nov book the dashboard shows the +$237k net exposure,
+the January cash shortfall and the 9 Dec FOMC without a click, and the MDB
+payoff chart reproduces close (−$2.7k) vs 300 floor (capped −$4.7k).
+
 ---
 
 ## Stock signals — what to change
