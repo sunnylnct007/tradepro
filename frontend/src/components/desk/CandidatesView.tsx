@@ -443,13 +443,16 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
     <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
       <div>
         <div style={{ fontSize: 18, fontWeight: 700 }}>Candidates</div>
-        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.5, marginTop: 2 }}>
-          Every strategy, one table. Strategy is a <b>filter</b>, not a tab.
-          Each row carries its own <b>freshness</b> and its sleeve's <b>tier</b> — a
-          candidate from a strategy that has not passed its gates must not look like
-          one from a strategy that has. Metrics rank <b>within</b> a strategy: a σ and
-          a %/yr are not comparable, and pretending otherwise would be a number
-          that means nothing.
+        <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
+          Every live strategy's picks in one table — pick a strategy pill to filter.
+          <details style={{ display: "inline", marginLeft: 8 }}>
+            <summary style={{ display: "inline", cursor: "pointer" }}>how to read it</summary>
+            <span style={{ display: "block", lineHeight: 1.5, marginTop: 4 }}>
+              Each row carries its own <b>freshness</b> and its sleeve's <b>tier</b> — a candidate from a
+              strategy that has not passed its gates must not look like one from a strategy that has.
+              Metrics rank <b>within</b> a strategy: a σ and a %/yr are not comparable.
+            </span>
+          </details>
         </div>
       </div>
 
@@ -481,18 +484,8 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
 
       {hideBlocked && only === "all" && (withheldCount > 0 || unprovenCount > 0) && (
         <div style={{ fontSize: 11.5, color: MUTED }}>
-          This list shows rows from live strategies that passed their gates.
-          Swing and Momentum pullback are winding down (exits only) and are left
-          out; click their pill to see what their old rules would have picked.
-          {withheldCount > 0 && (
-            <> {withheldCount} row(s) from a strategy whose backtest FAILED are
-            not listed.</>
-          )}
-          {unprovenCount > 0 && (
-            <> {unprovenCount} row(s) from strategies that have never been
-            tested are not listed.</>
-          )}
-          {" "}Counted, never hidden — click a pill to study them.
+          Showing live strategies that passed their gates
+          {withheldCount > 0 || unprovenCount > 0 ? <> · not listed: {[withheldCount > 0 ? `${withheldCount} from a FAILED strategy` : null, unprovenCount > 0 ? `${unprovenCount} from untested strategies` : null].filter(Boolean).join(", ")} (click a pill to see them)</> : null}.
         </div>
       )}
 
@@ -568,11 +561,10 @@ export function CandidatesView(_props: { onOpenSymbol?: (symbol: string) => void
       ) : view.length === 0 ? (
         <div style={{ padding: "12px 14px", border: "1px dashed var(--border)",
                       borderRadius: 8, fontSize: 12.5, color: "var(--text)" }}>
-          <b>No candidates is a verdict, not a failure.</b>{" "}
+          <b>No candidates today.</b>{" "}
           <span style={{ color: MUTED }}>
-            These strategies fire on a minority of sessions by design — a quiet day
-            is the rules working. Untick “hide blocked” to see what was considered
-            and why it was rejected.
+            That is the rules working, not a fault — these strategies fire on a minority of sessions.
+            Untick “hide blocked” to see what was considered and why.
           </span>
         </div>
       ) : (

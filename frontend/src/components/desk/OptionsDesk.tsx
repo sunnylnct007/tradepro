@@ -344,8 +344,11 @@ export function OptionsDesk() {
       <PutLimitBanner limit={putLimit} />
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>Options Desk — the Wheel</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 2 }}>
-          Cash-secured puts on quality names, risk-first. A candidate is <b>eligible</b> only when it
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          Cash-secured puts on quality names, risk-first — every gate shown with its number; anything unverifiable is BLOCKED with the reason.
+          <details style={{ display: "inline", marginLeft: 8 }}>
+            <summary style={{ display: "inline", cursor: "pointer" }}>the gates</summary>
+            Cash-secured puts on quality names, risk-first. A candidate is <b>eligible</b> only when it
           clears <b>every</b> gate: constructive regime (price trend intact, not a falling knife),
           a <b>vega edge</b> (IV-Rank &gt; 30 once our IV dataset matures; until then the IV/HV&nbsp;≥&nbsp;1.0
           bridge — implied must at least pay for realised vol), delta 0.20–0.35, 25–50 DTE, OI ≥ 250,
@@ -353,6 +356,7 @@ export function OptionsDesk() {
           no selling for pennies), no earnings in the window (ETFs structurally exempt), and within capital
           limits. Anything we can't verify shows <b>BLOCKED with the reason</b> — hover a row's why-not for
           the full list. Never a silent green light.
+          </details>
         </div>
       </div>
 

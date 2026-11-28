@@ -273,12 +273,13 @@ function Holdings({ rows, onOpenSymbol }: { rows: Row[]; onOpenSymbol?: (s: stri
           })}
         </tbody>
       </table>
-      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+      <details style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+        <summary style={{ cursor: "pointer" }}>How to read this table</summary>
         HOLD = still in the top 10; a holding is sold on a close below its stop (20% under its highest close since the buy)
         or at the next decision. 30-day trend and 50-day average use settled daily closes (what the strategy trades on);
         Today uses the harvested 5-minute bars against yesterday's close — display only, hover for the last bar's time; it reads “not in yet” until the session's first bars are harvested, and is never the previous session shown as today.
-        Now is the live quote while the market is open.
-      </div>
+        Now is the live quote while the market is open. Paid = our fill prices.
+      </details>
     </div>
   );
 }
@@ -399,11 +400,14 @@ export function SignalBoard({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) 
         </div>
       ) : (
         <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.5 }}>
-          Decided on the {day(board.signal_date)} close; paper orders at the {day(board.order_date)} open.
-          Next decision {day(board.next_signal_date)}. {board.market}. {board.allocation_pct}% of capital,
-          {" "}{board.per_name_pct}% a name.
+          {/* ONE LINE OF FACTS (owner, 28 Nov 2026: "I do not like this screen"):
+              dates, the market reading, the sizing. The derivation lives in the
+              disclosure below the table, not in a paragraph above it. */}
+          <span style={{ color: "var(--text)" }}>Decided {day(board.signal_date)} · next decision <b>{day(board.next_signal_date)}</b></span>
+          {" · "}{board.market}
+          {" · "}{board.allocation_pct}% invested, {board.per_name_pct}% a name
           {(board.universe_n || board.capital) ? (
-            <div style={{ color: "var(--text-muted)", fontSize: 11.5 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
               {board.universe_n ? <>Ranked {board.eligible_n != null ? `${board.eligible_n} eligible of ` : ""}{board.universe_n} names (sector-labelled universe, SPY/QQQ excluded). </> : null}
               {board.capital ? <>Paper orders sized on ${Math.round(board.capital).toLocaleString()} paper capital
                 {board.per_name_pct ? ` — about $${Math.round(board.capital * board.per_name_pct / 100).toLocaleString()} a name` : ""}.</> : null}
@@ -439,9 +443,8 @@ export function SignalBoard({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) 
               {group("Stays", stays, "inherit", false)}
             </div>
             <div style={{ color: "var(--text-dim)", fontSize: 11.5, marginTop: 6 }}>
-              Not an order. This book changes holdings only on its decision date ({day(board.next_signal_date)});
-              the ranking is rebuilt from the latest close on every run so the drift is visible.
-              {T.market_ok === false ? " SPY is below its 200-day average: the rule would hold cash." : ""}
+              Not an order — holdings change only on {day(board.next_signal_date)}.
+              {T.market_ok === false ? <b style={{ color: "#d29922" }}> SPY is below its 200-day: the rule would hold cash.</b> : ""}
             </div>
           </div>
         );
@@ -459,9 +462,6 @@ export function SignalBoard({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) 
           {board.book.names_priced < board.book.names_held && (
             <span style={{ color: "#d29922" }}> · {board.book.names_held - board.book.names_priced} held name(s) have no price since the buy and are not in this total</span>
           )}
-          <div style={{ color: "var(--text-muted)", fontSize: 11.5 }}>
-            Paid = our fill prices. Now = the live quote while the market is open, else the latest close after the buy.
-          </div>
         </div>
       )}
       {by("BUY").length > 0 && (
