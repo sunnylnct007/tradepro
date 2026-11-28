@@ -20,6 +20,86 @@ concentration, assignment), `quant_engine/options/manage.py` (ManageRules),
 
 ---
 
+## Operating model — owner-agreed summary (28 Nov 2026)
+
+This is the frame every item below serves. Agreed with the owner on
+27–28 Nov after reviewing six months of live trading: the method (income
+from options around a share book) worked in calm months; **concentration,
+naked puts on margin, leverage and shares held with no stop** turned a sector
+correction into a deep drawdown. TradePro's first job is to make those four
+impossible to miss.
+
+### A. Hard risk limits — no unlimited risk, ever
+| Limit | Value |
+|---|---|
+| New short options | Spread or covered by shares. Never naked on margin. |
+| Cash-secured puts | Allowed, max **2 open**, only on want-to-own names, cash covers assignment after the reserve, and only when the market is **not in a downtrend** (SPY and QQQ above the 50-DMA, sector gate passes). |
+| Max loss per income trade | $3k (about 1–1.5% of net liquidation) |
+| Income book total max loss | **£12k now; £20k once naked puts are below five** (replaces the £6k phase-1 cap) |
+| Minimum credit / width | **20–25% for index and low-volatility names; ⅓ for volatile names** (30-day HV above ~40%) |
+| Sector cap | 40–45% of exposure, option-adjusted (item 1) |
+| Leverage | ≤ 1.6× |
+| Margin cushion | Excess liquidity ≥ 30% of net liquidation; alert at 35%; below 30% cut risk before anything else |
+| Cash reserve | $50k untouched; assignment cash checked month by month (item 17) |
+| Account floor | Net liquidation floor set by the owner (settings-kv), measured on the RTH close |
+| Macro events | Stress test before every FOMC/CPI (item 14) |
+
+### B. Stock positions need stops (the biggest loss came from here)
+Owner, 28 Nov: "our main drawdown was on stocks due to no stop loss."
+- **Every new stock position carries a stop written at entry**: a closing
+  level (below the 50-DMA or the entry support, or 2× ATR), sized so the
+  loss at the stop is ≤ 2% of net liquidation.
+- **A swing never becomes a hold by default.** If the stop is hit, the
+  position is flagged EXIT; converting it to a long-term hold requires an
+  explicit owner decision recorded in the journal (item 16).
+- **No averaging down** below the stop, and no new money into a name whose
+  sector gate is failing.
+- **Existing underwater shares** (bought before these rules): TradePro shows
+  each one's distance to its last capitulation low and flags a weekly close
+  below it as "thesis broken — review". The action stays the owner's.
+  *(Open decision: whether a break means cut half, cut all, or collar.)*
+
+### C. The three-check gate — in front of every proposal
+1. **Market and sector trend** (item 13): SPY/QQQ and the sector ETF vs the
+   50-DMA, lower-lows flag, rate-odds trend (item 14).
+2. **Events before expiry** (item 3): earnings, FOMC, CPI.
+3. **Size and structure**: section A's limits.
+Each check shows pass/fail **with its number**. A failed check blocks the
+proposal; it is never hidden.
+
+### D. Two engines
+- **Recovery** — the shares already held, covered calls at 0.20–0.30 delta
+  on green days (item 4), and the put-book manager (item 17): hold / accept
+  assignment / repair into bounces. No automatic rolls: close, then any new
+  position is a fresh trade through the gate.
+- **Income (continues, diversified)** — ~40% index spreads (IWM, XSP, QQQ
+  call spreads, iron condors when calm), ~40% non-tech single names, ~20%
+  covered calls; 1–2 new trades a week, expiries staggered 4–8 weeks; sell
+  after events; take profit at 50%, close at 21 DTE or on a close through
+  the entry level (items 7 and 12).
+
+### E. Want-to-own flags (drive the put-book manager and CSPs)
+Owner-set per symbol in settings-kv. Starting values: **want** — NVDA, AMD,
+STX, WDC, SNOW, HOOD; **no more of** — GOOGL (already 200 shares), MRVL,
+SKHY, DELL (beyond the Mar 380), CRDO.
+
+### F. Symbol view and charts (item 15)
+Default **daily** for decisions, **5-minute intraday with VWAP** for
+timing. Price panel: candles, 20/50/200-DMA, Bollinger bands,
+support/resistance, volume. Intraday: VWAP, day high/low, gap, volume pace.
+Indicators: RSI, ATR, realised vs implied volatility, IV rank, expected move.
+Context: stock vs sector ETF vs SPY vs QQQ rebased to 100, beta, correlation,
+relative strength. Header line: futures, sector regime, next event. Event
+markers on the axis. Clear on a phone.
+
+### G. How it is built
+Deterministic code for every number and gate (no LLM in the calculation
+path); the agent reads TradePro's outputs through the tools of item 16 and
+cites them. Failed strategies are parked (see "Cut or park"). TradePro
+never places or prepares live orders.
+
+---
+
 ## Priority 1 — build this weekend
 
 ### 1. Portfolio exposure in dollar-delta, by segment
