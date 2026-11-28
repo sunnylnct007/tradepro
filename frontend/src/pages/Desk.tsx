@@ -179,7 +179,7 @@ export function Desk() {
 
               One screen, one question: Candidates = what to do. Portfolio =
               what you hold and how it is doing. */}
-          <SignalBoard />
+          <SignalBoard onOpenSymbol={(sym) => onSelectSymbol(sym, "momentum_rotation_ibkr")} />
           <DeskKpiStrip />
 
 

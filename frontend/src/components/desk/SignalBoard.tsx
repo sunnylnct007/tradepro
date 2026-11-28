@@ -41,6 +41,20 @@ export function todayFigure(asOf: string | null | undefined, now: Date = new Dat
   return { show: true, label: day, title: `last session: 5-minute bars to ${day} ${t} New York` };
 }
 
+/** Every symbol on the desk opens its page. Owner, 28 Nov 2026: "the
+ *  symbols shd be clickable". Falls back to plain text when no handler is
+ *  mounted (the board can render outside the desk shell). */
+function SymbolLink({ symbol, onOpen }: { symbol: string; onOpen?: (s: string) => void }) {
+  if (!onOpen) return <>{symbol}</>;
+  return (
+    <button type="button" onClick={() => onOpen(symbol)} title={`open ${symbol}`}
+      style={{ background: "transparent", border: 0, padding: 0, cursor: "pointer", font: "inherit",
+               fontWeight: "inherit", color: "var(--accent, #4f8cff)", textDecoration: "underline dotted" }}>
+      {symbol}
+    </button>
+  );
+}
+
 type Row = {
   action: "BUY" | "SELL" | "HOLD";
   symbol: string;
@@ -67,6 +81,7 @@ type Row = {
   spark_today?: number[] | null;
   today_pct?: number | null;
   today_as_of?: string | null;
+  bars_5m_to?: string | null;
 };
 
 type Book = {
@@ -167,7 +182,7 @@ function pct(v: number | null | undefined, digits = 1): string {
   return `${v > 0 ? "+" : v < 0 ? "\u2212" : ""}${Math.abs(v).toFixed(digits)}%`;
 }
 
-function Holdings({ rows }: { rows: Row[] }) {
+function Holdings({ rows, onOpenSymbol }: { rows: Row[]; onOpenSymbol?: (s: string) => void }) {
   const sorted = [...rows].sort((a, b) => (b.pnl_usd ?? -1e12) - (a.pnl_usd ?? -1e12));
   return (
     <div style={{ overflowX: "auto", marginTop: 12 }}>
@@ -192,7 +207,9 @@ function Holdings({ rows }: { rows: Row[] }) {
             const toStop = r.stop != null && r.now != null ? (r.now / r.stop - 1) * 100 : null;
             return (
               <tr key={r.symbol}>
-                <td style={{ ...TD, textAlign: "left", fontWeight: 700 }}>{r.symbol}</td>
+                <td style={{ ...TD, textAlign: "left", fontWeight: 700 }}>
+                  <SymbolLink symbol={r.symbol} onOpen={onOpenSymbol} />
+                </td>
                 <td style={TD}>{r.qty ?? "—"}</td>
                 <td style={TD}>{r.entry != null ? r.entry.toFixed(2) : "—"}</td>
                 <td style={TD} title={r.now_source ? `price source: ${r.now_source}` : undefined}>
@@ -213,7 +230,15 @@ function Holdings({ rows }: { rows: Row[] }) {
                             {pct(r.today_pct, 2)}{f.label && <span style={{ color: "var(--text-muted)" }}> {f.label}</span>}
                           </span>
                         </div>
-                      ) : <span style={{ fontSize: 12, color: "var(--text-muted)" }}>not in yet</span>}
+                      ) : (
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}
+                              title={r.bars_5m_to ? `the 5-minute store's last session for ${r.symbol} is ${r.bars_5m_to}` : f.title}>
+                          {/* "not in yet" was printed whether the lane had not reached
+                              this name YET or had not reached it for DAYS (TGT: Mon 23
+                              on Sat 28 Nov). Say which. */}
+                          {r.bars_5m_to && !f.show ? `5-min bars end ${r.bars_5m_to.slice(5)}` : "not in yet"}
+                        </span>
+                      )}
                     </td>
                   );
                 })()}
@@ -258,7 +283,7 @@ function Holdings({ rows }: { rows: Row[] }) {
   );
 }
 
-function Column({ action, rows }: { action: Row["action"]; rows: Row[] }) {
+function Column({ action, rows, onOpenSymbol }: { action: Row["action"]; rows: Row[]; onOpenSymbol?: (s: string) => void }) {
   return (
     <div style={{ flex: "1 1 260px", minWidth: 240 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: TONE[action], letterSpacing: "0.06em", marginBottom: 6 }}>
@@ -268,7 +293,7 @@ function Column({ action, rows }: { action: Row["action"]; rows: Row[] }) {
       {rows.map((r) => (
         <div key={`${action}-${r.symbol}`} style={{ padding: "6px 0", borderTop: "1px solid var(--border)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{r.symbol}</span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}><SymbolLink symbol={r.symbol} onOpen={onOpenSymbol} /></span>
             {r.paper && (
               <span style={{ fontSize: 11, color: r.paper.startsWith("filled") ? "#3fb950" : "var(--text-dim)" }}>
                 paper: {r.paper}
@@ -312,7 +337,7 @@ function usSessionOpen(now = new Date()): boolean {
   return m >= 570 && m < 960;
 }
 
-export function SignalBoard() {
+export function SignalBoard({ onOpenSymbol }: { onOpenSymbol?: (symbol: string) => void } = {}) {
   const [board, setBoard] = useState<Board | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -441,11 +466,11 @@ export function SignalBoard() {
       )}
       {by("BUY").length > 0 && (
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 12 }}>
-          <Column action="BUY" rows={by("BUY")} />
+          <Column action="BUY" rows={by("BUY")} onOpenSymbol={onOpenSymbol} />
         </div>
       )}
       {(by("HOLD").length + by("SELL").length) > 0 ? (
-        <Holdings rows={[...by("SELL"), ...by("HOLD")]} />
+        <Holdings rows={[...by("SELL"), ...by("HOLD")]} onOpenSymbol={onOpenSymbol} />
       ) : (
         <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 12 }}>No holdings.</div>
       )}
