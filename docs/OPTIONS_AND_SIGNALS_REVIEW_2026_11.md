@@ -227,6 +227,56 @@ Accept when: on the 27 Nov book, MU, SNDK, STX and WDC rows each show beta,
 correlation and RS vs SMH and SPY, and SMH's regime line reads correctly
 for October (below 50-DMA, lower lows) and late November.
 
+### 14. Macro event stress test, rate-odds regime and implied moves
+Seen this week: the 9 Dec FOMC (decision 14:00 ET / 19:00 London, with new
+projections and the chair's press conference; November CPI the next day) was
+not on any screen. Market-implied odds of a December hike rose from ~22% in
+late August to ~90% by late November — the same weeks tech fell hardest —
+and nothing read that trend. A rough stress of the 27 Nov book put a hawkish
+surprise (QQQ −4%, semis −7%) at about −$15–18k, i.e. net liquidation at the
+£180k floor.
+
+- **Event list.** FOMC, CPI, payrolls (and other scheduled macro) in the
+  event calendar of item 3, so every option row names them.
+- **Rate-odds regime input.** Store the market-implied probability of the next
+  FOMC outcome daily (CME FedWatch or a prediction-market feed) and its
+  20-day change. Rising hike odds together with QQQ or the sector ETF below the
+  50-DMA = "reduce exposure, shrink new put selling" flag.
+- **Implied move, not a guess.** Before each event, read the expected move
+  from the at-the-money straddle on SPY/QQQ expiring just after it, and the
+  sector ETFs' equivalents.
+- **Stress test before every FOMC/CPI.** Run the book (item 1's dollar-delta
+  by segment, with a gamma adjustment for short puts) through three scenarios:
+  base (priced outcome), hawkish shock (implied move down, sector beta
+  applied) and dovish relief. Show net liquidation for each against the
+  £180k floor; flag when the hawkish case breaches it or leaves less than
+  £15k of cushion.
+- **After the event.** Show the futures reaction and the fall in implied
+  volatility, so premium selling restarts after the event, not before.
+
+Accept when: for 9 Dec 2026 it lists the meeting on every option row whose
+expiry is later, shows the priced odds and their trend since August, and
+reproduces the −$15–18k hawkish-shock estimate on the 27 Nov book.
+
+### 15. Charts and symbol views with sector, index and futures context
+Owner, 28 Nov: "when we see data chart of any symbol it should also show its
+sector and futures and some index." Every symbol chart and symbol view
+(symbol workup, market state, swing and income rows) shows, on the same time
+axis:
+
+- the symbol, its sector ETF (from the `symbol_sector_etf` map), SPY and
+  QQQ, **normalised to 100 at the window start** so relative performance is
+  visible at a glance;
+- the index futures (ES, NQ) for the current session, including the
+  overnight move — with the 23x5 caveat of item 11 (thin volume overnight);
+- the sector ETF's and SPY's 50/200-DMA state as a one-line regime badge,
+  plus item 13's beta, correlation and relative-strength numbers;
+- markers for events in the window (earnings, FOMC, CPI) from item 3.
+
+Accept when: the MU chart for Sep–Nov 2026 shows MU vs SMH vs SPY vs QQQ
+normalised, the October SMH breakdown is visible against MU, and the FOMC
+and MU earnings dates are marked.
+
 ---
 
 ## Stock signals — what to change
