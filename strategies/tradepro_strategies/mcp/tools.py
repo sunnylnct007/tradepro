@@ -3772,6 +3772,34 @@ def get_paper_ledger() -> dict:
     return {"_source": "tradepro://pnl/ledger", "ok": d.get("error") is None, **d}
 
 
+def events_for_contract(symbol: str, expiry: str) -> dict:
+    """Every known dated event inside an option's life — the symbol's
+    earnings and catalysts plus FOMC / CPI / jobs from the market calendar —
+    between today and `expiry` (YYYY-MM-DD or YYYYMMDD). Read `verified`
+    before `events`: an empty list is only "clear" when it is True."""
+    from ..events import window_for_contract
+    try:
+        w = window_for_contract(symbol, expiry, api_base=_api_base())
+    except Exception as exc:  # noqa: BLE001
+        return _err("events_for_contract", str(exc), symbol=symbol, expiry=expiry)
+    return {"_source": "tradepro://events/contract", "fetched_at": _now_iso(), "ok": True,
+            "symbol": symbol.upper(), "expiry": expiry, **w.to_dict()}
+
+
+def earnings_moves(symbol: str, back_days: int = 760) -> dict:
+    """The symbol's own moves on its past earnings prints (|close after /
+    close before − 1|, per report date from the earnings store). Keyed to
+    report dates, so non-earnings shocks never pollute the typical move.
+    Use beside the implied move before selling or buying premium across a
+    print."""
+    from ..events import earnings_moves as _em
+    try:
+        out = _em(symbol, api_base=_api_base(), back_days=int(back_days))
+    except Exception as exc:  # noqa: BLE001
+        return _err("earnings_moves", str(exc), symbol=symbol)
+    return {"_source": "tradepro://events/earnings_moves", "fetched_at": _now_iso(), "ok": True, **out}
+
+
 def get_events(symbol: str, days: int = 60) -> dict:
     """Known dated events for `symbol` AND the market between today and
     today+days — the OWNER BASICS 3 check, as the lanes run it. Read

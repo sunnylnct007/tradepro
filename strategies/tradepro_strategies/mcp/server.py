@@ -401,6 +401,20 @@ def build_server(read_only: bool = False, **fastmcp_kwargs):
         return _json(t.income_scan(mode, symbols or None))
 
     @mcp.tool()
+    @instrumented("events_for_contract")
+    def events_for_contract(symbol: str, expiry: str) -> str:
+        """Events inside an option's life (earnings, catalysts, FOMC, CPI,
+        jobs) between today and the expiry; `verified` + `gaps` carried."""
+        return _json(t.events_for_contract(symbol, expiry))
+
+    @mcp.tool()
+    @instrumented("earnings_moves")
+    def earnings_moves(symbol: str, back_days: int = 760) -> str:
+        """The symbol's realised moves on its past earnings prints (report
+        dates from the store; non-earnings shocks excluded by construction)."""
+        return _json(t.earnings_moves(symbol, back_days))
+
+    @mcp.tool()
     @instrumented("live_book_exposure")
     def live_book_exposure() -> str:
         """Live book in dollar-delta by segment (gross long, hedges, net, % of
