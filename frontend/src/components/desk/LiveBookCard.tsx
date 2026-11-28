@@ -278,6 +278,66 @@ export function LiveBookCard() {
       {art.exposure?.error && (
         <div style={{ fontSize: 12, color: TONE.watch, marginTop: 8 }}>Exposure by segment: {art.exposure.error}</div>
       )}
+      {/* PUT-BOOK MANAGER (options review item 17, 28 Nov 2026): the owner's
+          hold / accept / repair / close policy on every short put, with its
+          rule; cheap-exit triggers (close INTO a bounce, never on a sector
+          down day); the cash calendar by expiry month against the reserve;
+          the hedge coverage gap. Proposals only — nothing here places. */}
+      {art.put_book && !art.put_book.error && (
+        <div style={{ marginTop: 10, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "baseline", fontSize: 12 }}>
+            <b>Put book — the policy on every short put</b>
+            <span style={{ color: TONE.dim }}>
+              {Object.entries(art.put_book.counts ?? {}).map(([k, v]) => `${v} ${k}`).join(" · ")}
+            </span>
+            {(art.put_book.cheap_exits_now ?? []).length > 0 && (
+              <span style={{ color: TONE.ok, fontSize: 11 }}>cheap exit now: {art.put_book.cheap_exits_now.join(", ")}</span>
+            )}
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, marginTop: 6 }}>
+            <thead>
+              <tr style={{ color: TONE.muted }}>
+                <th style={{ textAlign: "left", padding: "2px 4px" }}>policy</th>
+                <th style={{ textAlign: "left", padding: "2px 4px" }}>put</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>eff. cost</th>
+                <th style={{ textAlign: "right", padding: "2px 4px" }}>gap</th>
+                <th style={{ textAlign: "left", padding: "2px 4px" }}>flag</th>
+                <th style={{ textAlign: "left", padding: "2px 4px" }}>why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(art.put_book.rows ?? []).map((r: any) => {
+                const tone = r.policy === "CLOSE" ? TONE.act : r.policy === "REPAIR" ? TONE.watch : r.policy === "HOLD/ACCEPT" ? TONE.ok : undefined;
+                return (
+                  <tr key={r.contract ?? `${r.symbol}-${r.expiry}-${r.strike}`} style={{ borderTop: "1px solid var(--border)" }}
+                      title={[r.policy_reason, r.cheap_exit?.reasons?.length ? `cheap exit: ${r.cheap_exit.reasons.join("; ")}` : null,
+                              r.cheap_exit?.suppressed, r.floor?.proposal].filter(Boolean).join("\n")}>
+                    <td style={{ padding: "3px 4px", fontWeight: 700, color: tone }}>{r.policy}</td>
+                    <td style={{ padding: "3px 4px", fontFamily: "var(--font-mono)" }}>{r.symbol} {String(r.expiry).slice(5)} {r.strike}P{r.structure === "credit_spread" ? " (spread)" : ""}</td>
+                    <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "var(--font-mono)" }}>{r.effective_cost ?? "—"}</td>
+                    <td style={{ padding: "3px 4px", textAlign: "right", color: r.gap_pct != null && r.gap_pct < 0 ? TONE.act : TONE.ok }}>{r.gap_pct != null ? `${r.gap_pct > 0 ? "+" : ""}${r.gap_pct}%` : "—"}</td>
+                    <td style={{ padding: "3px 4px", color: TONE.dim }}>{r.flag}</td>
+                    <td style={{ padding: "3px 4px", color: TONE.dim, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.policy_reason}{r.cheap_exit?.now ? " · cheap exit now" : ""}{r.floor?.below_support ? " · BELOW SUPPORT — floor now" : ""}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: TONE.dim, marginTop: 6 }}>
+            {art.put_book.hedge_coverage?.note}
+            {(art.put_book.cash_calendar?.months ?? []).some((m: any) => m.status === "SHORT")
+              ? <span style={{ color: TONE.act }}> · cash: {art.put_book.cash_calendar.months.filter((m: any) => m.status === "SHORT").map((m: any) => `${m.month} short by ${usd(m.short_by_usd)} (close ahead: ${(m.propose_closing_ahead ?? []).join(", ")})`).join("; ")}</span>
+              : art.put_book.cash_calendar?.note
+                ? <span style={{ color: TONE.watch }}> · {art.put_book.cash_calendar.note}</span>
+                : <span> · assignment cash covered in every month</span>}
+          </div>
+        </div>
+      )}
+      {art.put_book?.error && (
+        <div style={{ fontSize: 12, color: TONE.watch, marginTop: 8 }}>Put book: {art.put_book.error}</div>
+      )}
       {Array.isArray(art.exposures) && art.exposures.length > 0 && (
         <div style={{ margin: "8px 0 10px", padding: "8px 10px",
                       border: `1px solid ${TONE.act}`, borderRadius: 6,
