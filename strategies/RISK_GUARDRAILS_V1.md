@@ -220,3 +220,41 @@ P&L beside book P&L so a losing hedge on a rally day is read correctly.
 - [ ] Should G5 block new trades outright, or only warn?
 - [ ] Live book source: IBKR Flex nightly (T+1), or the connector intraday?
 - [ ] Build order: §3 repair check (read + flags) → §4 hedge sizing → §5 call manager → §7 alerts; §6 intraday shorts are a scorecard first.
+
+## 12. Amendments (28 Nov 2026, owner via the live-book lessons and the options review)
+
+These supersede the sections they name. Recorded as amendments, not rewrites,
+so the 25 Nov pre-registration stays readable.
+
+- **§4 hedge package → plain put spreads only.** A short call leg in a hedge
+  is a second bet, not insurance: on 25 Nov it doubled the hedge's loss in the
+  rally. Hedges are put spreads on the matching index, sized to remaining
+  exposure; no new hedge after a −5% segment day (reprice the next calm session).
+- **G3 credit rule → by volatility class.** Credit ≥ 20–25% of width for index
+  and low-volatility names (30-day HV below ~40%), ≥ ⅓ for volatile names. The
+  income engine's `min_credit_to_width` reads from settings-kv and each row
+  shows both the engine's and the owner's rule.
+- **G1 restated as the standing rule (27 Nov):** every new short option is a
+  spread or a call covered by shares held — never naked. Existing naked puts are
+  repaired one at a time (floor, roll down-and-out, close) on calm or green days;
+  before earnings the default is to close.
+- **Cash-secured puts:** allowed, at most 2 open, want-to-own names only, cash
+  covers assignment after the reserve, and only when SPY and QQQ are above
+  their 50-day and the sector gate passes.
+- **Stock positions carry a stop written at entry** (close below the 50-day,
+  the entry support, or 2× ATR; loss at the stop ≤ 2% of net liquidation). A
+  swing never becomes a hold by default; converting it is an owner decision in
+  the journal. Covered positions exit both legs together on a close below the
+  stop (new positions) or are collared (existing underwater shares). When the
+  sector gate fails hard (ETF below its 50-day and making lower lows) stops are
+  enforced without discretion and none may be widened.
+- **Decide on calm or green days.** No new hedges or repairs on a day the
+  segment fell ≥ 5%; no proposals in the first 15 minutes of the session.
+- **Measure on net liquidation at the RTH close**, never on unrealised P&L
+  against entry prices. Floor, milestones, reserve and want-to-own flags live
+  in settings-kv `risk_guardrails` (owner's figures, not in the repo).
+- **Every proposal carries a written stop and target**, the events inside its
+  life, and the three-check gate result (market/sector trend, events,
+  size/structure) with its numbers; a failed check blocks and is shown.
+- **Everything above is exposed over MCP** as read-only tools beside its
+  screen (owner, 28 Nov).
