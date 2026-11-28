@@ -224,6 +224,17 @@ def rotation_schedules(session: date) -> dict:
             "schedules": out}
 
 
+def live_stress(base: str, token: str) -> dict:
+    """The live book's macro stress block from the latest live-risk publish
+    (review item 14). Read-only; the evaluation only repeats it."""
+    import requests
+    h = {"Authorization": f"Bearer {token}"} if token else {}
+    r = requests.get(f"{base}/api/today-setups/live-book-risk/latest", headers=h, timeout=30)
+    art = (r.json().get("artifact") or {}) if r.status_code == 200 else {}
+    st = art.get("stress") or {"error": "no stress block on the latest live-risk artifact"}
+    return dict(st, report_date=art.get("report_date"))
+
+
 def intraday(session: date) -> dict:
     from . import intraday_shadow as S
     a = S.build()
@@ -285,6 +296,7 @@ def build(base: str, token: str, session: date | None = None) -> dict:
     for key, fn in (("momentum_rotation", lambda: rotation(session, conds, base, token)),
                     ("rotation_schedules", lambda: rotation_schedules(session)),
                     ("intraday_rules", lambda: intraday(session)),
+                    ("live_stress", lambda: live_stress(base, token)),
                     ("shadow_books", shadow_books),
                     ("income_put_spreads", lambda: income_spreads(base, token))):
         try:
@@ -345,6 +357,17 @@ def text_summary(e: dict) -> str:
                 lines.append(f"    {sh.get('version')}: would have blocked {blk['trades']} short(s) "
                              f"({blk['total_usd']:+,.0f} $, avg {blk['avg_pct']:+.2f}%); shorts allowed: "
                              + (f"{al['trades']} at avg {al['avg_pct']:+.2f}%" if al.get("trades") else "none"))
+        lines.append("")
+    ls = e["strategies"].get("live_stress")
+    if ls and not ls.get("error"):
+        lines.append(f"LIVE BOOK STRESS ({ls.get('version')}, read-only) — next: "
+                     + (" · ".join(f"{x['title']} in {x['days']}d" for x in (ls.get('events') or [])[:2]) or "no dated macro events"))
+        for k, r in (ls.get("scenarios") or {}).items():
+            lines.append(f"  {k:14s} P&L {r['pnl_usd']:+,.0f} $"
+                         + (f" · cushion to floor £{r['cushion_to_floor_gbp']:,.0f}" if r.get("cushion_to_floor_gbp") is not None else "")
+                         + ("  BREACHES FLOOR" if r.get("breaches_floor") else ""))
+        for f in ls.get("flags") or []:
+            lines.append(f"  FLAG {f}")
         lines.append("")
     sb = e["strategies"].get("shadow_books")
     if sb:

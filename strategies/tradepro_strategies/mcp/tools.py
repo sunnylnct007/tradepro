@@ -416,6 +416,25 @@ def income_scan(mode: str = "latest", symbols: str | None = None) -> dict:
             "settings_source": (art.get("settings") or {}).get("source")}
 
 
+def fomc_stress() -> dict:
+    """The live book through base / hawkish shock / dovish relief (review
+    item 14): per-segment P&L (delta and gamma terms), net liquidation after
+    each against the owner's floor, the next FOMC/CPI/jobs dates, the index
+    implied move to just after the next FOMC, and the hike odds if the owner
+    has entered them. Read-only; from the latest live-risk publish."""
+    try:
+        d = _get("/api/today-setups/live-book-risk/latest")
+    except Exception as e:  # noqa: BLE001
+        return _err("fomc_stress", str(e))
+    art = d.get("artifact") or {}
+    st = art.get("stress")
+    if not st:
+        return _err("fomc_stress", "the latest live-risk artifact carries no stress block yet",
+                    as_of_utc=art.get("as_of_utc"), report_date=art.get("report_date"))
+    return {"_source": "api://today-setups/live-book-risk/latest#stress", "fetched_at": _now_iso(), "ok": True,
+            "as_of_utc": art.get("as_of_utc"), "report_date": art.get("report_date"), "stress": st, "placed_orders": 0}
+
+
 def put_book() -> dict:
     """The owner's assignment-or-repair policy on every live short put
     (review item 17): effective cost, gap, conviction flag, policy

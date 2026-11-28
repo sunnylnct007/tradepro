@@ -39,6 +39,7 @@ DEFAULT_CAP_PCT = 45.0
 INDEX_ETFS = ("SPY", "QQQ", "IWM", "SMH", "IGV", "XSP", "XLK", "XLE", "XLF", "DIA")
 
 DeltaFn = Callable[[str, str, str, float], Optional[float]]   # (root, expiry, right, strike) -> delta
+GreeksFn = Callable[[str, str, str, float], Optional[dict]]   # -> {"delta":..., "gamma":..., "iv":...} or None
 
 
 @dataclass
@@ -50,6 +51,7 @@ class Leg:
     spot: Optional[float]
     delta: Optional[float]    # per unit; None = unknown
     delta_source: str         # "shares" | "chain" | "black_scholes(mark)" | "missing"
+    gamma: Optional[float] = None   # per unit per $1 of spot; None = unknown (shares: 0)
     expiry: Optional[str] = None
     strike: Optional[float] = None
     segment: str = "other"
@@ -62,6 +64,16 @@ class Leg:
             return None
         mult = 1 if self.kind == "stock" else MULT
         return self.qty * self.delta * mult * self.spot
+
+    @property
+    def gamma_dollars_per_1pct(self) -> Optional[float]:
+        """Change in delta-dollars for a 1% move in the underlying: qty × Γ ×
+        mult × spot × (0.01 × spot). Shares have no gamma. None when unknown."""
+        if self.kind == "stock":
+            return 0.0
+        if self.spot is None or self.gamma is None:
+            return None
+        return self.qty * self.gamma * MULT * self.spot * (0.01 * self.spot)
 
 
 @dataclass
@@ -96,6 +108,31 @@ class ExposureConfig:
         return None
 
 
+def bs_greeks_from_mark(*, mark: float | None, spot: float | None, strike: float, expiry: str,
+                        right: str, today: date, rate: float = 0.04) -> Optional[dict]:
+    """Delta and gamma implied by the option's own mark (None when the mark is
+    outside the no-arbitrage band or inputs are missing)."""
+    if not mark or not spot or mark <= 0 or spot <= 0:
+        return None
+    try:
+        from .quant_engine.options.black_scholes import BlackScholesPricer
+        t = max((date.fromisoformat(expiry) - today).days, 0) / 365.0
+        if t <= 0:
+            d = (-1.0 if spot < strike else 0.0) if right == "P" else (1.0 if spot > strike else 0.0)
+            return {"delta": d, "gamma": 0.0, "iv": None}
+        kind = "put" if right == "P" else "call"
+        pricer = BlackScholesPricer(risk_free_rate=rate)
+        sigma = pricer.implied_vol(mark, spot, strike, t, kind)
+        if sigma is None:
+            return None
+        g = pricer.greeks(spot, strike, t, sigma, kind)
+        if not (math.isfinite(g.delta) and math.isfinite(g.gamma)):
+            return None
+        return {"delta": float(g.delta), "gamma": float(g.gamma), "iv": float(sigma)}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def bs_delta_from_mark(*, mark: float | None, spot: float | None, strike: float, expiry: str,
                        right: str, today: date, rate: float = 0.04) -> Optional[float]:
     """Delta implied by the option's own mark when the chain gives none.
@@ -124,7 +161,7 @@ def bs_delta_from_mark(*, mark: float | None, spot: float | None, strike: float,
 
 def legs_from_positions(positions: list[dict], *, spots: dict[str, float | None],
                         delta_for: DeltaFn | None, cfg: ExposureConfig,
-                        today: date | None = None) -> list[Leg]:
+                        today: date | None = None, greeks_for: GreeksFn | None = None) -> list[Leg]:
     """Flex OpenPosition rows -> legs with delta. `delta_for` is the live
     chain lookup (injected); when it returns None the delta is solved from
     the option's mark and labelled so."""
@@ -143,23 +180,33 @@ def legs_from_positions(positions: list[dict], *, spots: dict[str, float | None]
             continue
         root, expiry, right, strike = occ
         spot = spots.get(root)
-        delta, src = None, "missing"
-        if delta_for is not None:
+        delta, gamma, src = None, None, "missing"
+        if greeks_for is not None:
+            try:
+                g = greeks_for(root, expiry, right, strike)
+            except Exception:  # noqa: BLE001
+                g = None
+            if g and g.get("delta") is not None:
+                delta, gamma, src = float(g["delta"]), (float(g["gamma"]) if g.get("gamma") is not None else None), "chain"
+        if delta is None and delta_for is not None:
             try:
                 delta = delta_for(root, expiry, right, strike)
             except Exception:  # noqa: BLE001
                 delta = None
             if delta is not None:
                 src = "chain"
-        if delta is None:
-            mark = p.get("markPrice")
-            delta = bs_delta_from_mark(mark=float(mark) if mark is not None else None, spot=spot,
-                                       strike=strike, expiry=expiry, right=right, today=today)
-            if delta is not None:
-                src = "black_scholes(mark)"
+        mark = p.get("markPrice")
+        if delta is None or gamma is None:
+            bs = bs_greeks_from_mark(mark=float(mark) if mark is not None else None, spot=spot,
+                                     strike=strike, expiry=expiry, right=right, today=today)
+            if bs is not None:
+                if delta is None:
+                    delta, src = bs["delta"], "black_scholes(mark)"
+                if gamma is None:
+                    gamma = bs["gamma"]
         is_hedge = root in INDEX_ETFS
         legs.append(Leg(contract=sym, root=root, kind="put" if right == "P" else "call", qty=qty,
-                        spot=spot, delta=delta, delta_source=src, expiry=expiry, strike=strike,
+                        spot=spot, delta=delta, gamma=gamma, delta_source=src, expiry=expiry, strike=strike,
                         segment=("hedges" if is_hedge else cfg.segment_for(root)),
                         is_hedge=is_hedge, hedges_segment=cfg.hedged_segment(root) if is_hedge else None))
     return legs
@@ -177,17 +224,17 @@ def exposure(legs: list[Leg], *, cfg: ExposureConfig, nav_usd: float | None,
     by_seg: dict[str, dict] = {}
     for l in priced:
         dd = float(l.delta_dollars)
-        if l.is_hedge:
-            seg = l.hedges_segment or "unassigned_hedge"
-            d = by_seg.setdefault(seg, {"segment": seg, "long_usd": 0.0, "hedge_usd": 0.0, "legs": 0, "names": set()})
-            d["hedge_usd"] += dd
-            d["legs"] += 1
-            d["names"].add(l.root)
+        gd = l.gamma_dollars_per_1pct
+        seg = (l.hedges_segment or "unassigned_hedge") if l.is_hedge else l.segment
+        d = by_seg.setdefault(seg, {"segment": seg, "long_usd": 0.0, "hedge_usd": 0.0, "legs": 0, "names": set(),
+                                    "gamma_usd_per_1pct": 0.0, "gamma_unknown_legs": 0})
+        d["hedge_usd" if l.is_hedge else "long_usd"] += dd
+        d["legs"] += 1
+        d["names"].add(l.root)
+        if gd is None:
+            d["gamma_unknown_legs"] += 1
         else:
-            d = by_seg.setdefault(l.segment, {"segment": l.segment, "long_usd": 0.0, "hedge_usd": 0.0, "legs": 0, "names": set()})
-            d["long_usd"] += dd
-            d["legs"] += 1
-            d["names"].add(l.root)
+            d["gamma_usd_per_1pct"] += gd
     gross_long = sum(d["long_usd"] for d in by_seg.values() if d["long_usd"] > 0)
     hedges = sum(d["hedge_usd"] for d in by_seg.values())
     net = sum(d["long_usd"] + d["hedge_usd"] for d in by_seg.values())
@@ -203,6 +250,8 @@ def exposure(legs: list[Leg], *, cfg: ExposureConfig, nav_usd: float | None,
             "net_pct_of_nav": round(net_seg / nav_usd * 100, 1) if nav_usd else None,
             "over_cap": bool(share > cfg.cap_pct),
             "hedge_cover_pct": round(-d["hedge_usd"] / d["long_usd"] * 100, 1) if d["long_usd"] > 0 and d["hedge_usd"] < 0 else 0.0,
+            "gamma_usd_per_1pct": round(d["gamma_usd_per_1pct"], 0),
+            "gamma_unknown_legs": d["gamma_unknown_legs"],
         })
     flags = [f"{s['segment']} is {s['share_of_gross_long_pct']:.0f}% of gross long exposure, past the {cfg.cap_pct:.0f}% cap"
              for s in segments if s["over_cap"]]
@@ -215,6 +264,11 @@ def exposure(legs: list[Leg], *, cfg: ExposureConfig, nav_usd: float | None,
         "one_pct_move_usd": round(one_pct, 0),
         "one_pct_move_gbp": round(one_pct * gbp_per_usd, 0) if gbp_per_usd else None,
         "cap_pct": cfg.cap_pct, "flags": flags, "segments": segments, "gaps": gaps,
+        "legs": [{"contract": l.contract, "symbol": l.root, "kind": l.kind, "qty": l.qty,
+                  "segment": (l.hedges_segment or "unassigned_hedge") if l.is_hedge else l.segment, "is_hedge": l.is_hedge,
+                  "delta_usd": round(float(l.delta_dollars), 0),
+                  "gamma_usd_per_1pct": (round(float(l.gamma_dollars_per_1pct), 0) if l.gamma_dollars_per_1pct is not None else None),
+                  "delta_source": l.delta_source} for l in priced],
         "delta_sources": {src: sum(1 for l in legs if l.delta_source == src)
                           for src in ("shares", "chain", "black_scholes(mark)", "missing")},
         "how": ("delta-dollars = qty × delta × multiplier × spot; shares delta 1; short puts count as long "
