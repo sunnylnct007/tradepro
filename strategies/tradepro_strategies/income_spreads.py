@@ -18,6 +18,8 @@ from §10 without a broker.
 """
 from __future__ import annotations
 
+import json
+
 import logging
 import math
 from datetime import date, datetime, timedelta, timezone
@@ -78,6 +80,22 @@ DEFAULTS: dict = {
     "csp_max_notional_per_name_gbp": 25_000,
     "csp_total_notional_gbp": 50_000,
     "csp_min_pop_full_credit": 0.75,
+    # ── Stage 2 scan fixes (options review item 12, 28 Nov 2026) ─────────
+    # Two monthlies are tried, nearest first; the first that prices and clears
+    # every gate is kept (one expiry only had V failing on thin credit at
+    # 15 Jan where Feb would likely pass).
+    "expiries_to_try": 2,
+    # Index ETF options (the spec's 50% leg) are scanned when enabled; ETF
+    # options must be CLOSED before expiry on this account (UK retail cannot
+    # take the shares) — every ETF row says so.
+    "index_scan_enabled": False,
+    # Low-volatility names could never pass "strike ≤ 30-day low AND Δ ≥ 0.15".
+    # off = ignore; shadow = annotate what the 20-day-low / Δ ≥ 0.10 variant
+    # would have picked (the forward record shows it before it gates — house
+    # rule); on = use it. Pre-registration: INCOME_PUT_SPREADS_V1.md §12.
+    "low_vol_rule": "shadow",
+    "low_vol_hv_threshold": 0.30,
+    "low_vol_min_delta": 0.10,
 }
 
 
@@ -170,6 +188,7 @@ def technicals(df: pd.DataFrame) -> dict:
         "ret_10d": round(float(last / float(c.iloc[-11]) - 1), 4) if len(c) > 11 else None,
         "swing_low_30d": round(float(c.tail(30).min()), 2),
         "hv_30d": round(float(lr.tail(30).std() * math.sqrt(252)), 4) if len(lr) >= 20 else None,
+        "swing_low_20d": round(float(c.tail(20).min()), 2),
     })
     return out
 
@@ -225,10 +244,52 @@ def pick_expiry(expiries: list[str], today: date, s: dict) -> tuple[str | None, 
     return cands[0][1], f"monthly, {cands[0][0]} DTE"
 
 
-def pick_strikes(puts: list[dict], swing_low: float, s: dict) -> tuple[dict | None, str]:
+def owner_credit_rule(hv_30d: float | None, kv: dict | None, bucket: str = "single") -> tuple[float | None, str]:
+    """The owner's credit/width minimum by volatility class (settings-kv
+    `risk_guardrails.credit_to_width_min`): index and low-volatility names
+    20–25% (the lower bound is the rule), volatile names ⅓. Shown beside the
+    engine's gate on every row; the engine's own gate is `min_credit_to_width`."""
+    rule = (kv or {}).get("credit_to_width_min") or {}
+    if not rule:
+        return None, "owner credit rule not set (settings-kv risk_guardrails.credit_to_width_min)"
+    thr = float(rule.get("hv30_volatile_threshold_pct") or 40) / 100.0
+    if bucket == "index" or (hv_30d is not None and hv_30d < thr):
+        return float(rule.get("index_or_low_vol") or 0.20), f"index/low-vol class (HV30 {hv_30d if hv_30d is None else round(hv_30d*100)}% < {thr:.0%})"
+    return float(rule.get("volatile") or 1/3), f"volatile class (HV30 {round((hv_30d or 0)*100)}% ≥ {thr:.0%})"
+
+
+def pick_expiries(expiries: list[str], today: date, s: dict) -> list[tuple[str, str]]:
+    """Up to `expiries_to_try` MONTHLY expiries, nearest first: the spec's
+    window [dte_min, dte_max] first, then the next monthly after it (item 12:
+    a name failing on thin credit at the first monthly often prices at the
+    next). Each carries its note."""
+    n = max(1, int(s.get("expiries_to_try") or 1))
+    first, why = pick_expiry(expiries, today, s)
+    out: list[tuple[str, str]] = []
+    if first:
+        out.append((first, why))
+    later = []
+    for e in expiries:
+        e = str(e)
+        d = date.fromisoformat(e) if "-" in e else date(int(e[:4]), int(e[4:6]), int(e[6:8]))
+        dte = (d - today).days
+        if d == third_friday(d.year, d.month) and dte > int(s["dte_max"]) and dte <= int(s["dte_max"]) + 35 \
+                and d.isoformat() not in [x[0] for x in out]:
+            later.append((dte, d.isoformat()))
+    for dte, iso in sorted(later):
+        if len(out) >= n:
+            break
+        out.append((iso, f"next monthly, {dte} DTE (beyond the {s['dte_max']}-day window — tried second)"))
+    return out[:n]
+
+
+def pick_strikes(puts: list[dict], swing_low: float, s: dict, *, min_delta: float | None = None) -> tuple[dict | None, str]:
     """§4.2 — short = highest listed strike ≤ swing low with |delta| in range;
-    long = short − width (nearest listed), trying each width in order."""
+    long = short − width (nearest listed), trying each width in order.
+    `min_delta` overrides the range's floor (the low-vol rule, item 12)."""
     lo_d, hi_d = (float(x) for x in s["short_put_delta_range"])
+    if min_delta is not None:
+        lo_d = float(min_delta)
     by_k = {float(p["strike"]): p for p in puts if p.get("strike") is not None}
     if not by_k:
         return None, "no_strikes"
@@ -370,12 +431,42 @@ def evaluate(sym: str, *, bucket: str, sector: str, spot: float, tech: dict, exp
     """Stages A–F for one name. `puts_for(expiry) -> list[dict]` returns the
     put legs (strike, bid, ask, delta, iv, open_interest) for that expiry —
     live from the broker in production, the §10 table in the golden replay."""
+    tries = pick_expiries(expiries, today, s)
+    if not tries:
+        _e, why_e = pick_expiry(expiries, today, s)
+        return {"symbol": sym, "sector": sector, "bucket": bucket, "spot": spot, "gates": {}, "warnings": [],
+                "rejected": [f"no_expiry: {why_e}"], "expiries_tried": []}
+    attempts, rows_tried = [], []
+    for expiry, why_e in tries:
+        row = _evaluate_expiry(sym, expiry, why_e, bucket=bucket, sector=sector, spot=spot, tech=tech,
+                               puts_for=puts_for, next_earnings=next_earnings, earnings_basis=earnings_basis,
+                               held=held, sector_open_gbp=sector_open_gbp, total_open_gbp=total_open_gbp,
+                               fx_gbp_per_usd=fx_gbp_per_usd, s=s, today=today,
+                               csp_open_notional_gbp=csp_open_notional_gbp)
+        attempts.append((expiry, list(row.get("rejected") or [])))
+        rows_tried.append(row)
+        if not row.get("rejected"):
+            break
+    # The spec's expiry is the primary: when no attempt passes, its row (and its
+    # reasons) is what the reader sees; the later attempts are listed beside it.
+    if row.get("rejected"):
+        row = rows_tried[0]
+    row["expiries_tried"] = [{"expiry": e, "rejected": r} for e, r in attempts]
+    if bucket == "index":
+        row.setdefault("warnings", []).append("etf_option_must_close_before_expiry: UK retail cannot take the ETF shares — close ≥ 5 trading days before expiry")
+    return row
+
+
+def _evaluate_expiry(sym: str, expiry: str, why_e: str, *, bucket: str, sector: str, spot: float, tech: dict,
+                     puts_for, next_earnings: str | None, earnings_basis: str, held: set[str],
+                     sector_open_gbp: float, total_open_gbp: float, fx_gbp_per_usd: float, s: dict,
+                     today: date, csp_open_notional_gbp: float = 0.0) -> dict:
     row = {"symbol": sym, "sector": sector, "bucket": bucket, "spot": spot, "gates": {}, "rejected": [], "warnings": []}
-    expiry, why_e = pick_expiry(expiries, today, s)
     row["expiry"], row["expiry_note"] = expiry, why_e
-    if expiry is None:
-        row["rejected"].append(f"no_expiry: {why_e}"); return row
     row["dte"] = (date.fromisoformat(expiry) - today).days
+    o_min, o_why = owner_credit_rule(tech.get("hv_30d"), s.get("_risk_guardrails"), bucket)
+    row["credit_rule_owner"] = {"min_credit_to_width": o_min, "class": o_why,
+                                "engine_min_credit_to_width": float(s["min_credit_to_width"])}
     row["gates"] = {"earnings_ok": (next_earnings is not None and next_earnings > expiry) if bucket == "single" else None,
                     "next_earnings": next_earnings, "earnings_basis": earnings_basis,
                     "above_200dma": tech.get("above_200dma"), "sma200": tech.get("sma200"),
@@ -392,6 +483,20 @@ def evaluate(sym: str, *, bucket: str, sector: str, spot: float, tech: dict, exp
         row["rejected"].append("stale_quote: no quoted put legs for the expiry"); return row
     legs, why_k = pick_strikes(puts, float(tech["swing_low_30d"]), s)
     row["strike_note"] = why_k
+    mode = str(s.get("low_vol_rule") or "off")
+    hv = tech.get("hv_30d")
+    low_vol = hv is not None and hv < float(s.get("low_vol_hv_threshold") or 0.30) and bucket == "single"
+    if low_vol and mode in ("shadow", "on") and tech.get("swing_low_20d") is not None:
+        alt, why_alt = pick_strikes(puts, float(tech["swing_low_20d"]), s, min_delta=float(s.get("low_vol_min_delta") or 0.10))
+        row["low_vol_rule"] = {"mode": mode, "hv_30d": hv, "swing_low_20d": tech["swing_low_20d"],
+                               "would_pick": ({"short_strike": alt["short_strike"], "long_strike": alt["long_strike"]} if alt else None),
+                               "note": why_alt}
+        if legs is None and alt is not None:
+            if mode == "on":
+                legs, why_k = alt, f"low-vol rule: {why_alt}"
+                row["strike_note"] = why_k
+            else:
+                row["warnings"].append(f"low_vol_rule_would_pass: 20-day low {tech['swing_low_20d']} / Δ ≥ {s.get('low_vol_min_delta')} picks {alt['short_strike']:g}/{alt['long_strike']:g} (shadow — not a gate until pre-registered)")
     if legs is None:
         row["rejected"].append(f"no_strike: {why_k}"); return row
     legs["short"] = dict(legs["short"], symbol=sym)
@@ -400,6 +505,10 @@ def evaluate(sym: str, *, bucket: str, sector: str, spot: float, tech: dict, exp
     if px:
         row["warnings"] = row.get("warnings", []) + px.pop("warnings", [])
         row.update(px)
+    if px and px.get("credit_to_width") is not None and row.get("credit_rule_owner", {}).get("min_credit_to_width") is not None:
+        row["credit_rule_owner"]["pass"] = bool(px["credit_to_width"] >= row["credit_rule_owner"]["min_credit_to_width"])
+        if not row["credit_rule_owner"]["pass"]:
+            row["warnings"].append(f"below_owner_credit_rule: {px['credit_to_width']:.1%} of width < {row['credit_rule_owner']['min_credit_to_width']:.0%} ({row['credit_rule_owner']['class']})")
     if why_p != "priced":
         row["rejected"].append(why_p); return row
     iv = legs["short"].get("iv")
@@ -583,6 +692,21 @@ def held_names(base: str, token: str, rec: dict) -> set[str]:
     return held
 
 
+def held_live_as_of(base: str, token: str) -> dict:
+    """When the live book that fed `held_live` was read, and the statement
+    date it describes — so a stale held list is visible on the scan (item 12:
+    two names closed on 27 Nov still read as held on the 28th)."""
+    import requests
+    h = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        r = requests.get(f"{base.rstrip('/')}/api/today-setups/live-book-risk/latest", headers=h, timeout=30)
+        art = (r.json().get("artifact") or {}) if r.status_code == 200 else {}
+        return {"report_date": art.get("report_date"), "read_at_utc": art.get("as_of_utc"),
+                "note": "Flex is end-of-day: positions closed today still read as held until tomorrow's statement"}
+    except Exception as exc:  # noqa: BLE001
+        return {"report_date": None, "read_at_utc": None, "note": f"live book unreadable: {str(exc)[:80]}"}
+
+
 def open_csp_notional_gbp(rec: dict, fx_gbp_per_usd: float) -> float:
     return sum(float(t.get("cash_required_usd") or 0) * fx_gbp_per_usd for t in rec.get("trades") or []
                if t.get("status") == "open" and t.get("structure") == "cash_secured_put")
@@ -627,8 +751,14 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
     per_sector, total = open_risk_gbp(rec, fx)
     csp_open = open_csp_notional_gbp(rec, fx)
     names = [(x, "single", s["sectors"].get(x, "?")) for x in s["single_name_seed"]]
-    if int(s.get("phase", 1)) >= 2:
+    if int(s.get("phase", 1)) >= 2 or bool(s.get("index_scan_enabled")):
         names += [(x, "index", "Index") for x in s["index_symbols"]]
+    try:
+        kv = _kv_get(base, token, "risk_guardrails") or {}
+        kv = kv.get("value", kv) if isinstance(kv, dict) else kv
+        s["_risk_guardrails"] = json.loads(kv) if isinstance(kv, str) else (kv or {})
+    except Exception:  # noqa: BLE001
+        s["_risk_guardrails"] = {}
     rows = []
     for sym, bucket, sector in names:
         if only and sym not in only:
@@ -683,7 +813,7 @@ def scan(base: str, token: str, *, only: set[str] | None = None, today: date | N
                           "credit_mid": r.get("credit_mid"), "p_full_profit_iv": r.get("p_full_profit_iv"),
                           "quote_source": r.get("quote_source"), "events": r.get("events")}
                          for r in rows if r.get("rejected")],
-            "held_live": sorted(held), "placed_orders": 0,
+            "held_live": sorted(held), "held_live_as_of": held_live_as_of(base, token), "placed_orders": 0,
             "note": "TradePro creates no order. Stage G (the IBKR instruction) is on approval, by the owner's agent."}
 
 

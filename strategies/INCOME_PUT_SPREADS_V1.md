@@ -332,3 +332,28 @@ annualised, breakeven, P(full profit) and the assignment risk. The owner picks
 per trade; the ledger records `structure`. Phase-1 caution stands: the legacy
 drawdown came from puts sold into a sell-off, so the CSP is offered only on
 names that already pass every §4.1 gate.
+
+
+## 12. Amendments (28 Nov 2026, options review item 12)
+
+- **Two expiries tried, nearest first.** The spec's monthly in [dte_min, dte_max]
+  first, then the next monthly after the window; the first that prices and
+  clears every gate is kept. Every row records `expiries_tried` with each
+  expiry's rejections.
+- **Index leg scanned** when settings-kv `income_engine.index_scan_enabled` is
+  true (the spec's 50% index allocation; phase 2 enables it regardless). ETF
+  options must be closed ≥ 5 trading days before expiry on this account — every
+  index row carries that warning.
+- **Low-volatility rule — PRE-REGISTERED, shadow first.** Names with 30-day HV
+  below 30% cannot satisfy "short strike ≤ 30-day closing low AND Δ ≥ 0.15".
+  Variant: the 20-day closing low with a delta floor of 0.10. `low_vol_rule`
+  = shadow (default): rows that fail `no_strike` show what the variant would
+  have picked (`low_vol_rule_would_pass` warning + `low_vol_rule` block) and
+  are still rejected; = on: the variant is used. It becomes a gate only after
+  the shadow record shows its forward outcome.
+- **Owner's credit rule beside the engine's.** `credit_rule_owner` on every row:
+  settings-kv `risk_guardrails.credit_to_width_min` by volatility class
+  (index / HV30 < 40% → 20%; volatile → ⅓), with `pass`; the engine's gate
+  stays `min_credit_to_width` (owner-settable in `income_engine`).
+- **Held list freshness.** `held_live_as_of` on the scan: the Flex statement
+  date and read time behind `held_live`.
