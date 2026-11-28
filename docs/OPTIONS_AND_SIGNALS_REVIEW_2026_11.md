@@ -544,6 +544,53 @@ Accept when: on the 27 Nov book the dashboard shows the +$237k net exposure,
 the January cash shortfall and the 9 Dec FOMC without a click, and the MDB
 payoff chart reproduces close (−$2.7k) vs 300 floor (capped −$4.7k).
 
+### 19. Trade-fit panel — "is this a trade, and which kind?" at first glance
+Owner, 28 Nov: "the moment I search for a symbol and see its chart it should
+be obvious if this is a trade I want to get in — sometimes intraday,
+sometimes momentum, sometimes short." A panel beside the symbol chart scores
+the symbol against each setup type with **arithmetic only** (no LLM), and
+names the best fit or says "no trade".
+
+**Banner (one line):** e.g. "Best fit: income put spread 82/100 · momentum
+35 · intraday 20 · short: blocked (shares held) · gate: BLOCKED — semis 60%
+of book, cap 45%".
+
+**Setups scored (each 0–100 = weighted share of its conditions met; every
+condition listed with its number and a tick or cross):**
+
+| Setup | Conditions (all from data TradePro already has) |
+|---|---|
+| Income put spread | Above 50- and 200-DMA; sector gate passes; IV rank high and IV > realised; no event before expiry; liquid chain; credit ≥ the rule for its volatility class |
+| Call spread at resistance | At/under a measured resistance or below the 50-DMA; IV rank high; not a name held long without cover; no event before expiry |
+| Covered call (if held) | Up on the day and above VWAP; uncovered lot exists; 0.25–0.30-delta strike clear of events |
+| Momentum / swing long | Above 50- and 200-DMA; 63-day return and relative strength vs sector positive; pullback to the 20-DMA or breakout on ≥ 1.5× volume; sector and market gates pass |
+| Intraday | Gap and relative volume (same-time-of-day basis) above thresholds; price vs VWAP; ATR room left to the day's range; liquid; not in the first 15 minutes |
+| Short | Below 50- and 200-DMA; relative strength negative; sector gate failing; rallying into resistance. **Blocked** if shares are held or a short put is open on the name |
+| Cash-secured put | Want-to-own flag; market not in a downtrend; cash covers it; fewer than 2 open |
+
+**Trade maths shown for the best-fit setup:** entry, stop (closing level),
+target, reward:risk, expected move to the horizon (from options), position
+size for the per-trade risk limit, max loss in £, and whether the realistic
+target clears the owner's £1k minimum.
+
+**Evidence, not opinion.** Next to each score: this setup's **historical hit
+rate and average win/loss** on this symbol's class from TradePro's own ledger
+and backtests, with the sample size. A setup whose study failed (see "Cut or
+park") shows "no tested edge" and cannot be the best fit.
+
+**Portfolio check last.** The three-check gate (operating model C) runs on
+the best fit; a good setup that breaches a limit shows as BLOCKED with the
+reason.
+
+House rule: scores are DISPLAY and ranking only until each setup's score has
+its own pre-registered gates doc; thresholds live in settings-kv, not in
+code.
+
+Accept when: on 27 Nov data, PLTR shows short BLOCKED (short put open) and
+no long setup (below 50-DMA, at resistance); JNJ shows income put spread as
+best fit with the low-volatility credit rule; MU shows covered call
+(held, covered) and gate BLOCKED for any new bullish setup (sector cap).
+
 ---
 
 ## Stock signals — what to change
