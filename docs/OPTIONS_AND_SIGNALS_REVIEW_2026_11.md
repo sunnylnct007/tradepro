@@ -344,6 +344,58 @@ Accept when: the agent can answer "what is our exposure, what is expiring
 or reporting in the next 21 days, and which triggers fired today" with three
 tool calls and no hand-built scripts.
 
+### 17. Put-book manager — the owner's assignment-or-repair policy as code
+Owner, 28 Nov: "all these steps should be baked into TradePro." Every short
+put is classified daily by fixed rules; the only human inputs are a
+per-symbol **conviction flag** (want to own / neutral / don't want) and the
+cash reserve. Builds on items 1, 2, 3 and 16.
+
+**Inputs per put:** strike, premium received (from the journal, item 16),
+expiry, underlying price, delta, events before expiry (item 3), sector,
+the conviction flag.
+
+**Effective cost** = strike − net premium received. **Gap** = (price −
+effective cost) / effective cost.
+
+**Classification (first match wins):**
+1. **Event first:** earnings inside expiry and expiry ≤ 30 days → CLOSE
+   before the event (CRDO 150, 27 Nov).
+2. **Don't-want flag** → REPAIR.
+3. **Gap ≥ 0** → HOLD (time decay is on our side; may expire worthless).
+4. **Gap 0 to −10%, want-to-own, cash test passes, sector cap holds after
+   assignment** → HOLD / ACCEPT ASSIGNMENT.
+5. **Gap below −10%**, or a single name that would exceed its cap after
+   assignment (e.g. a third GOOGL lot) → REPAIR.
+
+**Repair = close into a bounce, not on a down day.** Raise "cheap exit
+now" when any holds: the put's buy-back cost is within 25% of the premium
+received; the underlying has risen ≥ 8% from its 10-day low; or it is back at
+its 20-DMA. Never propose a repair close on a day the sector ETF is down
+≥ 3%.
+
+**Cash calendar.** Group puts by expiry and show cumulative assignment cash
+(strike × 100) against cash minus the $50k reserve, month by month. When a
+month would exceed it, rank that month's puts by gap and propose closing
+the lowest-ranked ones ahead of expiry (27 Nov: January = AMD $45k + SNOW
+280 $28k against ~$40k left after NVDA).
+
+**Floors.** For HOLD/ACCEPT names, propose a floor below the measured
+support (item 5's plain long put) on a green day, and immediately if the
+underlying closes below that support (STX ~450, WDC ~260, DELL 265).
+
+**Hedge coverage gap.** Compare the latest expiry of the short puts with
+the latest expiry of the hedges; flag the months where puts are open but no
+hedge covers them (27 Nov: hedges end ~14 Dec, puts run to March).
+
+**After assignment.** Hand the new lot to the covered-call manager
+(item 4): 0.25–0.30 delta, green days, strike above the effective cost
+where possible.
+
+Accept when, on 27–28 Nov prices, it reproduces: HOLD — SNOW 270/280, STX,
+WDC (gap ≥ 0); HOLD/ACCEPT — AMD (−3%), HOOD (−8%), NVDA (owner decision);
+REPAIR — GOOGL 315 (single-name cap), SKHY (−11%), MRVL (−20%), DELL 420
+(−19%); CLOSE — CRDO (earnings 1 Dec); and the January cash shortfall.
+
 ---
 
 ## Stock signals — what to change
