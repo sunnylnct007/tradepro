@@ -57,22 +57,83 @@ export function renkoState(candles: Candle[]): { dir: "up" | "down" | null; run:
   return { dir: last.up ? "up" : "down", run, since, brick };
 }
 
-/** The three-leg read: trend (daily) says whether to be bullish, renko says
- *  whether buying has returned, RSI confirms strength. Display only. */
-export function momentumRead(candles: Candle[]): { label: string; tone: "good" | "warn" | "bad" | "muted"; detail: string } {
+/** TREND READ in two separate concepts (owner, 28 Nov 2026, from another
+ *  agent's advice): DIRECTION — is the stock bullish, bearish or sideways
+ *  (daily 50/200-day structure) — and STAGE — is it accelerating, weakening,
+ *  recovering or reversing (ATR-brick renko run + RSI14 slope). Plus a
+ *  yes/no REVERSAL CONFIRMED with the unmet conditions named. Display only. */
+export type TrendRead = {
+  direction: "bullish" | "bearish" | "sideways" | "unknown";
+  stage: string;
+  reversalConfirmed: boolean | null;
+  reversalNote: string;
+  tone: "good" | "warn" | "bad" | "muted";
+  detail: string;
+};
+
+export function trendRead(candles: Candle[]): TrendRead {
   const cl = candles.map((c) => c.close);
   const reg = regimeOf(candles);
   const rk = renkoState(candles);
   const r = rsi14(cl);
-  if (rk.dir == null || r.value == null) return { label: "momentum: not enough bars", tone: "muted", detail: "" };
-  const trendUp = reg.above50 === true && reg.above200 === true;
-  const buyingBack = rk.dir === "up" && rk.run >= 2;
-  const strong = r.value > 50 && r.rising === true;
-  const detail = `renko ${rk.dir} ×${rk.run} since ${rk.since} (brick ${rk.brick?.toFixed(2)}) · RSI14 ${r.value} ${r.rising ? "rising" : "falling"} · ${trendUp ? "above" : "not above"} the 50 & 200-day`;
-  if (trendUp && buyingBack && strong) return { label: "momentum returning, trend intact", tone: "good", detail };
-  if (buyingBack && !trendUp) return { label: "bounce in a downtrend — renko up, trend not", tone: "warn", detail };
-  if (!buyingBack && trendUp) return { label: "trend intact, buying not back yet", tone: "warn", detail };
-  return { label: "no momentum: renko down, trend down", tone: "bad", detail };
+  const last = cl[cl.length - 1];
+  if (rk.dir == null || r.value == null || reg.sma50 == null) {
+    return { direction: "unknown", stage: "not enough bars", reversalConfirmed: null, reversalNote: "", tone: "muted", detail: "" };
+  }
+  const s50 = reg.sma50, s200 = reg.sma200;
+  const slope50 = cl.length > 60 ? (sma(cl.slice(0, -10), 50) ?? s50) : s50;
+  const rising50 = s50 > slope50;
+  let direction: TrendRead["direction"] = "sideways";
+  if (last > s50 && (s200 == null || s50 >= s200) && rising50) direction = "bullish";
+  else if (last < s50 && (s200 == null || s50 <= s200) && !rising50) direction = "bearish";
+  // stage from renko (buying/selling pressure) and RSI slope (strength)
+  let stage: string;
+  if (direction === "bearish") {
+    if (rk.dir === "up" && rk.run >= 2) stage = "short-term recovery";
+    else if (rk.dir === "up") stage = "bounce attempt (one brick)";
+    else if (r.rising) stage = "weakening downtrend (RSI rising while price falls)";
+    else stage = "accelerating downtrend";
+  } else if (direction === "bullish") {
+    if (rk.dir === "up" && r.rising) stage = "accelerating";
+    else if (rk.dir === "up") stage = "advancing, momentum weakening (RSI falling)";
+    else if (rk.run >= 2) stage = "pullback (renko down ×" + rk.run + ")";
+    else stage = "pausing";
+  } else {
+    stage = rk.dir === "up" ? "ranging, buying returning" : "ranging, selling pressure";
+  }
+  // reversal confirmed = direction flips on price structure AND pressure AND strength
+  let reversalConfirmed: boolean | null = null, reversalNote = "";
+  if (direction === "bearish") {
+    const conds = [
+      [last > s50, `close above the 50-day (${s50.toFixed(2)})`],
+      [rk.dir === "up" && rk.run >= 3, `renko up ×3 (now ${rk.dir} ×${rk.run})`],
+      [r.value > 50 && r.rising === true, `RSI above 50 and rising (now ${r.value}${r.rising ? " rising" : " falling"})`],
+    ] as const;
+    reversalConfirmed = conds.every(([ok]) => ok);
+    reversalNote = reversalConfirmed ? "yes — structure, pressure and strength all turned" : "no — needs " + conds.filter(([ok]) => !ok).map(([, t]) => t).join("; ");
+  } else if (direction === "bullish") {
+    const conds = [
+      [last < s50, `close below the 50-day (${s50.toFixed(2)})`],
+      [rk.dir === "down" && rk.run >= 3, `renko down ×3 (now ${rk.dir} ×${rk.run})`],
+      [r.value < 50 && r.rising === false, `RSI below 50 and falling (now ${r.value})`],
+    ] as const;
+    reversalConfirmed = conds.every(([ok]) => ok);
+    reversalNote = reversalConfirmed ? "breakdown confirmed" : "no breakdown — would need " + conds.filter(([ok]) => !ok).map(([, t]) => t).join("; ");
+  } else {
+    reversalNote = "no established trend to reverse";
+  }
+  const tone: TrendRead["tone"] = direction === "bullish" ? (stage.startsWith("accelerating") ? "good" : "warn")
+    : direction === "bearish" ? (reversalConfirmed ? "good" : stage.startsWith("short-term") ? "warn" : "bad") : "muted";
+  const detail = `renko ${rk.dir} ×${rk.run} since ${rk.since} (brick ${rk.brick?.toFixed(2)}) · RSI14 ${r.value} ${r.rising ? "rising" : "falling"} · close ${last.toFixed(2)} vs 50-day ${s50.toFixed(2)}${s200 != null ? ` / 200-day ${s200.toFixed(2)}` : ""} · 50-day ${rising50 ? "rising" : "falling"}`;
+  return { direction, stage, reversalConfirmed, reversalNote, tone, detail };
+}
+
+/** Kept for callers that want one label; built from trendRead. */
+export function momentumRead(candles: Candle[]): { label: string; tone: "good" | "warn" | "bad" | "muted"; detail: string } {
+  const t = trendRead(candles);
+  if (t.direction === "unknown") return { label: "momentum: not enough bars", tone: "muted", detail: "" };
+  return { label: `Direction: ${t.direction} · Stage: ${t.stage} · Reversal confirmed: ${t.reversalConfirmed == null ? "n/a" : t.reversalConfirmed ? "yes" : "no"}`,
+           tone: t.tone, detail: `${t.reversalNote} · ${t.detail}` };
 }
 
 /** Rebase several close series to 100 at the first common date. */
