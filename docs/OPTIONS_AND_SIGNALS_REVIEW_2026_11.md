@@ -54,10 +54,25 @@ Owner, 28 Nov: "our main drawdown was on stocks due to no stop loss."
   explicit owner decision recorded in the journal (item 16).
 - **No averaging down** below the stop, and no new money into a name whose
   sector gate is failing.
-- **Existing underwater shares** (bought before these rules): TradePro shows
-  each one's distance to its last capitulation low and flags a weekly close
-  below it as "thesis broken — review". The action stays the owner's.
-  *(Open decision: whether a break means cut half, cut all, or collar.)*
+- **Covered positions (most shares held have a call sold against them).**
+  A covered call is income, not protection: the premium cushions a few
+  percent, not a sector fall. Shares cannot be sold while the call is open
+  (that would leave it naked), so the stop is one of:
+  - **Exit both together** — on a daily close below the stop, propose one
+    combined exit: buy back the call and sell the shares. Default for all
+    **new** positions.
+  - **Collar** — buy a put below support, part-funded by the call premium, so
+    the loss is capped without selling. Default for **existing underwater
+    shares** (SNDK, MU, STX, GOOGL): put below the November capitulation low,
+    added one name at a time on green days.
+- **Downtrend override (owner, 28 Nov).** When the sector gate fails hard —
+  the sector ETF below its 50-DMA and making lower lows, i.e. a "massive
+  downtrend" — stops are enforced without discretion: every uncollared stock
+  position whose stop is hit is flagged EXIT that day, and no stop may be
+  widened or removed while the gate is failing.
+- TradePro shows for every share lot: stop level, distance to it, whether a
+  call is open against it, whether it is collared, and the max loss from
+  here.
 
 ### C. The three-check gate — in front of every proposal
 1. **Market and sector trend** (item 13): SPY/QQQ and the sector ETF vs the
