@@ -268,8 +268,13 @@ public static class PnlByStrategyEndpoints
                            COUNT(broker_order_id)::int AS with_id
                     FROM oms_orders
                     WHERE state = 'FILLED'
+                      AND strategy_id IS NOT NULL
                     GROUP BY strategy_id;");
-                foreach (var c in covRows) fillCoverage[c.strategy_id] = (c.filled, c.with_id);
+                // A FILLED row with no strategy_id (unattributed) used to come back as a
+                // NULL key and threw ArgumentNullException('key') here, which the strip
+                // showed as "P&L incomplete" on every load (28 Nov 2026).
+                foreach (var c in covRows)
+                    if (!string.IsNullOrEmpty(c.strategy_id)) fillCoverage[c.strategy_id] = (c.filled, c.with_id);
             }
             catch (Exception ex) { coverageError = $"broker-confirmation coverage unavailable: {ex.Message}"; }
 
