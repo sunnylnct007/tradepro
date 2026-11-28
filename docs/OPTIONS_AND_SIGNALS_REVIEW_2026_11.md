@@ -302,6 +302,48 @@ Accept when: the MU chart for Sep–Nov 2026 shows MU vs SMH vs SPY vs QQQ
 normalised, the October SMH breakdown is visible against MU, and the FOMC
 and MU earnings dates are marked.
 
+### 16. Agent support API — what the trading agent needs from TradePro
+Owner, 28 Nov: "what would help next time that TradePro can provide which
+you can't do from IBKR alone?" This week most agent time went into
+rebuilding these from raw IBKR calls, one at a time. Expose each as a
+read-only MCP tool (deterministic numbers only; the agent cites them and
+never recomputes them):
+
+1. **Trade journal + effective basis** — per position: open date, entry
+   reason, premium received, rolls, realised P&L, effective basis
+   (strike − net premium), and the stop/target written at entry. IBKR only
+   shows the current position.
+2. **Event calendar** — item 3 (earnings confirmed/estimated, FOMC, CPI)
+   for any symbol and date range.
+3. **Whole-book exposure in one call** — item 1 (dollar-delta by segment,
+   greeks filled where the broker feed is blank, gamma-adjusted stress).
+   IBKR caps snapshots at 100 data points and left DELL/WDC/SNOW greeks
+   empty on 27 Nov.
+4. **Option history** — harvested IV, IV rank/percentile and past chains
+   (OPRA gives no history).
+5. **Pre-computed technicals** for the universe and sector ETFs: 20/50/200
+   DMA, RSI, 20/30-day lows, support/resistance, plus item 13's beta,
+   correlation and relative strength.
+6. **Clean earnings-move history** — item 3 (earnings days separated from
+   other shocks).
+7. **Close-based conditional triggers** — rules like "DELL daily close
+   < 265" or "QQQ close > 650", evaluated at the RTH close with a push
+   notification when one fires, and a list of active triggers. IBKR price
+   alerts cannot express closing conditions.
+8. **Cash flows and true performance** — deposits/withdrawals from the Flex
+   cash report and net-liquidation history, so performance is not
+   reconstructed from TWR (distorted on 5 Nov).
+9. **Freshness labels** — item 10/11: live / stale (pre-open, holiday,
+   overnight) / unusable (spread > 15% of mid) on every option mark.
+10. **Pre-screened candidates with live pricing** — item 12's income scan,
+    item 7's call spreads at resistance and item 4's covered calls, each
+    with the three-check gate result (market/sector trend, events,
+    size/structure).
+
+Accept when: the agent can answer "what is our exposure, what is expiring
+or reporting in the next 21 days, and which triggers fired today" with three
+tool calls and no hand-built scripts.
+
 ---
 
 ## Stock signals — what to change
