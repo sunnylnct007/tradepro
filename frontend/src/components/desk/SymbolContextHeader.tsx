@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../../api/client";
 import type { Candle } from "../../api/types";
-import { momentumRead, pct, regimeOf } from "./chartContext";
+import { pct, regimeOf, trendRead } from "./chartContext";
 import { sectorEtfFor } from "./sectorEtf";
 
 export type HeaderEvent = { on: string; kind: string; title: string };
@@ -65,7 +65,7 @@ export function SymbolContextHeader({ symbol, sector, candles, events }: {
   const asOf = own.length ? own[own.length - 1].timestamp.slice(0, 10) : null;
   const reg = own.length ? regimeOf(own) : null;
   const sreg = candles[etf]?.length ? regimeOf(candles[etf]) : null;
-  const mom = own.length ? momentumRead(own) : null;
+  const tr = own.length ? trendRead(own) : null;
   const today = new Date().toISOString().slice(0, 10);
   const next = events.filter((e) => e.on >= today).slice(0, 3);
   const daysTo = (iso: string) => Math.round((new Date(iso + "T00:00:00Z").getTime() - new Date(today + "T00:00:00Z").getTime()) / 86400_000);
@@ -78,7 +78,12 @@ export function SymbolContextHeader({ symbol, sector, candles, events }: {
       <span style={{ color: COLOUR.QQQ }}>QQQ <b style={{ color: tone(day("QQQ")) }}>{fmt(day("QQQ"))}</b></span>
       <span style={{ color: COLOUR.SPY }}>SPY <b style={{ color: tone(day("SPY")) }}>{fmt(day("SPY"))}</b></span>
       <span style={{ color: TONE.dim }}>{symbol} {regTxt(reg)} · {etf} {regTxt(sreg)}</span>
-      {mom && <span style={{ color: TONE[mom.tone] }} title={mom.detail}>{mom.label}</span>}
+      {tr && tr.direction !== "unknown" && (
+        <span title={`${tr.reversalNote} · ${tr.detail}`} style={{ color: TONE[tr.tone] }}>
+          Direction: <b>{tr.direction}</b> · Stage: <b>{tr.stage}</b> · Reversal confirmed: <b>{tr.reversalConfirmed == null ? "n/a" : tr.reversalConfirmed ? "yes" : "no"}</b>
+          {tr.reversalConfirmed === false && <span style={{ color: TONE.muted }}> ({tr.reversalNote.replace(/^no( breakdown)? — /, "")})</span>}
+        </span>
+      )}
       <span style={{ color: TONE.dim }}>
         {next.length ? next.map((e) => `${e.kind === "earnings" ? "E" : e.kind === "fomc" ? "F" : e.kind === "cpi" ? "C" : e.kind[0].toUpperCase()} ${e.title.replace(/ \(.*\)$/, "")} in ${daysTo(e.on)}d`).join(" · ") : "no dated events in 60 days"}
       </span>
